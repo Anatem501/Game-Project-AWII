@@ -84,3 +84,65 @@ canvas {
   background: rgba(38, 126, 198, 0.25);
   color: #d8f1ff;
 }
+
+.player-health-hud {
+  position: absolute;
+  left: 18px;
+  bottom: 18px;
+  width: min(300px, 32vw);
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 10px 11px;
+  border: 1px solid rgba(117, 180, 232, 0.48);
+  background: rgba(5, 20, 44, 0.86);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  z-index: 12;
+}
+
+.player-health-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 8px;
+  align-items: center;
+}
+
+.player-health-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #d8eeff;
+}
+
+.player-health-value {
+  justify-self: end;
+  font-size: 0.72rem;
+  color: #b7dbfb;
+}
+
+.player-health-track {
+  grid-column: 1 / span 2;
+  height: 12px;
+  border: 1px solid rgba(145, 188, 224, 0.4);
+  background: rgba(9, 22, 45, 0.8);
+}
+
+.player-health-fill {
+  height: 100%;
+  width: 0%;
+  transition: width 120ms linear;
+}
+
+.player-health-fill-shield {
+  background: linear-gradient(90deg, #2ca6ff, #7bd8ff);
+}
+
+.player-health-fill-armor {
+  background: linear-gradient(90deg, #b99027, #f3d068);
+}
+
+.player-health-fill-hull {
+  background: linear-gradient(90deg, #b73636, #ea6868);
+}
