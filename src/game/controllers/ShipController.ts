@@ -2,7 +2,10 @@ import * as THREE from "three";
 
 const TURN_MAX_YAW_RATE_RADIANS = THREE.MathUtils.degToRad(120);
 const TURN_MAX_BANK_ROLL_RADIANS = THREE.MathUtils.degToRad(40);
+const STRAFE_MAX_BANK_ROLL_RADIANS = THREE.MathUtils.degToRad(14);
+const TOTAL_MAX_BANK_ROLL_RADIANS = THREE.MathUtils.degToRad(52);
 const TURN_BANK_ROLL_SMOOTHING = 9;
+const IDLE_FORWARD_SPEED_UNITS_PER_SECOND = 1;
 
 export type ShipHandlingConfig = {
   thrustSpeed: number;
@@ -43,7 +46,7 @@ export function createShipController({
   handling,
   initialYaw = 0
 }: ShipControllerParams): ShipController {
-  const localVelocity = new THREE.Vector2(0, handling.topManeuveringSpeed);
+  const localVelocity = new THREE.Vector2(0, IDLE_FORWARD_SPEED_UNITS_PER_SECOND);
   const worldVelocity = new THREE.Vector3();
   const forward = new THREE.Vector3(0, 0, -1);
   const right = new THREE.Vector3(1, 0, 0);
@@ -77,7 +80,7 @@ export function createShipController({
         ? -handling.topManeuveringSpeed
         : intent.forwardInput > 0
           ? handling.thrustSpeed
-          : handling.topManeuveringSpeed;
+          : IDLE_FORWARD_SPEED_UNITS_PER_SECOND;
 
     localVelocity.x = approachVelocityAxis(
       localVelocity.x,
@@ -118,7 +121,18 @@ export function createShipController({
       -1,
       1
     );
-    const targetRoll = turnRateRatio * TURN_MAX_BANK_ROLL_RADIANS;
+    const strafeRatio = THREE.MathUtils.clamp(
+      localVelocity.x / Math.max(0.001, handling.topManeuveringSpeed),
+      -1,
+      1
+    );
+    const turnRoll = turnRateRatio * TURN_MAX_BANK_ROLL_RADIANS;
+    const strafeRoll = -strafeRatio * STRAFE_MAX_BANK_ROLL_RADIANS;
+    const targetRoll = THREE.MathUtils.clamp(
+      turnRoll + strafeRoll,
+      -TOTAL_MAX_BANK_ROLL_RADIANS,
+      TOTAL_MAX_BANK_ROLL_RADIANS
+    );
     const rollBlend = 1 - Math.exp(-TURN_BANK_ROLL_SMOOTHING * deltaTime);
     visualRoll = THREE.MathUtils.lerp(visualRoll, targetRoll, rollBlend);
 
@@ -144,7 +158,7 @@ export function createShipController({
     update,
     getState: () => state,
     reset: (position?: THREE.Vector3, yaw = initialYaw): ShipControllerState => {
-      localVelocity.set(0, handling.topManeuveringSpeed);
+      localVelocity.set(0, IDLE_FORWARD_SPEED_UNITS_PER_SECOND);
       shipYaw = yaw;
       visualRoll = 0;
       shipRoot.rotation.set(0, shipYaw, visualRoll);

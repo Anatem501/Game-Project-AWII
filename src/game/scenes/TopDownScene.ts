@@ -192,7 +192,9 @@ export function setupTopDownScene(
   const cameraController = createCameraController({
     camera,
     initialTargetPosition: shipController.getState().position,
-    initialYaw: shipController.getState().yaw
+    initialYaw: shipController.getState().yaw,
+    maneuveringSpeed: selectedShip.handling.topManeuveringSpeed,
+    thrustSpeed: selectedShip.handling.thrustSpeed
   });
   const hudRoot = canvas.parentElement ?? document.body;
   const playerHealthHud = createPlayerHealthHud(hudRoot);

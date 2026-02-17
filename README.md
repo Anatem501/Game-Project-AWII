@@ -19,6 +19,18 @@ npm run dev
 - `npm run build` - Create production build
 - `npm run preview` - Preview production build locally
 
+## Deploy To GitHub Pages
+
+1. Push this repo to GitHub (default branch `main`).
+2. In GitHub, open `Settings -> Pages` and set `Source` to `GitHub Actions`.
+3. Push to `main` (or run the workflow manually in `Actions`).
+4. After deploy completes, the game will be available at:
+   - `https://<your-github-username>.github.io/Game-Project-AWII/`
+
+Notes:
+- The workflow at `.github/workflows/static.yml` builds with Vite and deploys the `dist` output.
+- `vite.config.js` auto-sets the correct base path for project Pages deployments.
+
 ## Project Structure
 
 - `src/main.ts` - App entry point
