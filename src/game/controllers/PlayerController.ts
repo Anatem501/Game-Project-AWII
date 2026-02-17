@@ -3,14 +3,11 @@ import type { ShipController, ShipControllerState } from "./ShipController";
 
 const RETICLE_VERTICAL_RANGE = 1.2;
 const RETICLE_MAX_DISTANCE_FROM_SHIP = 8;
-const RETICLE_RECENTER_DELAY = 3;
-const POINTER_CENTERLINE_REALIGN_SHARPNESS = 1.35;
-const POINTER_CENTERLINE_SNAP_THRESHOLD = 0.08;
 
 const RETICLE_MERGE_START_DISTANCE = 0.7;
 const RETICLE_MERGE_FULL_DISTANCE = 0.18;
 
-const MOVEMENT_KEYS = new Set(["w", "a", "s", "d"]);
+const MOVEMENT_KEYS = new Set(["w", "a", "s", "d", "q", "e"]);
 
 type PlayerControllerParams = {
   canvas: HTMLCanvasElement;
@@ -45,8 +42,6 @@ export function createPlayerController({
 
   const raycaster = new THREE.Raycaster();
   const movementPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-
-  let timeSincePointerMove = Number.POSITIVE_INFINITY;
   let hasLastMouseWorld = false;
 
   const onKeyDown = (event: KeyboardEvent): void => {
@@ -82,7 +77,6 @@ export function createPlayerController({
   const onPointerMove = (event: PointerEvent): void => {
     updatePointerFromScreen(event.clientX, event.clientY);
     aimPointerNdc.copy(pointerNdc);
-    timeSincePointerMove = 0;
   };
 
   window.addEventListener("keydown", onKeyDown, { passive: false });
@@ -101,17 +95,6 @@ export function createPlayerController({
 
     if (deltaTime <= 0) {
       return currentShipState;
-    }
-
-    timeSincePointerMove += deltaTime;
-
-    const isPointerActive = timeSincePointerMove <= RETICLE_RECENTER_DELAY;
-    if (!isPointerActive) {
-      const aimRealignBlend = 1 - Math.exp(-POINTER_CENTERLINE_REALIGN_SHARPNESS * deltaTime);
-      aimPointerNdc.x = THREE.MathUtils.lerp(aimPointerNdc.x, 0, aimRealignBlend);
-    }
-    if (Math.abs(aimPointerNdc.x) <= POINTER_CENTERLINE_SNAP_THRESHOLD) {
-      aimPointerNdc.x = 0;
     }
 
     const aimWorldY = currentShipState.position.y + aimPointerNdc.y * RETICLE_VERTICAL_RANGE;
@@ -135,11 +118,13 @@ export function createPlayerController({
 
     const forwardInput = (pressedKeys.has("w") ? 1 : 0) - (pressedKeys.has("s") ? 1 : 0);
     const strafeInput = (pressedKeys.has("d") ? 1 : 0) - (pressedKeys.has("a") ? 1 : 0);
+    const turnInput = (pressedKeys.has("q") ? 1 : 0) - (pressedKeys.has("e") ? 1 : 0);
 
     const updatedShipState = shipController.update(deltaTime, {
       aimTarget: inputAimReticle.position,
       forwardInput,
-      strafeInput
+      strafeInput,
+      turnInput
     });
 
     const updatedAimWorldY = updatedShipState.position.y + aimPointerNdc.y * RETICLE_VERTICAL_RANGE;

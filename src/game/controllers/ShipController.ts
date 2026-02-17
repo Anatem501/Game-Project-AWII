@@ -1,19 +1,22 @@
 import * as THREE from "three";
 
+const TURN_MAX_YAW_RATE_RADIANS = THREE.MathUtils.degToRad(120);
+const TURN_MAX_BANK_ROLL_RADIANS = THREE.MathUtils.degToRad(40);
+const TURN_BANK_ROLL_SMOOTHING = 9;
+
 export type ShipHandlingConfig = {
-  topSpeed: number;
+  thrustSpeed: number;
   topManeuveringSpeed: number;
   acceleration: number;
   deceleration: number;
   strafeAcceleration: number;
   strafeDeceleration: number;
-  idleForwardSpeed: number;
-  yawFollowSpeedRadians: number;
 };
 
 export type ShipControlIntent = {
   forwardInput: number;
   strafeInput: number;
+  turnInput: number;
   aimTarget: THREE.Vector3;
 };
 
@@ -40,14 +43,14 @@ export function createShipController({
   handling,
   initialYaw = 0
 }: ShipControllerParams): ShipController {
-  const localVelocity = new THREE.Vector2(0, handling.idleForwardSpeed);
+  const localVelocity = new THREE.Vector2(0, handling.topManeuveringSpeed);
   const worldVelocity = new THREE.Vector3();
   const forward = new THREE.Vector3(0, 0, -1);
   const right = new THREE.Vector3(1, 0, 0);
-  const up = new THREE.Vector3(0, 1, 0);
   const movementQuaternion = new THREE.Quaternion();
 
   let shipYaw = initialYaw;
+  let visualRoll = 0;
 
   const state: ShipControllerState = {
     forward,
@@ -60,27 +63,21 @@ export function createShipController({
       return state;
     }
 
-    const toAimX = intent.aimTarget.x - shipRoot.position.x;
-    const toAimZ = intent.aimTarget.z - shipRoot.position.z;
-    if (toAimX * toAimX + toAimZ * toAimZ > 0.0001) {
-      const targetYaw = -Math.atan2(toAimX, -toAimZ);
-      const yawDelta = shortestAngleDelta(shipYaw, targetYaw);
-      const maxYawStep = handling.yawFollowSpeedRadians * deltaTime;
-      shipYaw += THREE.MathUtils.clamp(yawDelta, -maxYawStep, maxYawStep);
-    }
-
-    shipRoot.rotation.y = shipYaw;
+    shipRoot.rotation.set(0, shipYaw, visualRoll);
     shipRoot.getWorldQuaternion(movementQuaternion);
     forward.set(0, 0, -1).applyQuaternion(movementQuaternion).setY(0).normalize();
-    right.copy(forward).cross(up).normalize();
+    right.set(-forward.z, 0, forward.x).normalize();
+
+    const turnInput = THREE.MathUtils.clamp(intent.turnInput, -1, 1);
+    const hasTurnInput = Math.abs(turnInput) > 0.0001;
 
     const targetSideVelocity = intent.strafeInput * handling.topManeuveringSpeed;
     const targetForwardVelocity =
       intent.forwardInput < 0
         ? -handling.topManeuveringSpeed
         : intent.forwardInput > 0
-          ? handling.topSpeed
-          : handling.idleForwardSpeed;
+          ? handling.thrustSpeed
+          : handling.topManeuveringSpeed;
 
     localVelocity.x = approachVelocityAxis(
       localVelocity.x,
@@ -107,19 +104,38 @@ export function createShipController({
     localVelocity.y = THREE.MathUtils.clamp(
       localVelocity.y,
       -handling.topManeuveringSpeed,
-      handling.topSpeed
+      handling.thrustSpeed
     );
+
+    let currentTurnYawRate = 0;
+    if (hasTurnInput) {
+      currentTurnYawRate = turnInput * TURN_MAX_YAW_RATE_RADIANS;
+      shipYaw += currentTurnYawRate * deltaTime;
+    }
+
+    const turnRateRatio = THREE.MathUtils.clamp(
+      currentTurnYawRate / TURN_MAX_YAW_RATE_RADIANS,
+      -1,
+      1
+    );
+    const targetRoll = turnRateRatio * TURN_MAX_BANK_ROLL_RADIANS;
+    const rollBlend = 1 - Math.exp(-TURN_BANK_ROLL_SMOOTHING * deltaTime);
+    visualRoll = THREE.MathUtils.lerp(visualRoll, targetRoll, rollBlend);
+
+    shipRoot.rotation.set(0, shipYaw, visualRoll);
+    shipRoot.getWorldQuaternion(movementQuaternion);
+    forward.set(0, 0, -1).applyQuaternion(movementQuaternion).setY(0).normalize();
+    right.set(-forward.z, 0, forward.x).normalize();
 
     worldVelocity.copy(right).multiplyScalar(localVelocity.x);
     worldVelocity.addScaledVector(forward, localVelocity.y);
 
-    const topSpeedSq = handling.topSpeed * handling.topSpeed;
-    if (worldVelocity.lengthSq() > topSpeedSq) {
-      worldVelocity.setLength(handling.topSpeed);
+    const thrustSpeedSq = handling.thrustSpeed * handling.thrustSpeed;
+    if (worldVelocity.lengthSq() > thrustSpeedSq) {
+      worldVelocity.setLength(handling.thrustSpeed);
     }
 
     shipRoot.position.addScaledVector(worldVelocity, deltaTime);
-
     state.yaw = shipYaw;
     return state;
   };
@@ -128,9 +144,10 @@ export function createShipController({
     update,
     getState: () => state,
     reset: (position?: THREE.Vector3, yaw = initialYaw): ShipControllerState => {
-      localVelocity.set(0, handling.idleForwardSpeed);
+      localVelocity.set(0, handling.topManeuveringSpeed);
       shipYaw = yaw;
-      shipRoot.rotation.y = shipYaw;
+      visualRoll = 0;
+      shipRoot.rotation.set(0, shipYaw, visualRoll);
       if (position) {
         shipRoot.position.copy(position);
       }
@@ -164,8 +181,4 @@ function moveTowards(current: number, target: number, maxDelta: number): number 
   }
 
   return current + Math.sign(target - current) * maxDelta;
-}
-
-function shortestAngleDelta(current: number, target: number): number {
-  return THREE.MathUtils.euclideanModulo(target - current + Math.PI, Math.PI * 2) - Math.PI;
 }

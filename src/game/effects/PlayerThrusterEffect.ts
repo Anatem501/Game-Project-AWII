@@ -9,9 +9,12 @@ export type PlayerThrusterEffectConfig = {
 };
 
 export type PlayerThrusterEffect = {
-  update: (deltaTime: number, intensityFactor: number) => void;
+  update: (deltaTime: number, intensityFactor: number, isReversing?: boolean) => void;
   dispose: () => void;
 };
+
+const REVERSE_THRUSTER_Y_OFFSET = -0.2;
+const REVERSE_THRUSTER_Y_SMOOTHING = 14;
 
 const THRUSTER_VERTEX_SHADER = `
 uniform float uTime;
@@ -107,12 +110,21 @@ export function createPlayerThrusterEffect(
   }
 
   let time = 0;
+  let currentThrusterYOffset = 0;
 
-  const update = (deltaTime: number, intensityFactor: number): void => {
+  const update = (deltaTime: number, intensityFactor: number, isReversing = false): void => {
     if (deltaTime <= 0) {
       return;
     }
     time += deltaTime;
+    const targetYOffset = isReversing ? REVERSE_THRUSTER_Y_OFFSET : 0;
+    const offsetBlend = 1 - Math.exp(-REVERSE_THRUSTER_Y_SMOOTHING * deltaTime);
+    currentThrusterYOffset = THREE.MathUtils.lerp(
+      currentThrusterYOffset,
+      targetYOffset,
+      offsetBlend
+    );
+    group.position.y = currentThrusterYOffset;
     const clampedIntensity = THREE.MathUtils.clamp(intensityFactor, 0, 1);
     const intensity = THREE.MathUtils.lerp(minIntensity, maxIntensity, clampedIntensity);
     for (const material of thrusterMaterials) {

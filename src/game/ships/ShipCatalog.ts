@@ -20,16 +20,14 @@ const TEST_FIGHTER: ShipDefinition = {
   displayName: "Test Fighter",
   modelUrl: playerModelUrl,
   modelYawOffset: Math.PI * 0.5,
-  defaultGunFireIntervalSeconds: 0.5,
+  defaultGunFireIntervalSeconds: 0.2,
   handling: {
-    topSpeed: 6,
     topManeuveringSpeed: 6,
+    thrustSpeed: 7.5,
     acceleration: 11.5,
     deceleration: 4.2,
     strafeAcceleration: 22,
-    strafeDeceleration: 16,
-    idleForwardSpeed: 1.2,
-    yawFollowSpeedRadians: THREE.MathUtils.degToRad(65)
+    strafeDeceleration: 16
   },
   health: {
     maxShield: 20,

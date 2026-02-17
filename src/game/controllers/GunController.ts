@@ -9,6 +9,7 @@ import type { ProjectileFactory, ProjectileInstance } from "./projectiles/Projec
 const DEFAULT_GUN_FIRE_INTERVAL_SECONDS = 0.5;
 const MIN_AIM_DISTANCE_FROM_SHIP = 1;
 const FULL_AIM_ARC_RADIANS = Math.PI;
+const TURN_RATE_EPSILON_RADIANS_PER_SECOND = THREE.MathUtils.degToRad(3);
 
 export type GunDefinition = {
   fireIntervalSeconds?: number;
@@ -63,6 +64,9 @@ export function createGunController({
 
   let fireHeld = false;
   let enabled = true;
+  let hasLastYaw = false;
+  let lastYaw = 0;
+  let turnDirection = 0;
 
   const onPointerDown = (event: PointerEvent): void => {
     if (event.button !== 0) {
@@ -105,11 +109,11 @@ export function createGunController({
           crossForwardAim.copy(fallbackForward).cross(aimDirection).dot(up),
           dot
         );
-        const clampedAngle = THREE.MathUtils.clamp(
-          signedAngle,
-          -maxAimClampRadians,
-          maxAimClampRadians
-        );
+        const minAllowedAngle = turnDirection < 0 ? -maxAimClampRadians : 0;
+        const maxAllowedAngle = turnDirection > 0 ? maxAimClampRadians : 0;
+        const clampedAngle = turnDirection === 0
+          ? THREE.MathUtils.clamp(signedAngle, -maxAimClampRadians, maxAimClampRadians)
+          : THREE.MathUtils.clamp(signedAngle, minAllowedAngle, maxAllowedAngle);
 
         if (clampedAngle !== signedAngle) {
           clampedForward.copy(fallbackForward).applyAxisAngle(up, clampedAngle).normalize();
@@ -136,6 +140,20 @@ export function createGunController({
     if (deltaTime <= 0) {
       return;
     }
+
+    if (hasLastYaw) {
+      const yawDelta = shortestAngleDelta(lastYaw, playerState.yaw);
+      const yawRate = yawDelta / deltaTime;
+      if (Math.abs(yawRate) <= TURN_RATE_EPSILON_RADIANS_PER_SECOND) {
+        turnDirection = 0;
+      } else {
+        turnDirection = Math.sign(yawRate);
+      }
+    } else {
+      turnDirection = 0;
+      hasLastYaw = true;
+    }
+    lastYaw = playerState.yaw;
 
     if (enabled && fireHeld) {
       for (let i = 0; i < guns.length; i += 1) {
@@ -203,4 +221,8 @@ export function createGunController({
     },
     dispose
   };
+}
+
+function shortestAngleDelta(current: number, target: number): number {
+  return THREE.MathUtils.euclideanModulo(target - current + Math.PI, Math.PI * 2) - Math.PI;
 }

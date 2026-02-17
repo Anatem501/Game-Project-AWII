@@ -26,7 +26,7 @@ const FLOOR_Y = -1;
 const RETICLE_HEIGHT = 0.03;
 const RETICLE_MAX_DISTANCE_FROM_SHIP = 8;
 const GUN_MIN_AIM_DISTANCE_FROM_SHIP = 2.5;
-const GUN_MAX_AIM_ANGLE_RADIANS = THREE.MathUtils.degToRad(45);
+const GUN_MAX_AIM_ANGLE_RADIANS = THREE.MathUtils.degToRad(37.5);
 const ENEMY_DUAL_TURRET_SPAWN = new THREE.Vector3(30, FLOOR_Y, -24);
 const ACTIVE_SHIP_ID = "test_fighter";
 const PLAYER_HURTBOX_RADIUS = 1.05;
@@ -34,8 +34,8 @@ const ENEMY_DUAL_TURRET_HURTBOX_RADIUS = 1.3;
 const TEST_MAP_TURRET_RESPAWN_SECONDS = 10;
 const PLAYER_RESPAWN_SECONDS = 5;
 const PLAYER_THRUSTER_LOCAL_OFFSETS: readonly THREE.Vector3[] = [
-  new THREE.Vector3(-0.12, 0.70, 1.1),
-  new THREE.Vector3(0.12, 0.70, 1.1)
+  new THREE.Vector3(-0.12, 0.58, 1.0),
+  new THREE.Vector3(0.12, 0.58, 1.0)
 ];
 
 export type TopDownSceneController = {
@@ -250,13 +250,14 @@ export function setupTopDownScene(
         .multiplyScalar(1 / deltaTime);
     }
     previousPlayerPosition.copy(playerState.position);
-    const forwardSpeed = Math.max(0, playerVelocity.dot(playerState.forward));
+    const signedForwardSpeed = playerVelocity.dot(playerState.forward);
+    const forwardSpeed = Math.max(0, signedForwardSpeed);
     const thrusterGrowth = THREE.MathUtils.clamp(
-      forwardSpeed / Math.max(0.001, selectedShip.handling.topSpeed),
+      forwardSpeed / Math.max(0.001, selectedShip.handling.thrustSpeed),
       0,
       1
     );
-    playerThrusterEffect.update(deltaTime, thrusterGrowth);
+    playerThrusterEffect.update(deltaTime, thrusterGrowth, signedForwardSpeed < -0.001);
 
     floor.position.x = playerState.position.x;
     floor.position.z = playerState.position.z;
