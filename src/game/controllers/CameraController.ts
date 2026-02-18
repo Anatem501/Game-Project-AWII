@@ -2,11 +2,9 @@ import * as THREE from "three";
 import { GAME_CONFIG } from "../config";
 
 const CAMERA_POSITION_FOLLOW_SHARPNESS = 7.5;
-const CAMERA_BASE_TILT_RADIANS = THREE.MathUtils.degToRad(48);
-const CAMERA_TOP_SPEED_TILT_RADIANS = THREE.MathUtils.degToRad(48);
-const CAMERA_TILT_RESPONSE_SHARPNESS = 8;
+const CAMERA_TILT_RADIANS = THREE.MathUtils.degToRad(48);
 const CAMERA_BASE_FOV_DEGREES = 60;
-const CAMERA_TOP_SPEED_FOV_DEGREES = 70;
+const CAMERA_TOP_SPEED_FOV_DEGREES = 65;
 const CAMERA_FOV_RESPONSE_SHARPNESS = 7;
 
 type CameraControllerParams = {
@@ -35,14 +33,14 @@ export function createCameraController({
   const previousTargetPosition = new THREE.Vector3();
   const tiltSpeedFloor = Math.max(0, maneuveringSpeed);
   const tiltSpeedRange = Math.max(0.001, thrustSpeed - tiltSpeedFloor);
-  let currentTilt = CAMERA_BASE_TILT_RADIANS;
+  const baseDistance = GAME_CONFIG.cameraDistance;
   let currentFov = CAMERA_BASE_FOV_DEGREES;
 
   cameraForward.set(-Math.sin(initialYaw), 0, -Math.cos(initialYaw));
   computeTiltedCameraOffset(
     cameraForward,
-    currentTilt,
-    GAME_CONFIG.cameraDistance,
+    CAMERA_TILT_RADIANS,
+    baseDistance,
     desiredCameraOffset
   );
 
@@ -69,17 +67,10 @@ export function createCameraController({
       0,
       1
     );
-    const desiredTilt = THREE.MathUtils.lerp(
-      CAMERA_BASE_TILT_RADIANS,
-      CAMERA_TOP_SPEED_TILT_RADIANS,
-      speedRatio
-    );
-    const tiltBlend = 1 - Math.exp(-CAMERA_TILT_RESPONSE_SHARPNESS * deltaTime);
-    currentTilt = THREE.MathUtils.lerp(currentTilt, desiredTilt, tiltBlend);
     computeTiltedCameraOffset(
       cameraForward,
-      currentTilt,
-      GAME_CONFIG.cameraDistance,
+      CAMERA_TILT_RADIANS,
+      baseDistance,
       desiredCameraOffset
     );
 

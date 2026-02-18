@@ -11,6 +11,7 @@ import { createHealthComponent } from "../components/HealthComponent";
 import { createPlayerThrusterEffect } from "../effects/PlayerThrusterEffect";
 import { EnemyDualLaserBoltTurret } from "../entities/EnemyDualLaserBoltTurret";
 import { getShipDefinition } from "../ships/ShipCatalog";
+import { createDefaultShipSelection, type ShipSelectionConfig } from "../ships/ShipSelection";
 import { createPlayerHealthHud } from "../ui/PlayerHealthHud";
 import { createEnvironment } from "./factories/EnvironmentFactory";
 import { createShipRig } from "./factories/PlayerFactory";
@@ -28,7 +29,6 @@ const RETICLE_MAX_DISTANCE_FROM_SHIP = 8;
 const GUN_MIN_AIM_DISTANCE_FROM_SHIP = 2.5;
 const GUN_MAX_AIM_ANGLE_RADIANS = THREE.MathUtils.degToRad(37.5);
 const ENEMY_DUAL_TURRET_SPAWN = new THREE.Vector3(30, FLOOR_Y, -24);
-const ACTIVE_SHIP_ID = "test_fighter";
 const PLAYER_HURTBOX_RADIUS = 1.05;
 const ENEMY_DUAL_TURRET_HURTBOX_RADIUS = 1.3;
 const TEST_MAP_TURRET_RESPAWN_SECONDS = 10;
@@ -43,12 +43,18 @@ export type TopDownSceneController = {
   dispose: () => void;
 };
 
+type TopDownSceneOptions = {
+  selection?: ShipSelectionConfig;
+};
+
 export function setupTopDownScene(
   scene: THREE.Scene,
   camera: THREE.PerspectiveCamera,
-  canvas: HTMLCanvasElement
+  canvas: HTMLCanvasElement,
+  options: TopDownSceneOptions = {}
 ): TopDownSceneController {
-  const selectedShip = getShipDefinition(ACTIVE_SHIP_ID);
+  const selection = options.selection ?? createDefaultShipSelection();
+  const selectedShip = getShipDefinition(selection.shipId);
 
   const { floor, gridRoot } = createEnvironment(scene, {
     floorY: FLOOR_Y,

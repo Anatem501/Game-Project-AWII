@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { GAME_CONFIG } from "./config";
 import { setupTopDownScene, type TopDownSceneController } from "./scenes/TopDownScene";
+import type { ShipSelectionConfig } from "./ships/ShipSelection";
 import { MainMenu } from "./ui/MainMenu";
 
 const TARGET_ASPECT_RATIO = 16 / 9;
@@ -34,7 +35,7 @@ export class GameApp {
     this.menu = new MainMenu(this.root, {
       onStart: () => this.menu.showModeSelect(),
       onBackToStart: () => this.menu.showStartMenu(),
-      onPlayerTest: () => this.startPlayerTest()
+      onPlayerTest: (selection) => this.startPlayerTest(selection)
     });
   }
 
@@ -52,12 +53,14 @@ export class GameApp {
     this.renderer.render(this.scene, this.camera);
   };
 
-  private startPlayerTest(): void {
+  private startPlayerTest(selection: ShipSelectionConfig): void {
     if (this.isPlayerTestActive) {
       return;
     }
 
-    this.topDownController = setupTopDownScene(this.scene, this.camera, this.renderer.domElement);
+    this.topDownController = setupTopDownScene(this.scene, this.camera, this.renderer.domElement, {
+      selection
+    });
     this.isPlayerTestActive = true;
     this.menu.hide();
   }

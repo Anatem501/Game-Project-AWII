@@ -10,6 +10,7 @@ const DEFAULT_GUN_FIRE_INTERVAL_SECONDS = 0.5;
 const MIN_AIM_DISTANCE_FROM_SHIP = 1;
 const FULL_AIM_ARC_RADIANS = Math.PI;
 const TURN_RATE_EPSILON_RADIANS_PER_SECOND = THREE.MathUtils.degToRad(3);
+const GAMEPAD_PRIMARY_FIRE_BUTTON_INDEX = 5;
 
 export type GunDefinition = {
   fireIntervalSeconds?: number;
@@ -155,7 +156,8 @@ export function createGunController({
     }
     lastYaw = playerState.yaw;
 
-    if (enabled && fireHeld) {
+    const gamepadPrimaryFireHeld = isGamepadPrimaryFireHeld();
+    if (enabled && (fireHeld || gamepadPrimaryFireHeld)) {
       for (let i = 0; i < guns.length; i += 1) {
         gunCooldowns[i] -= deltaTime;
         while (gunCooldowns[i] <= 0) {
@@ -221,6 +223,25 @@ export function createGunController({
     },
     dispose
   };
+}
+
+function isGamepadPrimaryFireHeld(): boolean {
+  const gamepads = navigator.getGamepads?.();
+  if (!gamepads) {
+    return false;
+  }
+
+  for (const gamepad of gamepads) {
+    if (!gamepad?.connected) {
+      continue;
+    }
+
+    if (gamepad.buttons[GAMEPAD_PRIMARY_FIRE_BUTTON_INDEX]?.pressed) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function shortestAngleDelta(current: number, target: number): number {
