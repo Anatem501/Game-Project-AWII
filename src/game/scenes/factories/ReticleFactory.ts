@@ -27,10 +27,13 @@ export function createReticles(
 
 function createTrueAimReticle(): THREE.Group {
   const reticle = new THREE.Group();
-  const material = new THREE.MeshBasicMaterial({
+  const material = new THREE.MeshStandardMaterial({
     color: 0x7ce0ff,
+    emissive: 0x4fc9ff,
+    emissiveIntensity: 2.1,
     transparent: true,
     opacity: 0.95,
+    depthWrite: false,
     toneMapped: false
   });
 
@@ -64,17 +67,23 @@ function createTrueAimReticle(): THREE.Group {
 
 function createInputAimReticle(): THREE.Group {
   const reticle = new THREE.Group();
-  const ringMaterial = new THREE.MeshBasicMaterial({
+  const ringMaterial = new THREE.MeshStandardMaterial({
     color: 0x7ce0ff,
+    emissive: 0x52cfff,
+    emissiveIntensity: 2.3,
     transparent: true,
     opacity: 0.9,
     side: THREE.DoubleSide,
+    depthWrite: false,
     toneMapped: false
   });
-  const markMaterial = new THREE.MeshBasicMaterial({
+  const markMaterial = new THREE.MeshStandardMaterial({
     color: 0x9feaff,
+    emissive: 0x64d8ff,
+    emissiveIntensity: 2.5,
     transparent: true,
     opacity: 0.9,
+    depthWrite: false,
     toneMapped: false
   });
 

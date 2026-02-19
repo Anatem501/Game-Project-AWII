@@ -1,11 +1,18 @@
 import { DEFAULT_SHIP_ID, listShipDefinitions, type ShipDefinition } from "../ships/ShipCatalog";
 import {
+  MISSILE_COMPONENT_OPTIONS,
   PRIMARY_FIRE_COMPONENT_OPTIONS,
   createDefaultShipSelection,
+  resolveCannonPrimaryComponentId,
+  resolveMissileBayComponentId,
+  type MissileComponentId,
   type PrimaryFireComponentId,
   type ShipSelectionConfig
 } from "../ships/ShipSelection";
-import { getCannonPrimaryComponentDefinition } from "../weapons/WeaponComponentCatalog";
+import {
+  getCannonPrimaryComponentDefinition,
+  getMissileBayComponentDefinition
+} from "../weapons/WeaponComponentCatalog";
 import { ShipCarouselPreview } from "./ShipCarouselPreview";
 
 type MainMenuHandlers = {
@@ -15,13 +22,14 @@ type MainMenuHandlers = {
 };
 
 type MenuView = "start" | "mode-select" | "ship-select" | "ship-confirm";
-type ComponentSlotId = "gun_primary_fire";
+type ComponentSlotId = "cannon_primary_fire" | "missile_payload";
 
 const GAMEPAD_NAV_DEADZONE = 0.55;
 const GAMEPAD_CONFIRM_BUTTON_INDEX = 0;
 const FOCUS_REPEAT_INITIAL_MS = 250;
 const FOCUS_REPEAT_HELD_MS = 130;
 const GUN_PRIMARY_FIRE_SLOT_LABEL = "Cannons Primary Fire";
+const MISSILE_PAYLOAD_SLOT_LABEL = "Missile Bay Payload";
 
 export class MainMenu {
   private readonly overlay: HTMLDivElement;
@@ -34,6 +42,7 @@ export class MainMenu {
   private selectedComponentSlot: ComponentSlotId | null = null;
   private isComponentPickerOpen = false;
   private hoveredPrimaryFireComponentId: PrimaryFireComponentId | null = null;
+  private hoveredMissileComponentId: MissileComponentId | null = null;
   private preview: ShipCarouselPreview | null = null;
   private focusables: HTMLElement[] = [];
   private focusedIndex = 0;
@@ -114,6 +123,8 @@ export class MainMenu {
     const shipIndex = this.ships.findIndex((ship) => ship.id === shipId);
     this.currentShipIndex = shipIndex >= 0 ? shipIndex : 0;
     this.shipSelection.shipId = this.ships[this.currentShipIndex].id;
+    this.syncCannonPrimarySelectionWithCurrentShip();
+    this.syncMissileBaySelectionWithCurrentShip();
 
     this.show(`
       <h1>Ship Selection</h1>
@@ -133,10 +144,8 @@ export class MainMenu {
         <section class="ship-info-column">
           <h2>Components</h2>
           <div class="component-panel-content">
-            <div class="menu-button menu-button-secondary component-slot-button component-slot-readonly">
-              <span class="component-slot-title">${GUN_PRIMARY_FIRE_SLOT_LABEL}</span>
-              <span class="component-slot-value" data-role="ship-select-component-name"></span>
-            </div>
+            <div data-role="ship-select-cannon-slots"></div>
+            <div data-role="ship-select-missile-slots"></div>
             <p class="ship-description">Component changes are available in the Equipment panel after confirming the ship.</p>
           </div>
         </section>
@@ -193,10 +202,8 @@ export class MainMenu {
         <section class="ship-info-column component-panel-column">
           <h2>Components</h2>
           <div class="component-panel-content" data-role="component-panel-content">
-            <button class="menu-button menu-button-secondary component-slot-button" data-action="select-component-slot" data-slot="gun_primary_fire" data-focusable="true" type="button">
-              <span class="component-slot-title">${GUN_PRIMARY_FIRE_SLOT_LABEL}</span>
-              <span class="component-slot-value" data-role="component-slot-primary-fire-value"></span>
-            </button>
+            <div data-role="confirm-cannon-slot-list"></div>
+            <div data-role="confirm-missile-slot-list"></div>
             <div class="component-panel-footer">
               <button class="menu-button" data-action="change-component" type="button">Change Component</button>
             </div>
@@ -222,8 +229,14 @@ export class MainMenu {
       .querySelector<HTMLButtonElement>('[data-action="launch-player-test"]')
       ?.addEventListener("click", () => this.launchSelectedShip());
     this.panel
-      .querySelector<HTMLButtonElement>('[data-action="select-component-slot"]')
-      ?.addEventListener("click", () => this.selectComponentSlot("gun_primary_fire"));
+      .querySelectorAll<HTMLButtonElement>('[data-action="select-component-slot"]')
+      .forEach((button) => {
+        const slot = button.dataset.slot as ComponentSlotId | undefined;
+        if (!slot) {
+          return;
+        }
+        button.addEventListener("click", () => this.selectComponentSlot(slot));
+      });
     this.panel
       .querySelector<HTMLButtonElement>('[data-action="change-component"]')
       ?.addEventListener("click", () => this.openComponentPicker());
@@ -267,6 +280,8 @@ export class MainMenu {
     const count = this.ships.length;
     this.currentShipIndex = (this.currentShipIndex + direction + count) % count;
     this.shipSelection.shipId = this.ships[this.currentShipIndex].id;
+    this.syncCannonPrimarySelectionWithCurrentShip();
+    this.syncMissileBaySelectionWithCurrentShip();
     this.refreshShipSelectContent();
   }
 
@@ -274,7 +289,16 @@ export class MainMenu {
     const current = this.getShipWithOffset(0);
     const previous = this.getShipWithOffset(-1);
     const next = this.getShipWithOffset(1);
-    const component = getCannonPrimaryComponentDefinition(this.shipSelection.primaryFireComponentId);
+    const cannonMounts = current.cannonMounts ?? [];
+    const missileBays = current.missileBays ?? [];
+    this.shipSelection.cannonPrimaryComponentId = resolveCannonPrimaryComponentId(
+      current.id,
+      this.shipSelection.cannonPrimaryComponentId
+    );
+    this.shipSelection.missileBayComponentId = resolveMissileBayComponentId(
+      current.id,
+      this.shipSelection.missileBayComponentId
+    );
     this.shipSelection.shipId = current.id;
 
     this.setTextContent('[data-role="ship-prev-label"]', previous.displayName);
@@ -282,22 +306,156 @@ export class MainMenu {
     this.setTextContent('[data-role="ship-next-label"]', next.displayName);
     this.setTextContent('[data-role="ship-description"]', current.description);
 
-    this.setTextContent('[data-role="ship-select-component-name"]', component.name);
+    const shipSelectCannonSlots = this.panel.querySelector<HTMLElement>(
+      '[data-role="ship-select-cannon-slots"]'
+    );
+    if (shipSelectCannonSlots) {
+      if (cannonMounts.length <= 0) {
+        shipSelectCannonSlots.innerHTML = "";
+      } else {
+        const component = getCannonPrimaryComponentDefinition(
+          this.shipSelection.cannonPrimaryComponentId
+        );
+        shipSelectCannonSlots.innerHTML = cannonMounts
+          .map((_, mountIndex) => {
+            return `
+              <div class="menu-button menu-button-secondary component-slot-button component-slot-readonly">
+                <span class="component-slot-title">Cannon ${mountIndex + 1}</span>
+                <span class="component-slot-value">Primary Fire: ${component.name}</span>
+              </div>
+            `;
+          })
+          .join("");
+      }
+    }
+
+    const shipSelectMissileSlots = this.panel.querySelector<HTMLElement>(
+      '[data-role="ship-select-missile-slots"]'
+    );
+    if (shipSelectMissileSlots) {
+      if (missileBays.length <= 0) {
+        shipSelectMissileSlots.innerHTML = "";
+      } else {
+        const component = getMissileBayComponentDefinition(this.shipSelection.missileBayComponentId);
+        shipSelectMissileSlots.innerHTML = missileBays
+          .map((_, bayIndex) => {
+            return `
+              <div class="menu-button menu-button-secondary component-slot-button component-slot-readonly">
+                <span class="component-slot-title">Missile Bay ${bayIndex + 1}</span>
+                <span class="component-slot-value">Payload: ${component.name}</span>
+              </div>
+            `;
+          })
+          .join("");
+      }
+    }
 
     this.preview?.setShips(previous, current, next);
   }
 
   private refreshShipConfirmContent(): void {
     const selectedShip = this.ships[this.currentShipIndex];
-    const equippedComponent = getCannonPrimaryComponentDefinition(
-      this.shipSelection.primaryFireComponentId
+    const cannonMounts = selectedShip.cannonMounts ?? [];
+    const missileBays = selectedShip.missileBays ?? [];
+    this.shipSelection.cannonPrimaryComponentId = resolveCannonPrimaryComponentId(
+      selectedShip.id,
+      this.shipSelection.cannonPrimaryComponentId
+    );
+    this.shipSelection.missileBayComponentId = resolveMissileBayComponentId(
+      selectedShip.id,
+      this.shipSelection.missileBayComponentId
     );
     this.setTextContent('[data-role="ship-current-label"]', selectedShip.displayName);
     this.setTextContent('[data-role="ship-description"]', selectedShip.description);
-    this.setTextContent('[data-role="component-slot-primary-fire-value"]', equippedComponent.name);
 
-    const slotButton = this.panel.querySelector<HTMLButtonElement>('[data-action="select-component-slot"]');
-    slotButton?.classList.toggle("component-slot-selected", this.selectedComponentSlot === "gun_primary_fire");
+    const hasCannonSlot = cannonMounts.length > 0;
+    const hasMissileSlot = missileBays.length > 0;
+    if (
+      (this.selectedComponentSlot === "cannon_primary_fire" && !hasCannonSlot) ||
+      (this.selectedComponentSlot === "missile_payload" && !hasMissileSlot)
+    ) {
+      this.selectedComponentSlot = null;
+      this.isComponentPickerOpen = false;
+      this.hoveredPrimaryFireComponentId = null;
+      this.hoveredMissileComponentId = null;
+    }
+    if (this.selectedComponentSlot === null) {
+      if (hasCannonSlot) {
+        this.selectedComponentSlot = "cannon_primary_fire";
+      } else if (hasMissileSlot) {
+        this.selectedComponentSlot = "missile_payload";
+      }
+    }
+
+    const confirmCannonSlotList = this.panel.querySelector<HTMLElement>(
+      '[data-role="confirm-cannon-slot-list"]'
+    );
+    if (confirmCannonSlotList) {
+      if (hasCannonSlot) {
+        const component = getCannonPrimaryComponentDefinition(this.shipSelection.cannonPrimaryComponentId);
+        const selectedClass =
+          this.selectedComponentSlot === "cannon_primary_fire" ? " component-slot-selected" : "";
+        const focusable = !this.isComponentPickerOpen ? ' data-focusable="true"' : "";
+        confirmCannonSlotList.innerHTML = `
+          <button class="menu-button menu-button-secondary component-slot-button${selectedClass}" data-action="select-component-slot" data-slot="cannon_primary_fire"${focusable} type="button">
+            <span class="component-slot-title">${GUN_PRIMARY_FIRE_SLOT_LABEL}</span>
+            <span class="component-slot-value">${component.name}</span>
+          </button>
+        `;
+      } else {
+        confirmCannonSlotList.innerHTML = "";
+      }
+      confirmCannonSlotList
+        .querySelectorAll<HTMLButtonElement>('[data-action="select-component-slot"]')
+        .forEach((button) => {
+          const slot = button.dataset.slot as ComponentSlotId | undefined;
+          if (!slot) {
+            return;
+          }
+          button.addEventListener("click", () => this.selectComponentSlot(slot));
+        });
+    }
+
+    const confirmMissileSlotList = this.panel.querySelector<HTMLElement>(
+      '[data-role="confirm-missile-slot-list"]'
+    );
+    if (confirmMissileSlotList) {
+      if (hasMissileSlot) {
+        const component = getMissileBayComponentDefinition(this.shipSelection.missileBayComponentId);
+        const selectedClass =
+          this.selectedComponentSlot === "missile_payload" ? " component-slot-selected" : "";
+        const focusable = !this.isComponentPickerOpen ? ' data-focusable="true"' : "";
+        confirmMissileSlotList.innerHTML = `
+          <button class="menu-button menu-button-secondary component-slot-button${selectedClass}" data-action="select-component-slot" data-slot="missile_payload"${focusable} type="button">
+            <span class="component-slot-title">${MISSILE_PAYLOAD_SLOT_LABEL}</span>
+            <span class="component-slot-value">${component.name}</span>
+          </button>
+        `;
+      } else {
+        confirmMissileSlotList.innerHTML = "";
+      }
+      confirmMissileSlotList
+        .querySelectorAll<HTMLButtonElement>('[data-action="select-component-slot"]')
+        .forEach((button) => {
+          const slot = button.dataset.slot as ComponentSlotId | undefined;
+          if (!slot) {
+            return;
+          }
+          button.addEventListener("click", () => this.selectComponentSlot(slot));
+        });
+    }
+
+    this.panel
+      .querySelectorAll<HTMLButtonElement>('[data-action="select-component-slot"]')
+      .forEach((button) => {
+        const slot = button.dataset.slot as ComponentSlotId | undefined;
+        button.classList.toggle("component-slot-selected", slot === this.selectedComponentSlot);
+        if (this.isComponentPickerOpen) {
+          button.removeAttribute("data-focusable");
+        } else {
+          button.setAttribute("data-focusable", "true");
+        }
+      });
 
     const changeButton = this.panel.querySelector<HTMLButtonElement>('[data-action="change-component"]');
     const closePickerButton = this.panel.querySelector<HTMLButtonElement>(
@@ -306,7 +464,7 @@ export class MainMenu {
     const pickerOverlay = this.panel.querySelector<HTMLElement>('[data-role="component-picker-overlay"]');
     const panelContent = this.panel.querySelector<HTMLElement>('[data-role="component-panel-content"]');
     const optionList = this.panel.querySelector<HTMLElement>('[data-role="component-option-list"]');
-    const canShowChangeButton = this.selectedComponentSlot === "gun_primary_fire";
+    const canShowChangeButton = this.selectedComponentSlot !== null;
     if (changeButton) {
       const shouldShowChangeButton = canShowChangeButton && !this.isComponentPickerOpen;
       changeButton.style.display = shouldShowChangeButton ? "" : "none";
@@ -314,13 +472,6 @@ export class MainMenu {
         changeButton.setAttribute("data-focusable", "true");
       } else {
         changeButton.removeAttribute("data-focusable");
-      }
-    }
-    if (slotButton) {
-      if (this.isComponentPickerOpen) {
-        slotButton.removeAttribute("data-focusable");
-      } else {
-        slotButton.setAttribute("data-focusable", "true");
       }
     }
     if (closePickerButton) {
@@ -339,31 +490,62 @@ export class MainMenu {
     }
     if (!this.isComponentPickerOpen) {
       this.hoveredPrimaryFireComponentId = null;
+      this.hoveredMissileComponentId = null;
     }
 
     if (optionList) {
       if (canShowChangeButton && this.isComponentPickerOpen) {
-        optionList.innerHTML = PRIMARY_FIRE_COMPONENT_OPTIONS.map((componentId) => {
-          const option = getCannonPrimaryComponentDefinition(componentId);
-          const equippedSuffix =
-            componentId === this.shipSelection.primaryFireComponentId ? " (Equipped)" : "";
-          return `<button class="menu-button menu-button-secondary component-option-button" data-action="select-component-option" data-component-id="${componentId}" data-focusable="true">${option.name}${equippedSuffix}</button>`;
-        }).join("");
-        optionList
-          .querySelectorAll<HTMLButtonElement>('[data-action="select-component-option"]')
-          .forEach((button) => {
-            const componentId = button.dataset.componentId as PrimaryFireComponentId | undefined;
-            if (!componentId) {
-              return;
-            }
-            button.addEventListener("click", () => {
-              this.selectPrimaryFireComponent(componentId);
+        if (this.selectedComponentSlot === "cannon_primary_fire") {
+          optionList.innerHTML = PRIMARY_FIRE_COMPONENT_OPTIONS.map((componentId) => {
+            const option = getCannonPrimaryComponentDefinition(componentId);
+            const equippedSuffix =
+              componentId === this.shipSelection.cannonPrimaryComponentId
+                ? " (Equipped)"
+                : "";
+            return `<button class="menu-button menu-button-secondary component-option-button" data-action="select-component-option" data-component-id="${componentId}" data-focusable="true">${option.name}${equippedSuffix}</button>`;
+          }).join("");
+          optionList
+            .querySelectorAll<HTMLButtonElement>('[data-action="select-component-option"]')
+            .forEach((button) => {
+              const componentId = button.dataset.componentId as PrimaryFireComponentId | undefined;
+              if (!componentId) {
+                return;
+              }
+              button.addEventListener("click", () => {
+                this.selectPrimaryFireComponent(componentId);
+              });
+              button.addEventListener("mouseenter", () => this.previewPrimaryFireComponent(componentId));
+              button.addEventListener("focus", () => this.previewPrimaryFireComponent(componentId));
+              button.addEventListener("mouseleave", () => this.clearPrimaryFireComponentPreview());
+              button.addEventListener("blur", () => this.clearPrimaryFireComponentPreview());
             });
-            button.addEventListener("mouseenter", () => this.previewPrimaryFireComponent(componentId));
-            button.addEventListener("focus", () => this.previewPrimaryFireComponent(componentId));
-            button.addEventListener("mouseleave", () => this.clearPrimaryFireComponentPreview());
-            button.addEventListener("blur", () => this.clearPrimaryFireComponentPreview());
-          });
+        } else if (this.selectedComponentSlot === "missile_payload") {
+          optionList.innerHTML = MISSILE_COMPONENT_OPTIONS.map((componentId) => {
+            const option = getMissileBayComponentDefinition(componentId);
+            const equippedSuffix =
+              componentId === this.shipSelection.missileBayComponentId
+                ? " (Equipped)"
+                : "";
+            return `<button class="menu-button menu-button-secondary component-option-button" data-action="select-missile-component-option" data-component-id="${componentId}" data-focusable="true">${option.name}${equippedSuffix}</button>`;
+          }).join("");
+          optionList
+            .querySelectorAll<HTMLButtonElement>('[data-action="select-missile-component-option"]')
+            .forEach((button) => {
+              const componentId = button.dataset.componentId as MissileComponentId | undefined;
+              if (!componentId) {
+                return;
+              }
+              button.addEventListener("click", () => {
+                this.selectMissileComponent(componentId);
+              });
+              button.addEventListener("mouseenter", () => this.previewMissileComponent(componentId));
+              button.addEventListener("focus", () => this.previewMissileComponent(componentId));
+              button.addEventListener("mouseleave", () => this.clearMissileComponentPreview());
+              button.addEventListener("blur", () => this.clearMissileComponentPreview());
+            });
+        } else {
+          optionList.innerHTML = "";
+        }
       } else {
         optionList.innerHTML = "";
       }
@@ -377,9 +559,8 @@ export class MainMenu {
   private launchSelectedShip(): void {
     this.handlers.onPlayerTest({
       shipId: this.shipSelection.shipId,
-      primaryFireComponentId: this.shipSelection.primaryFireComponentId,
-      secondaryFireComponentId: this.shipSelection.secondaryFireComponentId,
-      missileComponentId: this.shipSelection.missileComponentId,
+      cannonPrimaryComponentId: this.shipSelection.cannonPrimaryComponentId,
+      missileBayComponentId: this.shipSelection.missileBayComponentId,
       energyComponentId: this.shipSelection.energyComponentId
     });
   }
@@ -388,21 +569,27 @@ export class MainMenu {
     this.selectedComponentSlot = slot;
     this.isComponentPickerOpen = false;
     this.hoveredPrimaryFireComponentId = null;
+    this.hoveredMissileComponentId = null;
     this.refreshShipConfirmContent();
     this.refreshFocusables(0);
     this.focusElement('[data-action="change-component"]');
   }
 
   private openComponentPicker(): void {
-    if (this.selectedComponentSlot !== "gun_primary_fire") {
+    if (this.selectedComponentSlot === null) {
       return;
     }
 
     this.isComponentPickerOpen = true;
     this.hoveredPrimaryFireComponentId = null;
+    this.hoveredMissileComponentId = null;
     this.refreshShipConfirmContent();
     this.refreshFocusables(0);
-    this.focusElement('[data-action="select-component-option"]');
+    if (this.selectedComponentSlot === "missile_payload") {
+      this.focusElement('[data-action="select-missile-component-option"]');
+    } else {
+      this.focusElement('[data-action="select-component-option"]');
+    }
   }
 
   private closeComponentPicker(): void {
@@ -412,15 +599,28 @@ export class MainMenu {
 
     this.isComponentPickerOpen = false;
     this.hoveredPrimaryFireComponentId = null;
+    this.hoveredMissileComponentId = null;
     this.refreshShipConfirmContent();
     this.refreshFocusables(0);
     this.focusElement('[data-action="change-component"]');
   }
 
   private selectPrimaryFireComponent(componentId: PrimaryFireComponentId): void {
-    this.shipSelection.primaryFireComponentId = componentId;
+    this.shipSelection.cannonPrimaryComponentId = componentId;
     this.isComponentPickerOpen = false;
     this.hoveredPrimaryFireComponentId = null;
+    this.hoveredMissileComponentId = null;
+    this.refreshShipConfirmContent();
+    this.refreshShipSelectContent();
+    this.refreshFocusables(0);
+    this.focusElement('[data-action="change-component"]');
+  }
+
+  private selectMissileComponent(componentId: MissileComponentId): void {
+    this.shipSelection.missileBayComponentId = componentId;
+    this.isComponentPickerOpen = false;
+    this.hoveredPrimaryFireComponentId = null;
+    this.hoveredMissileComponentId = null;
     this.refreshShipConfirmContent();
     this.refreshShipSelectContent();
     this.refreshFocusables(0);
@@ -443,19 +643,60 @@ export class MainMenu {
     this.renderSelectedComponentStats();
   }
 
+  private previewMissileComponent(componentId: MissileComponentId): void {
+    if (!this.isComponentPickerOpen) {
+      return;
+    }
+    this.hoveredMissileComponentId = componentId;
+    this.renderSelectedComponentStats();
+  }
+
+  private clearMissileComponentPreview(): void {
+    if (!this.isComponentPickerOpen) {
+      return;
+    }
+    this.hoveredMissileComponentId = null;
+    this.renderSelectedComponentStats();
+  }
+
   private renderSelectedComponentStats(): void {
     const statsRoot = this.panel.querySelector<HTMLElement>('[data-role="component-stats"]');
     if (!statsRoot) {
       return;
     }
-    if (this.selectedComponentSlot !== "gun_primary_fire") {
+    if (this.selectedComponentSlot === null) {
       statsRoot.innerHTML =
         '<p class="ship-description">Select a component slot on the right to view its detailed stats.</p>';
       return;
     }
 
-    const componentId = this.hoveredPrimaryFireComponentId ?? this.shipSelection.primaryFireComponentId;
-    const component = getCannonPrimaryComponentDefinition(componentId);
+    if (this.selectedComponentSlot === "cannon_primary_fire") {
+      const componentId =
+        this.hoveredPrimaryFireComponentId ??
+        this.shipSelection.cannonPrimaryComponentId ??
+        PRIMARY_FIRE_COMPONENT_OPTIONS[0];
+      const component = getCannonPrimaryComponentDefinition(componentId);
+      statsRoot.innerHTML = `
+        <ul class="ship-list">
+          <li><span>Name</span><strong>${component.name}</strong></li>
+          <li><span>Weapon Type</span><strong>${component.weaponType}</strong></li>
+          <li><span>Fire Type</span><strong>${component.fireType}</strong></li>
+          <li><span>Damage Type</span><strong>${component.damageType}</strong></li>
+        </ul>
+        <p class="ship-description">${component.description}</p>
+      `;
+      return;
+    }
+
+    if (this.selectedComponentSlot !== "missile_payload") {
+      statsRoot.innerHTML =
+        '<p class="ship-description">Select a component slot on the right to view its detailed stats.</p>';
+      return;
+    }
+    const componentId =
+      this.hoveredMissileComponentId ??
+      this.shipSelection.missileBayComponentId;
+    const component = getMissileBayComponentDefinition(componentId);
     statsRoot.innerHTML = `
       <ul class="ship-list">
         <li><span>Name</span><strong>${component.name}</strong></li>
@@ -473,6 +714,19 @@ export class MainMenu {
       return;
     }
     element.textContent = text;
+  }
+
+  private syncCannonPrimarySelectionWithCurrentShip(): void {
+    const currentShip = this.ships[this.currentShipIndex];
+    this.shipSelection.cannonPrimaryComponentId = resolveCannonPrimaryComponentId(
+      currentShip.id,
+      this.shipSelection.cannonPrimaryComponentId
+    );
+  }
+
+  private syncMissileBaySelectionWithCurrentShip(): void {
+    const currentShip = this.ships[this.currentShipIndex];
+    this.shipSelection.missileBayComponentId = resolveMissileBayComponentId(currentShip.id);
   }
 
   private getShipWithOffset(offset: number): ShipDefinition {

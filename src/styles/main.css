@@ -102,6 +102,7 @@ canvas {
 
 .ship-select-layout-primary {
   grid-template-columns: minmax(420px, 1.55fr) minmax(260px, 1fr);
+  align-items: stretch;
 }
 
 .ship-select-layout-confirm {
@@ -271,6 +272,16 @@ canvas {
   z-index: 1;
 }
 
+.ship-select-layout-primary .ship-info-column {
+  min-height: 438px;
+}
+
+.ship-select-layout-primary .component-panel-content {
+  max-height: 360px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
 .component-panel-footer {
   margin-top: 0.55rem;
 }
@@ -437,6 +448,17 @@ canvas {
   height: 2px;
   width: 0%;
   background: linear-gradient(90deg, rgba(242, 173, 79, 0.2), rgba(255, 210, 115, 0.95));
+  transition: width 60ms linear;
+}
+
+.player-missile-lock-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -2px;
+  height: 2px;
+  width: 0%;
+  background: linear-gradient(90deg, rgba(255, 98, 98, 0.2), rgba(255, 72, 72, 0.95));
   transition: width 60ms linear;
 }
 

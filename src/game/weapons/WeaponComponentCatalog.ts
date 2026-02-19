@@ -8,11 +8,10 @@ export const CANNON_PRIMARY_COMPONENT_OPTIONS = [
 
 export type CannonPrimaryComponentId = (typeof CANNON_PRIMARY_COMPONENT_OPTIONS)[number];
 
-export const CANNON_SECONDARY_COMPONENT_OPTIONS = ["charged_laser_spike_secondary"] as const;
-
-export type CannonSecondaryComponentId = (typeof CANNON_SECONDARY_COMPONENT_OPTIONS)[number];
-
-export const MISSILE_BAY_COMPONENT_OPTIONS = ["concussive_barrage_missiles"] as const;
+export const MISSILE_BAY_COMPONENT_OPTIONS = [
+  "concussive_barrage_missiles",
+  "concussive_swarm_missiles"
+] as const;
 
 export type MissileBayComponentId = (typeof MISSILE_BAY_COMPONENT_OPTIONS)[number];
 
@@ -22,8 +21,6 @@ export type EnergyLauncherComponentId = (typeof ENERGY_LAUNCHER_COMPONENT_OPTION
 
 export const DEFAULT_CANNON_PRIMARY_COMPONENT_ID: CannonPrimaryComponentId =
   "repeating_laserbolt_fire";
-export const DEFAULT_CANNON_SECONDARY_COMPONENT_ID: CannonSecondaryComponentId =
-  "charged_laser_spike_secondary";
 export const DEFAULT_MISSILE_BAY_COMPONENT_ID: MissileBayComponentId = "concussive_barrage_missiles";
 export const DEFAULT_ENERGY_LAUNCHER_COMPONENT_ID: EnergyLauncherComponentId =
   "arc_plasma_emitter";
@@ -42,17 +39,21 @@ export type CannonPrimaryComponentDefinition = WeaponComponentPresentation & {
   projectile: LaserBoltFactoryOptions;
 };
 
-export type CannonSecondaryComponentDefinition = WeaponComponentPresentation & {
-  id: CannonSecondaryComponentId;
-  fireIntervalSeconds: number;
-  projectile: LaserBoltFactoryOptions;
+export type MissileTargetLockingConfig = {
+  acquireSeconds: number;
+  maxLocksPerTarget?: number;
+  reticleRadiusPadding: number;
+  progressDecayDelaySeconds: number;
+  progressDecaySeconds: number;
 };
+
+export type MissileFlightMode = "homing" | "spline";
+export type MissileModelAssetId = "standard_concussive" | "micro_concussive";
+export type MissileReloadMode = "per_round" | "full_magazine";
 
 export type MissileBayComponentDefinition = WeaponComponentPresentation & {
   id: MissileBayComponentId;
   burstFireIntervalSeconds: number;
-  chargeInitialDelaySeconds: number;
-  chargeStepSeconds: number;
   explosionRadius: number;
   proximityFuseRadius: number;
   reloadSeconds: number;
@@ -60,6 +61,18 @@ export type MissileBayComponentDefinition = WeaponComponentPresentation & {
   missileDamage: number;
   missileLifetimeSeconds: number;
   missileSpeed: number;
+  missileModelAssetId?: MissileModelAssetId;
+  flightMode?: MissileFlightMode;
+  missilesPerShot?: number;
+  randomizeCellSelection?: boolean;
+  reloadMode?: MissileReloadMode;
+  fallbackAimMaxAngleDegrees?: number;
+  fallbackAimDistance?: number;
+  predictiveLeadFactor?: number;
+  reticleScatterRadius?: number;
+  splineWildness?: number;
+  useLockStacks?: boolean;
+  targetLocking: MissileTargetLockingConfig;
 };
 
 export type EnergyLauncherComponentDefinition = WeaponComponentPresentation & {
@@ -134,33 +147,6 @@ const CANNON_PRIMARY_COMPONENTS: Record<
   }
 };
 
-const CANNON_SECONDARY_COMPONENTS: Record<
-  CannonSecondaryComponentId,
-  CannonSecondaryComponentDefinition
-> = {
-  charged_laser_spike_secondary: {
-    id: "charged_laser_spike_secondary",
-    name: "Charged Laser Spike",
-    weaponType: "Cannons",
-    fireType: "Secondary",
-    damageType: "Laser",
-    description:
-      "Charged secondary cannon burst that fires slower but hits significantly harder than primary fire.",
-    fireIntervalSeconds: 0.72,
-    projectile: {
-      color: 0xeab2ff,
-      emissive: 0xb14dff,
-      emissiveIntensity: 2.7,
-      speed: 22,
-      lifetimeSeconds: 2.1,
-      length: 0.9,
-      thickness: 0.12,
-      damage: 24,
-      collisionRadius: 0.14
-    }
-  }
-};
-
 const MISSILE_BAY_COMPONENTS: Record<MissileBayComponentId, MissileBayComponentDefinition> = {
   concussive_barrage_missiles: {
     id: "concussive_barrage_missiles",
@@ -171,15 +157,55 @@ const MISSILE_BAY_COMPONENTS: Record<MissileBayComponentId, MissileBayComponentD
     description:
       "Standard Concussive Missile V01 payload. Missiles launch in straight-flight barrages and detonate in a medium blast area.",
     burstFireIntervalSeconds: 0.12,
-    chargeInitialDelaySeconds: 1,
-    chargeStepSeconds: 0.5,
     explosionRadius: 3.25,
     proximityFuseRadius: 1.25,
     reloadSeconds: 1,
     triggerFireIntervalSeconds: 0.35,
     missileDamage: 26,
-    missileLifetimeSeconds: 4.6,
-    missileSpeed: 16
+    missileLifetimeSeconds: 2.5,
+    missileSpeed: 16,
+    targetLocking: {
+      acquireSeconds: 0.6,
+      maxLocksPerTarget: 1,
+      reticleRadiusPadding: 2.5,
+      progressDecayDelaySeconds: 2,
+      progressDecaySeconds: 2.5
+    }
+  },
+  concussive_swarm_missiles: {
+    id: "concussive_swarm_missiles",
+    name: "Concussive Swarm Missiles",
+    weaponType: "Missile Bay",
+    fireType: "Payload",
+    damageType: "Concussive",
+    description:
+      "Micro-concussive swarm payload that launches triple randomized missiles per volley with predictive lock-strike behavior.",
+    burstFireIntervalSeconds: 2.5,
+    explosionRadius: 2.4,
+    proximityFuseRadius: 1.1,
+    reloadSeconds: 2,
+    triggerFireIntervalSeconds: 2.5,
+    missileDamage: 12,
+    missileLifetimeSeconds: 4,
+    missileSpeed: 10,
+    missileModelAssetId: "micro_concussive",
+    flightMode: "spline",
+    missilesPerShot: 2,
+    randomizeCellSelection: true,
+    reloadMode: "full_magazine",
+    fallbackAimMaxAngleDegrees: 60,
+    fallbackAimDistance: 40,
+    predictiveLeadFactor: 0.9,
+    reticleScatterRadius: 2.5,
+    splineWildness: 1.35,
+    useLockStacks: true,
+    targetLocking: {
+      acquireSeconds: 0.15,
+      maxLocksPerTarget: 24,
+      reticleRadiusPadding: 2.5,
+      progressDecayDelaySeconds: 2,
+      progressDecaySeconds: 2.5
+    }
   }
 };
 
@@ -202,15 +228,6 @@ export function getCannonPrimaryComponentDefinition(
   componentId: CannonPrimaryComponentId
 ): CannonPrimaryComponentDefinition {
   return CANNON_PRIMARY_COMPONENTS[componentId] ?? CANNON_PRIMARY_COMPONENTS.repeating_laserbolt_fire;
-}
-
-export function getCannonSecondaryComponentDefinition(
-  componentId: CannonSecondaryComponentId
-): CannonSecondaryComponentDefinition {
-  return (
-    CANNON_SECONDARY_COMPONENTS[componentId] ??
-    CANNON_SECONDARY_COMPONENTS.charged_laser_spike_secondary
-  );
 }
 
 export function getMissileBayComponentDefinition(

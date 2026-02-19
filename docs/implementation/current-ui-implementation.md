@@ -30,13 +30,15 @@ Flow:
 Purpose:
 
 - Pick ship only.
-- Show fixed equipped primary fire slot on right panel (read-only in this view).
+- Show fixed equipped weapon components on right panel (read-only in this view).
 
 Layout:
 
 - Left: 3D ship carousel preview (previous/current/next).
 - Bottom actions: `Previous`, `Confirm`, `Next`, `Back`.
-- Right panel: component slot summary (`Cannons Primary Fire`) and note that editing happens later.
+- Right panel: read-only cannon instance summary with current `Primary Fire` component.
+- Right panel: read-only missile bay instance summary with current `Payload` component.
+- Note that editing happens in Ship Confirm.
 
 Implementation references:
 
@@ -49,7 +51,7 @@ Implementation references:
 Purpose:
 
 - Final ship confirmation.
-- Component slot selection and component swap flow (currently only primary fire slot exists).
+- Component slot selection and component swap flow.
 
 Layout:
 
@@ -59,7 +61,7 @@ Layout:
 
 Current component workflow:
 
-1. Select `Cannons Primary Fire` slot.
+1. Select `Cannons Primary Fire` or `Missile Bay Payload` slot.
 2. `Change Component` button appears.
 3. Clicking opens overlay picker panel over the right panel only.
 4. Hover/focus component option previews stats in the left panel.
@@ -94,6 +96,13 @@ Implementation references:
 - A button confirms/activates focused control.
 - Focus uses `data-focusable="true"` elements and `menu-focus` CSS class.
 
+### In-Game Controller
+
+- Movement: left stick controls forward/back and strafe.
+- Turning: keyboard uses `Q`/`E`; controller auto-turn recentering is used when side-stick input is not active.
+- Aim: mouse or right stick controls reticle.
+- Fire: right bumper on controller, plus mouse button weapon inputs.
+
 Implementation references:
 
 - `handleControllerFrame` in `src/game/ui/MainMenu.ts`
@@ -124,7 +133,9 @@ Implementation references:
 Current in-game UI elements:
 
 - Player health HUD (shield/armor/hull bars): `src/game/ui/PlayerHealthHud.ts`
+- Missile status row in player HUD with per-bay/cell missile dots, reload bar, lock bar, and lock/reload/fire status text.
 - Aim reticles (input reticle and true aim reticle): `src/game/scenes/factories/ReticleFactory.ts`
+- World-space lock indicator sprites for locked targets, including lock count badge for stack-lock payloads.
 
 HUD root is attached in `TopDownScene` and disposed with scene lifecycle.
 
@@ -145,7 +156,7 @@ Main style sections:
 ## Known Scope Limits (Current)
 
 - Ship Select screen does not allow component editing.
-- Only one component slot is implemented in equipment flow (`gun_primary_fire`).
-- Only one component option is currently available in data (`repeating_laserbolt_fire`).
+- Equipment flow currently edits weapon component selection only (no stat point allocation yet).
+- Cannon secondary fire is intentionally not implemented in the current design pass.
+- Energy launcher has placeholder catalog data but no active gameplay implementation.
 - No dedicated pause/settings UI yet.
-

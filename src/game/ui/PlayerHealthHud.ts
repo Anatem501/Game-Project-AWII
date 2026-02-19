@@ -9,19 +9,19 @@ type MissileHudSnapshot = {
   ammoCapacity: number;
   ammoLoaded: number;
   cellsPerLauncher: number;
-  chargeInitialDelaySeconds: number;
-  chargeSeconds: number;
-  chargeStepSeconds: number;
   firedFlashSeconds: number;
-  isCharging: boolean;
+  isLocking: boolean;
   launcherCount: number;
+  launcherLoadedCounts: number[];
+  launcherReloadingFlags: boolean[];
+  lockedTargetCount: number;
+  lockingProgress01: number;
   isReloading: boolean;
-  queuedShots: number;
   reloadProgress01: number;
 };
 
 const DEFAULT_MISSILE_DOT_COUNT = 10;
-const MAX_MISSILE_DOT_COUNT = 20;
+const MAX_MISSILE_DOT_COUNT = 64;
 
 export type PlayerHealthHud = {
   update: (snapshot: HealthSnapshot, missileSnapshot?: MissileHudSnapshot) => void;
@@ -103,6 +103,7 @@ function updateLayer(elements: LayerElements, current: number, max: number): voi
 
 function createMissileRow(): {
   dots: HTMLSpanElement[];
+  lockProgress: HTMLDivElement;
   progress: HTMLDivElement;
   row: HTMLDivElement;
   track: HTMLDivElement;
@@ -122,28 +123,28 @@ function createMissileRow(): {
   const track = document.createElement("div");
   track.className = "player-missile-track";
 
+  const lockProgress = document.createElement("div");
+  lockProgress.className = "player-missile-lock-progress";
+  track.appendChild(lockProgress);
+
   const progress = document.createElement("div");
   progress.className = "player-missile-reload-progress";
   track.appendChild(progress);
 
   const dots: HTMLSpanElement[] = [];
-  for (let i = 0; i < MAX_MISSILE_DOT_COUNT; i += 1) {
-    const dot = document.createElement("span");
-    dot.className = "player-missile-dot";
-    track.appendChild(dot);
-    dots.push(dot);
-  }
+  ensureMissileDotPool(track, dots, DEFAULT_MISSILE_DOT_COUNT);
 
   row.appendChild(label);
   row.appendChild(value);
   row.appendChild(track);
 
-  return { dots, progress, row, track, value };
+  return { dots, lockProgress, progress, row, track, value };
 }
 
 function updateMissiles(
   missile: {
     dots: HTMLSpanElement[];
+    lockProgress: HTMLDivElement;
     progress: HTMLDivElement;
     track: HTMLDivElement;
     value: HTMLSpanElement;
@@ -152,12 +153,15 @@ function updateMissiles(
 ): void {
   if (!snapshot || snapshot.ammoCapacity <= 0) {
     missile.value.textContent = "No Launcher";
+    missile.lockProgress.style.width = "0%";
     missile.progress.style.width = "0%";
     missile.track.style.gridTemplateColumns = `repeat(${DEFAULT_MISSILE_DOT_COUNT}, minmax(0, 1fr))`;
     missile.track.style.minHeight = "14px";
-    for (const dot of missile.dots) {
+    ensureMissileDotPool(missile.track, missile.dots, DEFAULT_MISSILE_DOT_COUNT);
+    for (let i = 0; i < missile.dots.length; i += 1) {
+      const dot = missile.dots[i];
       dot.className = "player-missile-dot";
-      dot.style.display = "";
+      dot.style.display = i < DEFAULT_MISSILE_DOT_COUNT ? "" : "none";
     }
     return;
   }
@@ -165,28 +169,17 @@ function updateMissiles(
   const launcherCount = clampInt(snapshot.launcherCount, 1, MAX_MISSILE_DOT_COUNT);
   const cellsPerLauncher = clampInt(snapshot.cellsPerLauncher, 1, MAX_MISSILE_DOT_COUNT);
   const missileDotCount = clampInt(launcherCount * cellsPerLauncher, 1, MAX_MISSILE_DOT_COUNT);
+  ensureMissileDotPool(missile.track, missile.dots, missileDotCount);
   missile.track.style.gridTemplateColumns = `repeat(${cellsPerLauncher}, minmax(0, 1fr))`;
   missile.track.style.minHeight = `${Math.max(14, launcherCount * 14 + (launcherCount - 1) * 4)}px`;
 
-  const loadedRatio = snapshot.ammoLoaded / Math.max(1, snapshot.ammoCapacity);
-  const loadedDots = clampInt(Math.round(loadedRatio * missileDotCount), 0, missileDotCount);
-  const holdChargedShots = snapshot.isCharging
-    ? snapshot.chargeSeconds >= snapshot.chargeInitialDelaySeconds
-      ? Math.max(
-          1,
-          1 +
-            Math.floor(
-              (snapshot.chargeSeconds - snapshot.chargeInitialDelaySeconds) /
-                Math.max(0.01, snapshot.chargeStepSeconds)
-            )
-        )
-      : 0
-    : 0;
-  const chargedDots = clampInt(snapshot.queuedShots + holdChargedShots, 0, missileDotCount);
-  const flashDotIndex =
-    snapshot.firedFlashSeconds > 0 && loadedDots < missileDotCount ? loadedDots : -1;
-  const reloadDotIndex =
-    snapshot.isReloading && loadedDots < missileDotCount ? loadedDots : missileDotCount - 1;
+  const loadedByLauncher: number[] = [];
+  const reloadingByLauncher: boolean[] = [];
+  for (let launcherIndex = 0; launcherIndex < launcherCount; launcherIndex += 1) {
+    const fromSnapshot = snapshot.launcherLoadedCounts[launcherIndex];
+    loadedByLauncher.push(clampInt(fromSnapshot ?? 0, 0, cellsPerLauncher));
+    reloadingByLauncher.push(Boolean(snapshot.launcherReloadingFlags[launcherIndex]));
+  }
 
   for (let i = 0; i < missile.dots.length; i += 1) {
     const dot = missile.dots[i];
@@ -194,32 +187,40 @@ function updateMissiles(
       dot.style.display = "none";
       continue;
     }
+
+    const launcherIndex = Math.floor(i / cellsPerLauncher);
+    const cellIndex = i % cellsPerLauncher;
+    const rowLoaded = loadedByLauncher[launcherIndex] ?? 0;
+    const rowHasFiredCell = rowLoaded < cellsPerLauncher;
+    const rowReloadCellIndex = rowLoaded;
+
     dot.style.display = "";
     dot.className = "player-missile-dot";
-    if (i < loadedDots) {
+    if (cellIndex < rowLoaded) {
       dot.classList.add("is-loaded");
     } else {
       dot.classList.add("is-fired");
     }
-    if (i < chargedDots) {
-      dot.classList.add("is-charged");
-    }
-    if (i === reloadDotIndex && snapshot.isReloading) {
+    if (reloadingByLauncher[launcherIndex] && rowHasFiredCell && cellIndex === rowReloadCellIndex) {
       dot.classList.add("is-reloading");
     }
-    if (i === flashDotIndex) {
+    if (snapshot.firedFlashSeconds > 0 && rowHasFiredCell && cellIndex === rowLoaded) {
       dot.classList.add("is-flash");
     }
   }
 
+  const lockProgress01 =
+    snapshot.lockedTargetCount > 0
+      ? 1
+      : Math.min(1, Math.max(0, snapshot.lockingProgress01));
+  missile.lockProgress.style.width = `${Math.round(lockProgress01 * 100)}%`;
   missile.progress.style.width = `${Math.round(snapshot.reloadProgress01 * 100)}%`;
 
   const statusFlags: string[] = [];
-  if (snapshot.isCharging) {
-    statusFlags.push("Charging");
-  }
-  if (chargedDots > 0) {
-    statusFlags.push(`Charged ${chargedDots}`);
+  if (snapshot.lockedTargetCount > 0) {
+    statusFlags.push(`Locked x${snapshot.lockedTargetCount}`);
+  } else if (snapshot.isLocking) {
+    statusFlags.push("Locking");
   }
   if (snapshot.firedFlashSeconds > 0) {
     statusFlags.push("Fired");
@@ -236,4 +237,17 @@ function updateMissiles(
 
 function clampInt(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function ensureMissileDotPool(
+  track: HTMLDivElement,
+  dots: HTMLSpanElement[],
+  requiredCount: number
+): void {
+  for (let i = dots.length; i < requiredCount; i += 1) {
+    const dot = document.createElement("span");
+    dot.className = "player-missile-dot";
+    track.appendChild(dot);
+    dots.push(dot);
+  }
 }

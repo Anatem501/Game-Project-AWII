@@ -3,9 +3,9 @@ import type { ShipController, ShipControllerState } from "./ShipController";
 
 const RETICLE_VERTICAL_RANGE = 1.2;
 const RETICLE_MAX_DISTANCE_FROM_SHIP = 8;
-const RETICLE_VIEWPORT_EDGE_MARGIN_NDC = 0.12;
-const RETICLE_VIEWPORT_TOP_EDGE_MARGIN_NDC = 0.22;
-const RETICLE_VIEWPORT_BOTTOM_EDGE_MARGIN_NDC = 0.24;
+const RETICLE_VIEWPORT_EDGE_MARGIN_NDC = 0.06;
+const RETICLE_VIEWPORT_TOP_EDGE_MARGIN_NDC = 0.11;
+const RETICLE_VIEWPORT_BOTTOM_EDGE_MARGIN_NDC = 0.12;
 
 const RETICLE_MERGE_START_DISTANCE = 0.7;
 const RETICLE_MERGE_FULL_DISTANCE = 0.18;
@@ -133,6 +133,7 @@ export function createPlayerController({
     }
 
     const aimWorldY = currentShipState.position.y + aimPointerNdc.y * RETICLE_VERTICAL_RANGE;
+    movementPlane.constant = -aimWorldY;
 
     raycaster.setFromCamera(aimPointerNdc, camera);
     const hitPoint = raycaster.ray.intersectPlane(movementPlane, mouseWorld);
@@ -251,6 +252,7 @@ export function createPlayerController({
     });
 
     const updatedAimWorldY = updatedShipState.position.y + aimPointerNdc.y * RETICLE_VERTICAL_RANGE;
+    movementPlane.constant = -updatedAimWorldY;
 
     trueAimProbe
       .copy(updatedShipState.position)

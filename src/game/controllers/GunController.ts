@@ -11,7 +11,6 @@ const MIN_AIM_DISTANCE_FROM_SHIP = 1;
 const FULL_AIM_ARC_RADIANS = Math.PI;
 const TURN_RATE_EPSILON_RADIANS_PER_SECOND = THREE.MathUtils.degToRad(3);
 const GAMEPAD_PRIMARY_FIRE_BUTTON_INDEX = 5;
-const GAMEPAD_SECONDARY_FIRE_BUTTON_INDEX = 4;
 const PLAYER_CANNON_MUZZLE_SPARK_COUNT = 18;
 const PLAYER_CANNON_MUZZLE_BURST_LIFETIME_SECONDS = 0.11;
 const PLAYER_CANNON_MUZZLE_SPEED_MIN = 1.5;
@@ -20,6 +19,7 @@ const PLAYER_CANNON_MUZZLE_SPREAD_RADIANS = THREE.MathUtils.degToRad(9);
 
 type GunFireModeDefinition = {
   fireIntervalSeconds?: number;
+  phaseOffsetSeconds?: number;
   projectileFactory: ProjectileFactory;
 };
 
@@ -28,13 +28,11 @@ export type GunDefinition = {
   fireIntervalSeconds?: number;
   projectileFactory?: ProjectileFactory;
   primary?: GunFireModeDefinition;
-  secondary?: GunFireModeDefinition;
 };
 
 type NormalizedGunDefinition = {
   hardpoint: THREE.Object3D;
   primary: Required<GunFireModeDefinition>;
-  secondary?: Required<GunFireModeDefinition>;
 };
 
 type GunControllerParams = {
@@ -43,7 +41,7 @@ type GunControllerParams = {
   guns: readonly GunDefinition[];
   playerRoot: THREE.Group;
   scene: THREE.Scene;
-  enablePointerSecondaryFire?: boolean;
+  hardpointAimOffsetScale?: number;
   minAimDistanceFromShip?: number;
   maxAimAngleRadians?: number;
   targetHurtboxes?: readonly HurtboxComponent[];
@@ -61,7 +59,7 @@ export function createGunController({
   guns,
   playerRoot,
   scene,
-  enablePointerSecondaryFire = true,
+  hardpointAimOffsetScale = 1,
   minAimDistanceFromShip = MIN_AIM_DISTANCE_FROM_SHIP,
   maxAimAngleRadians = FULL_AIM_ARC_RADIANS,
   targetHurtboxes = []
@@ -73,6 +71,9 @@ export function createGunController({
   const crossForwardAim = new THREE.Vector3();
   const up = new THREE.Vector3(0, 1, 0);
   const shipToAim = new THREE.Vector3();
+  const aimTargetWorld = new THREE.Vector3();
+  const hardpointLocalOffset = new THREE.Vector3();
+  const hardpointWorldOffset = new THREE.Vector3();
   const projectiles: ProjectileInstance[] = [];
   const sparkBursts = createShipGunSparkBurstSystem(scene, {
     sparkCountPerBurst: PLAYER_CANNON_MUZZLE_SPARK_COUNT,
@@ -84,19 +85,25 @@ export function createGunController({
   const hitSparkExplosions = createLaserHitSparkExplosionSystem(scene);
   const projectilesRoot = new THREE.Group();
   const normalizedGuns = normalizeGunDefinitions(guns);
-  const primaryCooldowns = normalizedGuns.map(() => 0);
-  const secondaryCooldowns = normalizedGuns.map(() => 0);
+  const primaryInitialCooldowns = normalizedGuns.map((gun) => {
+    const interval = Math.max(0.001, gun.primary.fireIntervalSeconds);
+    const offset = gun.primary.phaseOffsetSeconds ?? 0;
+    return THREE.MathUtils.euclideanModulo(offset, interval);
+  });
+  const primaryCooldowns = [...primaryInitialCooldowns];
   const primaryFireIntervals = normalizedGuns.map((gun) =>
     Math.max(0.001, gun.primary.fireIntervalSeconds)
-  );
-  const secondaryFireIntervals = normalizedGuns.map((gun) =>
-    gun.secondary ? Math.max(0.001, gun.secondary.fireIntervalSeconds) : Number.POSITIVE_INFINITY
   );
   const maxAimClampRadians = THREE.MathUtils.clamp(maxAimAngleRadians, 0, Math.PI);
   scene.add(projectilesRoot);
 
+  const resetPrimaryCooldowns = (): void => {
+    for (let i = 0; i < primaryCooldowns.length; i += 1) {
+      primaryCooldowns[i] = primaryInitialCooldowns[i] ?? 0;
+    }
+  };
+
   let primaryFireHeld = false;
-  let secondaryFireHeld = false;
   let enabled = true;
   let hasLastYaw = false;
   let lastYaw = 0;
@@ -105,14 +112,7 @@ export function createGunController({
   const onPointerDown = (event: PointerEvent): void => {
     if (event.button === 0) {
       primaryFireHeld = true;
-      primaryCooldowns.fill(0);
-      event.preventDefault();
-      return;
-    }
-
-    if (enablePointerSecondaryFire && event.button === 2) {
-      secondaryFireHeld = true;
-      secondaryCooldowns.fill(0);
+      resetPrimaryCooldowns();
       event.preventDefault();
       return;
     }
@@ -121,12 +121,6 @@ export function createGunController({
   const onPointerUp = (event: PointerEvent): void => {
     if (event.button === 0) {
       primaryFireHeld = false;
-      event.preventDefault();
-      return;
-    }
-
-    if (enablePointerSecondaryFire && event.button === 2) {
-      secondaryFireHeld = false;
       event.preventDefault();
       return;
     }
@@ -146,15 +140,26 @@ export function createGunController({
     playerState: PlayerControllerState
   ): void => {
     fallbackForward.copy(playerState.forward).normalize();
-    shipToAim.subVectors(aimReticle.position, playerRoot.position);
-    const useForwardOnly = shipToAim.lengthSq() < minAimDistanceFromShip * minAimDistanceFromShip;
-
     gun.hardpoint.getWorldPosition(muzzleWorld);
+    aimTargetWorld.copy(aimReticle.position);
+    if (hardpointAimOffsetScale !== 0) {
+      hardpointLocalOffset.copy(muzzleWorld);
+      playerRoot.worldToLocal(hardpointLocalOffset);
+      hardpointLocalOffset.y = 0;
+      if (hardpointLocalOffset.lengthSq() > 0.000001) {
+        hardpointWorldOffset.copy(hardpointLocalOffset).applyQuaternion(playerRoot.quaternion);
+        hardpointWorldOffset.y = 0;
+        aimTargetWorld.addScaledVector(hardpointWorldOffset, hardpointAimOffsetScale);
+      }
+    }
+
+    shipToAim.subVectors(aimTargetWorld, playerRoot.position);
+    const useForwardOnly = shipToAim.lengthSq() < minAimDistanceFromShip * minAimDistanceFromShip;
 
     if (useForwardOnly) {
       aimDirection.copy(fallbackForward);
     } else {
-      aimDirection.subVectors(aimReticle.position, muzzleWorld);
+      aimDirection.subVectors(aimTargetWorld, muzzleWorld);
       if (aimDirection.lengthSq() < 0.000001) {
         aimDirection.copy(fallbackForward);
       } else {
@@ -212,7 +217,6 @@ export function createGunController({
     lastYaw = playerState.yaw;
 
     const gamepadPrimaryFireHeld = isGamepadFireButtonHeld(GAMEPAD_PRIMARY_FIRE_BUTTON_INDEX);
-    const gamepadSecondaryFireHeld = isGamepadFireButtonHeld(GAMEPAD_SECONDARY_FIRE_BUTTON_INDEX);
 
     if (enabled && (primaryFireHeld || gamepadPrimaryFireHeld)) {
       for (let i = 0; i < normalizedGuns.length; i += 1) {
@@ -224,24 +228,7 @@ export function createGunController({
         }
       }
     } else {
-      primaryCooldowns.fill(0);
-    }
-
-    if (enabled && (secondaryFireHeld || gamepadSecondaryFireHeld)) {
-      for (let i = 0; i < normalizedGuns.length; i += 1) {
-        const gun = normalizedGuns[i];
-        if (!gun.secondary) {
-          continue;
-        }
-
-        secondaryCooldowns[i] -= deltaTime;
-        while (secondaryCooldowns[i] <= 0) {
-          spawnShot(gun, gun.secondary.projectileFactory, playerState);
-          secondaryCooldowns[i] += secondaryFireIntervals[i];
-        }
-      }
-    } else {
-      secondaryCooldowns.fill(0);
+      resetPrimaryCooldowns();
     }
 
     for (let i = projectiles.length - 1; i >= 0; i -= 1) {
@@ -285,9 +272,6 @@ export function createGunController({
     const uniqueFactories = new Set<ProjectileFactory>();
     for (const gun of normalizedGuns) {
       uniqueFactories.add(gun.primary.projectileFactory);
-      if (gun.secondary) {
-        uniqueFactories.add(gun.secondary.projectileFactory);
-      }
     }
     for (const factory of uniqueFactories) {
       factory.dispose?.();
@@ -300,9 +284,7 @@ export function createGunController({
       enabled = value;
       if (!enabled) {
         primaryFireHeld = false;
-        secondaryFireHeld = false;
-        primaryCooldowns.fill(0);
-        secondaryCooldowns.fill(0);
+        resetPrimaryCooldowns();
       }
     },
     dispose
@@ -348,15 +330,9 @@ function normalizeGunDefinitions(guns: readonly GunDefinition[]): NormalizedGunD
         primary: {
           fireIntervalSeconds:
             primaryProfile.fireIntervalSeconds ?? DEFAULT_GUN_FIRE_INTERVAL_SECONDS,
+          phaseOffsetSeconds: primaryProfile.phaseOffsetSeconds ?? 0,
           projectileFactory: primaryProfile.projectileFactory
-        },
-        secondary: gun.secondary
-          ? {
-              fireIntervalSeconds:
-                gun.secondary.fireIntervalSeconds ?? DEFAULT_GUN_FIRE_INTERVAL_SECONDS,
-              projectileFactory: gun.secondary.projectileFactory
-            }
-          : undefined
+        }
       };
     })
     .filter((gun): gun is NormalizedGunDefinition => gun !== null);
