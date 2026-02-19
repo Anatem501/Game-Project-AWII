@@ -12,7 +12,7 @@ export const CANNON_SECONDARY_COMPONENT_OPTIONS = ["charged_laser_spike_secondar
 
 export type CannonSecondaryComponentId = (typeof CANNON_SECONDARY_COMPONENT_OPTIONS)[number];
 
-export const MISSILE_BAY_COMPONENT_OPTIONS = ["micro_missile_swarm_bay"] as const;
+export const MISSILE_BAY_COMPONENT_OPTIONS = ["concussive_barrage_missiles"] as const;
 
 export type MissileBayComponentId = (typeof MISSILE_BAY_COMPONENT_OPTIONS)[number];
 
@@ -24,7 +24,7 @@ export const DEFAULT_CANNON_PRIMARY_COMPONENT_ID: CannonPrimaryComponentId =
   "repeating_laserbolt_fire";
 export const DEFAULT_CANNON_SECONDARY_COMPONENT_ID: CannonSecondaryComponentId =
   "charged_laser_spike_secondary";
-export const DEFAULT_MISSILE_BAY_COMPONENT_ID: MissileBayComponentId = "micro_missile_swarm_bay";
+export const DEFAULT_MISSILE_BAY_COMPONENT_ID: MissileBayComponentId = "concussive_barrage_missiles";
 export const DEFAULT_ENERGY_LAUNCHER_COMPONENT_ID: EnergyLauncherComponentId =
   "arc_plasma_emitter";
 
@@ -50,6 +50,16 @@ export type CannonSecondaryComponentDefinition = WeaponComponentPresentation & {
 
 export type MissileBayComponentDefinition = WeaponComponentPresentation & {
   id: MissileBayComponentId;
+  burstFireIntervalSeconds: number;
+  chargeInitialDelaySeconds: number;
+  chargeStepSeconds: number;
+  explosionRadius: number;
+  proximityFuseRadius: number;
+  reloadSeconds: number;
+  triggerFireIntervalSeconds: number;
+  missileDamage: number;
+  missileLifetimeSeconds: number;
+  missileSpeed: number;
 };
 
 export type EnergyLauncherComponentDefinition = WeaponComponentPresentation & {
@@ -152,14 +162,24 @@ const CANNON_SECONDARY_COMPONENTS: Record<
 };
 
 const MISSILE_BAY_COMPONENTS: Record<MissileBayComponentId, MissileBayComponentDefinition> = {
-  micro_missile_swarm_bay: {
-    id: "micro_missile_swarm_bay",
-    name: "Micro Missile Swarm Bay",
+  concussive_barrage_missiles: {
+    id: "concussive_barrage_missiles",
+    name: "Concussive Barrage missiles",
     weaponType: "Missile Bay",
-    fireType: "Secondary",
-    damageType: "Explosive",
+    fireType: "Payload",
+    damageType: "Concussive",
     description:
-      "Foundation component for upcoming missile bay functionality. Launch logic and tracking are in progress."
+      "Standard Concussive Missile V01 payload. Missiles launch in straight-flight barrages and detonate in a medium blast area.",
+    burstFireIntervalSeconds: 0.12,
+    chargeInitialDelaySeconds: 1,
+    chargeStepSeconds: 0.5,
+    explosionRadius: 3.25,
+    proximityFuseRadius: 1.25,
+    reloadSeconds: 1,
+    triggerFireIntervalSeconds: 0.35,
+    missileDamage: 26,
+    missileLifetimeSeconds: 4.6,
+    missileSpeed: 16
   }
 };
 
@@ -196,7 +216,9 @@ export function getCannonSecondaryComponentDefinition(
 export function getMissileBayComponentDefinition(
   componentId: MissileBayComponentId
 ): MissileBayComponentDefinition {
-  return MISSILE_BAY_COMPONENTS[componentId] ?? MISSILE_BAY_COMPONENTS.micro_missile_swarm_bay;
+  return (
+    MISSILE_BAY_COMPONENTS[componentId] ?? MISSILE_BAY_COMPONENTS.concussive_barrage_missiles
+  );
 }
 
 export function getEnergyLauncherComponentDefinition(
@@ -204,4 +226,3 @@ export function getEnergyLauncherComponentDefinition(
 ): EnergyLauncherComponentDefinition {
   return ENERGY_LAUNCHER_COMPONENTS[componentId] ?? ENERGY_LAUNCHER_COMPONENTS.arc_plasma_emitter;
 }
-

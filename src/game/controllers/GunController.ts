@@ -43,6 +43,7 @@ type GunControllerParams = {
   guns: readonly GunDefinition[];
   playerRoot: THREE.Group;
   scene: THREE.Scene;
+  enablePointerSecondaryFire?: boolean;
   minAimDistanceFromShip?: number;
   maxAimAngleRadians?: number;
   targetHurtboxes?: readonly HurtboxComponent[];
@@ -60,6 +61,7 @@ export function createGunController({
   guns,
   playerRoot,
   scene,
+  enablePointerSecondaryFire = true,
   minAimDistanceFromShip = MIN_AIM_DISTANCE_FROM_SHIP,
   maxAimAngleRadians = FULL_AIM_ARC_RADIANS,
   targetHurtboxes = []
@@ -108,7 +110,7 @@ export function createGunController({
       return;
     }
 
-    if (event.button === 2) {
+    if (enablePointerSecondaryFire && event.button === 2) {
       secondaryFireHeld = true;
       secondaryCooldowns.fill(0);
       event.preventDefault();
@@ -123,7 +125,7 @@ export function createGunController({
       return;
     }
 
-    if (event.button === 2) {
+    if (enablePointerSecondaryFire && event.button === 2) {
       secondaryFireHeld = false;
       event.preventDefault();
       return;

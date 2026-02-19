@@ -9,6 +9,7 @@ type PlayerRigParams = {
   gunHardpointLocalOffsets?: readonly THREE.Vector3[];
   autoAlignGunHardpointsToModel?: boolean;
   onThrusterSocketsResolved?: (thrusterLocalOffsets: THREE.Vector3[], thrusterSizeScales: number[]) => void;
+  onMissileCellSocketsResolved?: (missileCellSockets: MissileCellSocketLocalOffset[]) => void;
 };
 
 export type PlayerRig = {
@@ -18,6 +19,11 @@ export type PlayerRig = {
 
 export type ShipRigParams = PlayerRigParams;
 export type ShipRig = PlayerRig;
+export type MissileCellSocketLocalOffset = {
+  bayIndex: number;
+  cellIndex: number;
+  localOffset: THREE.Vector3;
+};
 
 const DEFAULT_GUN_HARDPOINT_LOCAL_OFFSETS: readonly THREE.Vector3[] = [
   new THREE.Vector3(-0.8, 0.24, -2.1),
@@ -33,7 +39,8 @@ export function createPlayerRig(
     modelLocalOffset,
     gunHardpointLocalOffsets,
     autoAlignGunHardpointsToModel,
-    onThrusterSocketsResolved
+    onThrusterSocketsResolved,
+    onMissileCellSocketsResolved
   }: PlayerRigParams
 ): PlayerRig {
   const playerRoot = new THREE.Group();
@@ -60,7 +67,8 @@ export function createPlayerRig(
     modelSizeMultiplier,
     modelLocalOffset,
     shouldAutoAlignGunHardpoints,
-    onThrusterSocketsResolved
+    onThrusterSocketsResolved,
+    onMissileCellSocketsResolved
   );
 
   return { gunHardpoints, playerRoot };
@@ -78,6 +86,9 @@ function loadPlayerModel(
   autoAlignGunHardpointsToModel: boolean,
   onThrusterSocketsResolved:
     | ((thrusterLocalOffsets: THREE.Vector3[], thrusterSizeScales: number[]) => void)
+    | undefined,
+  onMissileCellSocketsResolved:
+    | ((missileCellSockets: MissileCellSocketLocalOffset[]) => void)
     | undefined
 ): void {
   const loader = new GLTFLoader();
@@ -115,6 +126,9 @@ function loadPlayerModel(
       const thrusterSocketOffsets = extractSocketLocalOffsets(playerRoot, model, "thruster");
       const thrusterSocketSizeScales = extractSocketSizeScales(model, "thruster");
       onThrusterSocketsResolved?.(thrusterSocketOffsets, thrusterSocketSizeScales);
+
+      const missileCellSocketOffsets = extractMissileCellSocketLocalOffsets(playerRoot, model);
+      onMissileCellSocketsResolved?.(missileCellSocketOffsets);
     },
     undefined,
     (error) => {
@@ -228,6 +242,22 @@ function extractSocketSizeScales(model: THREE.Object3D, socketPrefix: string): n
   });
 }
 
+function extractMissileCellSocketLocalOffsets(
+  playerRoot: THREE.Object3D,
+  model: THREE.Object3D
+): MissileCellSocketLocalOffset[] {
+  const socketNodes = findMissileCellSocketNodes(model);
+  const worldPosition = new THREE.Vector3();
+  return socketNodes.map((socketNode) => {
+    socketNode.node.getWorldPosition(worldPosition);
+    return {
+      bayIndex: socketNode.bayIndex,
+      cellIndex: socketNode.cellIndex,
+      localOffset: playerRoot.worldToLocal(worldPosition.clone())
+    };
+  });
+}
+
 function findSocketNodes(model: THREE.Object3D, socketPrefix: string): THREE.Object3D[] {
   const matched: Array<{ index: number; node: THREE.Object3D }> = [];
   model.traverse((node) => {
@@ -247,6 +277,36 @@ function findSocketNodes(model: THREE.Object3D, socketPrefix: string): THREE.Obj
   return matched.map((entry) => entry.node);
 }
 
+function findMissileCellSocketNodes(
+  model: THREE.Object3D
+): Array<{ bayIndex: number; cellIndex: number; node: THREE.Object3D }> {
+  const matched: Array<{ bayIndex: number; cellIndex: number; node: THREE.Object3D }> = [];
+  model.traverse((node) => {
+    const parsed = parseMissileCellSocketName(node.name);
+    if (!parsed) {
+      return;
+    }
+
+    matched.push({
+      bayIndex: parsed.bayIndex,
+      cellIndex: parsed.cellIndex,
+      node
+    });
+  });
+
+  matched.sort((a, b) => {
+    if (a.bayIndex !== b.bayIndex) {
+      return a.bayIndex - b.bayIndex;
+    }
+    if (a.cellIndex !== b.cellIndex) {
+      return a.cellIndex - b.cellIndex;
+    }
+    return a.node.name.localeCompare(b.node.name);
+  });
+
+  return matched;
+}
+
 function parseSocketIndex(name: string, socketPrefix: string): number | null {
   const compactName = name.replace(/\s+/g, "");
   const escapedPrefix = escapeRegex(socketPrefix.trim());
@@ -258,6 +318,41 @@ function parseSocketIndex(name: string, socketPrefix: string): number | null {
 
   const parsed = Number.parseInt(match[1], 10);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseMissileCellSocketName(
+  name: string
+): { bayIndex: number; cellIndex: number } | null {
+  const compactName = name.replace(/\s+/g, "").replace(/\.\d+$/, "");
+
+  const bayCellMatch = compactName.match(
+    /^Missile(?:[_-])?Bay(?:[_-])?(\d+)(?:[_-])?Cell(?:[_-])?(\d+)$/i
+  );
+  if (bayCellMatch) {
+    const bayIndex = Number.parseInt(bayCellMatch[1], 10);
+    const cellIndex = Number.parseInt(bayCellMatch[2], 10);
+    if (Number.isFinite(bayIndex) && Number.isFinite(cellIndex)) {
+      return { bayIndex, cellIndex };
+    }
+  }
+
+  const cellOnlyMatch = compactName.match(/^Missile(?:[_-])?Cell(?:[_-])?(\d+)$/i);
+  if (cellOnlyMatch) {
+    const cellIndex = Number.parseInt(cellOnlyMatch[1], 10);
+    if (Number.isFinite(cellIndex)) {
+      return { bayIndex: 1, cellIndex };
+    }
+  }
+
+  const missileOnlyMatch = compactName.match(/^Missile(?:[_-])?(\d+)$/i);
+  if (missileOnlyMatch) {
+    const cellIndex = Number.parseInt(missileOnlyMatch[1], 10);
+    if (Number.isFinite(cellIndex)) {
+      return { bayIndex: 1, cellIndex };
+    }
+  }
+
+  return null;
 }
 
 function escapeRegex(value: string): string {

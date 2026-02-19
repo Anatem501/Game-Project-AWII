@@ -4,6 +4,7 @@ import type { HurtboxComponent } from "../components/combat/HurtboxComponent";
 import enemyDualLaserTurretModelUrl from "../../assets/models/DualGunTurrretV1.glb?url";
 import { createCameraController } from "../controllers/CameraController";
 import { createGunController } from "../controllers/GunController";
+import { createMissileBayController } from "../controllers/MissileBayController";
 import { createPlayerController } from "../controllers/PlayerController";
 import { createShipController } from "../controllers/ShipController";
 import { createLaserBoltFactory } from "../controllers/projectiles/LaserBoltFactory";
@@ -14,7 +15,8 @@ import { getShipDefinition } from "../ships/ShipCatalog";
 import { createDefaultShipSelection, type ShipSelectionConfig } from "../ships/ShipSelection";
 import {
   getCannonPrimaryComponentDefinition,
-  getCannonSecondaryComponentDefinition
+  getCannonSecondaryComponentDefinition,
+  getMissileBayComponentDefinition
 } from "../weapons/WeaponComponentCatalog";
 import { createPlayerHealthHud } from "../ui/PlayerHealthHud";
 import { createEnvironment } from "./factories/EnvironmentFactory";
@@ -39,10 +41,21 @@ const ENEMY_DUAL_TURRET_HURTBOX_LOCAL_OFFSET = new THREE.Vector3(0, 1, 0);
 const TEST_MAP_TURRET_RESPAWN_SECONDS = 10;
 const PLAYER_RESPAWN_SECONDS = 5;
 const CAMERA_ARROW_KEY_ZOOM_ENABLED = true;
+const LOCKING_RETICLE_SPIN_RATE_RADIANS_PER_SECOND = THREE.MathUtils.degToRad(180);
+const LOCKED_RETICLE_SPIN_RATE_RADIANS_PER_SECOND = THREE.MathUtils.degToRad(120);
 const DEFAULT_PLAYER_THRUSTER_LOCAL_OFFSETS: readonly THREE.Vector3[] = [
   new THREE.Vector3(-0.12, 0.58, 1.0),
   new THREE.Vector3(0.12, 0.58, 1.0)
 ];
+const MAURADER_DEFAULT_MISSILE_CELL_LOCAL_OFFSETS: readonly THREE.Vector3[] = [
+  new THREE.Vector3(-0.42, 0.92, -0.34),
+  new THREE.Vector3(-0.14, 0.9, -0.42),
+  new THREE.Vector3(0.12, 0.9, -0.44),
+  new THREE.Vector3(0.38, 0.92, -0.34)
+];
+const BEARCLAW_MISSILE_LAUNCHER_COUNT = 2;
+const BEARCLAW_MISSILE_BAY_COUNT = 2;
+const BEARCLAW_MISSILE_CELLS_PER_BAY = 4;
 
 export type TopDownSceneController = {
   update: (deltaTime: number) => void;
@@ -65,7 +78,9 @@ export function setupTopDownScene(
   const selectedSecondaryFire = getCannonSecondaryComponentDefinition(
     selection.secondaryFireComponentId
   );
+  const selectedMissilePayload = getMissileBayComponentDefinition(selection.missileComponentId);
   let playerThrusterEffect: ReturnType<typeof createPlayerThrusterEffect> | null = null;
+  let missileBayController: ReturnType<typeof createMissileBayController> | null = null;
 
   const { floor, gridRoot } = createEnvironment(scene, {
     floorY: FLOOR_Y,
@@ -76,6 +91,7 @@ export function setupTopDownScene(
     gridY: GRID_Y
   });
 
+  const missileCellLaunchers: THREE.Object3D[] = [];
   const { gunHardpoints, playerRoot } = createShipRig(scene, {
     autoAlignGunHardpointsToModel: selectedShip.autoAlignGunHardpointsToModel,
     gunHardpointLocalOffsets: selectedShip.gunHardpointLocalOffsets,
@@ -99,12 +115,62 @@ export function setupTopDownScene(
             ? thrusterSizeScales
             : undefined
       });
+    },
+    onMissileCellSocketsResolved: (missileCellSockets) => {
+      if (missileCellSockets.length === 0) {
+        return;
+      }
+      const selectedMissileCells =
+        selectedShip.id === "vanguard_mk2"
+          ? missileCellSockets.filter(
+              (socket) =>
+                socket.bayIndex <= BEARCLAW_MISSILE_BAY_COUNT &&
+                socket.cellIndex <= BEARCLAW_MISSILE_CELLS_PER_BAY
+            )
+          : missileCellSockets;
+      if (selectedShip.id === "vanguard_mk2") {
+        selectedMissileCells.sort((a, b) => {
+          if (a.cellIndex !== b.cellIndex) {
+            return a.cellIndex - b.cellIndex;
+          }
+          return a.bayIndex - b.bayIndex;
+        });
+      }
+      for (const launcher of missileCellLaunchers) {
+        launcher.removeFromParent();
+      }
+      missileCellLaunchers.length = 0;
+      for (const missileCell of selectedMissileCells) {
+        const launcher = new THREE.Object3D();
+        launcher.position.copy(missileCell.localOffset);
+        playerRoot.add(launcher);
+        missileCellLaunchers.push(launcher);
+      }
+      missileBayController?.setMissileCells(missileCellLaunchers);
     }
   });
+  if (selectedShip.id === "swift_interceptor") {
+    for (const localOffset of MAURADER_DEFAULT_MISSILE_CELL_LOCAL_OFFSETS) {
+      const launcher = new THREE.Object3D();
+      launcher.position.copy(localOffset);
+      playerRoot.add(launcher);
+      missileCellLaunchers.push(launcher);
+    }
+  }
 
   const { inputAimReticle, trueAimReticle } = createReticles(scene, {
     maxDistanceFromShip: RETICLE_MAX_DISTANCE_FROM_SHIP,
     reticleHeight: RETICLE_HEIGHT
+  });
+  const inputReticleMaterials: THREE.MeshBasicMaterial[] = [];
+  inputAimReticle.traverse((node) => {
+    if (!(node instanceof THREE.Mesh)) {
+      return;
+    }
+    if (!(node.material instanceof THREE.MeshBasicMaterial)) {
+      return;
+    }
+    inputReticleMaterials.push(node.material);
   });
   playerThrusterEffect = createPlayerThrusterEffect(playerRoot, {
     thrusterLocalOffsets: DEFAULT_PLAYER_THRUSTER_LOCAL_OFFSETS,
@@ -236,10 +302,25 @@ export function setupTopDownScene(
   const gunController = createGunController({
     aimReticle: inputAimReticle,
     canvas,
+    enablePointerSecondaryFire: false,
     guns,
     maxAimAngleRadians: GUN_MAX_AIM_ANGLE_RADIANS,
     minAimDistanceFromShip: GUN_MIN_AIM_DISTANCE_FROM_SHIP,
     playerRoot,
+    scene,
+    targetHurtboxes: enemyTargetHurtboxes
+  });
+  missileBayController = createMissileBayController({
+    canvas,
+    cellsPerLauncherHint:
+      selectedShip.id === "vanguard_mk2" ? BEARCLAW_MISSILE_CELLS_PER_BAY : undefined,
+    launcherCountHint:
+      selectedShip.id === "vanguard_mk2" ? BEARCLAW_MISSILE_LAUNCHER_COUNT : undefined,
+    minAimDistanceFromShip: GUN_MIN_AIM_DISTANCE_FROM_SHIP,
+    maxAimAngleRadians: GUN_MAX_AIM_ANGLE_RADIANS,
+    missileCells: missileCellLaunchers,
+    playerRoot,
+    payload: selectedMissilePayload,
     scene,
     targetHurtboxes: enemyTargetHurtboxes
   });
@@ -256,9 +337,12 @@ export function setupTopDownScene(
   });
   const hudRoot = canvas.parentElement ?? document.body;
   const playerHealthHud = createPlayerHealthHud(hudRoot);
-  playerHealthHud.update(playerHealth.getSnapshot());
+  playerHealthHud.update(playerHealth.getSnapshot(), missileBayController?.getStatus());
   const previousPlayerPosition = playerRoot.position.clone();
   const playerVelocity = new THREE.Vector3();
+  let reticleLockSpinYaw = 0;
+  const defaultInputReticleColor = new THREE.Color(0x7ce0ff);
+  const lockingInputReticleColor = new THREE.Color(0xff6666);
 
   const update = (deltaTime: number): void => {
     let playerState = shipController.getState();
@@ -266,6 +350,31 @@ export function setupTopDownScene(
       playerState = playerController.update(deltaTime, camera);
     }
     gunController.update(deltaTime, playerState);
+    missileBayController?.update(
+      deltaTime,
+      playerState.forward,
+      playerState.yaw,
+      camera,
+      inputAimReticle.position
+    );
+    const missileStatus = missileBayController?.getStatus();
+    if (missileStatus?.isLocking) {
+      reticleLockSpinYaw += LOCKING_RETICLE_SPIN_RATE_RADIANS_PER_SECOND * deltaTime;
+      for (const material of inputReticleMaterials) {
+        material.color.copy(lockingInputReticleColor);
+      }
+    } else if ((missileStatus?.lockedTargetCount ?? 0) > 0) {
+      reticleLockSpinYaw += LOCKED_RETICLE_SPIN_RATE_RADIANS_PER_SECOND * deltaTime;
+      for (const material of inputReticleMaterials) {
+        material.color.copy(defaultInputReticleColor);
+      }
+    } else {
+      reticleLockSpinYaw = THREE.MathUtils.damp(reticleLockSpinYaw, 0, 12, deltaTime);
+      for (const material of inputReticleMaterials) {
+        material.color.copy(defaultInputReticleColor);
+      }
+    }
+    inputAimReticle.rotation.y = playerState.yaw + reticleLockSpinYaw;
 
     if (enemyDualLaserBoltTurret && enemyDualTurretHealth) {
       enemyDualTurretHealth.update(deltaTime);
@@ -289,6 +398,7 @@ export function setupTopDownScene(
         playerRespawnSecondsRemaining = PLAYER_RESPAWN_SECONDS;
         playerHurtbox.setEnabled(false);
         gunController.setEnabled(false);
+        missileBayController?.setEnabled(false);
       }
     } else {
       playerRespawnSecondsRemaining = Math.max(0, playerRespawnSecondsRemaining - deltaTime);
@@ -297,12 +407,13 @@ export function setupTopDownScene(
         shipController.reset(playerSpawnPosition, playerSpawnYaw);
         playerHurtbox.setEnabled(true);
         gunController.setEnabled(true);
+        missileBayController?.setEnabled(true);
         playerIsDestroyed = false;
         playerState = shipController.getState();
       }
     }
 
-    playerHealthHud.update(playerHealth.getSnapshot());
+    playerHealthHud.update(playerHealth.getSnapshot(), missileStatus);
     if (deltaTime > 0) {
       playerVelocity
         .copy(playerState.position)
@@ -330,6 +441,8 @@ export function setupTopDownScene(
   const dispose = (): void => {
     playerController.dispose();
     gunController.dispose();
+    missileBayController?.dispose();
+    missileBayController = null;
     cameraController.dispose();
     despawnEnemyDualLaserBoltTurret();
     playerThrusterEffect?.dispose();
