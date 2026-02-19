@@ -11,11 +11,30 @@ const MIN_AIM_DISTANCE_FROM_SHIP = 1;
 const FULL_AIM_ARC_RADIANS = Math.PI;
 const TURN_RATE_EPSILON_RADIANS_PER_SECOND = THREE.MathUtils.degToRad(3);
 const GAMEPAD_PRIMARY_FIRE_BUTTON_INDEX = 5;
+const GAMEPAD_SECONDARY_FIRE_BUTTON_INDEX = 4;
+const PLAYER_CANNON_MUZZLE_SPARK_COUNT = 18;
+const PLAYER_CANNON_MUZZLE_BURST_LIFETIME_SECONDS = 0.11;
+const PLAYER_CANNON_MUZZLE_SPEED_MIN = 1.5;
+const PLAYER_CANNON_MUZZLE_SPEED_MAX = 5.1;
+const PLAYER_CANNON_MUZZLE_SPREAD_RADIANS = THREE.MathUtils.degToRad(9);
+
+type GunFireModeDefinition = {
+  fireIntervalSeconds?: number;
+  projectileFactory: ProjectileFactory;
+};
 
 export type GunDefinition = {
-  fireIntervalSeconds?: number;
   hardpoint: THREE.Object3D;
-  projectileFactory: ProjectileFactory;
+  fireIntervalSeconds?: number;
+  projectileFactory?: ProjectileFactory;
+  primary?: GunFireModeDefinition;
+  secondary?: GunFireModeDefinition;
+};
+
+type NormalizedGunDefinition = {
+  hardpoint: THREE.Object3D;
+  primary: Required<GunFireModeDefinition>;
+  secondary?: Required<GunFireModeDefinition>;
 };
 
 type GunControllerParams = {
@@ -53,43 +72,77 @@ export function createGunController({
   const up = new THREE.Vector3(0, 1, 0);
   const shipToAim = new THREE.Vector3();
   const projectiles: ProjectileInstance[] = [];
-  const sparkBursts = createShipGunSparkBurstSystem(scene);
+  const sparkBursts = createShipGunSparkBurstSystem(scene, {
+    sparkCountPerBurst: PLAYER_CANNON_MUZZLE_SPARK_COUNT,
+    burstLifetimeSeconds: PLAYER_CANNON_MUZZLE_BURST_LIFETIME_SECONDS,
+    speedMin: PLAYER_CANNON_MUZZLE_SPEED_MIN,
+    speedMax: PLAYER_CANNON_MUZZLE_SPEED_MAX,
+    spreadRadians: PLAYER_CANNON_MUZZLE_SPREAD_RADIANS
+  });
   const hitSparkExplosions = createLaserHitSparkExplosionSystem(scene);
   const projectilesRoot = new THREE.Group();
-  const gunCooldowns = guns.map(() => 0);
-  const gunFireIntervals = guns.map((gun) =>
-    Math.max(0.001, gun.fireIntervalSeconds ?? DEFAULT_GUN_FIRE_INTERVAL_SECONDS)
+  const normalizedGuns = normalizeGunDefinitions(guns);
+  const primaryCooldowns = normalizedGuns.map(() => 0);
+  const secondaryCooldowns = normalizedGuns.map(() => 0);
+  const primaryFireIntervals = normalizedGuns.map((gun) =>
+    Math.max(0.001, gun.primary.fireIntervalSeconds)
+  );
+  const secondaryFireIntervals = normalizedGuns.map((gun) =>
+    gun.secondary ? Math.max(0.001, gun.secondary.fireIntervalSeconds) : Number.POSITIVE_INFINITY
   );
   const maxAimClampRadians = THREE.MathUtils.clamp(maxAimAngleRadians, 0, Math.PI);
   scene.add(projectilesRoot);
 
-  let fireHeld = false;
+  let primaryFireHeld = false;
+  let secondaryFireHeld = false;
   let enabled = true;
   let hasLastYaw = false;
   let lastYaw = 0;
   let turnDirection = 0;
 
   const onPointerDown = (event: PointerEvent): void => {
-    if (event.button !== 0) {
+    if (event.button === 0) {
+      primaryFireHeld = true;
+      primaryCooldowns.fill(0);
+      event.preventDefault();
       return;
     }
 
-    fireHeld = true;
-    gunCooldowns.fill(0);
+    if (event.button === 2) {
+      secondaryFireHeld = true;
+      secondaryCooldowns.fill(0);
+      event.preventDefault();
+      return;
+    }
   };
 
   const onPointerUp = (event: PointerEvent): void => {
-    if (event.button !== 0) {
+    if (event.button === 0) {
+      primaryFireHeld = false;
+      event.preventDefault();
       return;
     }
 
-    fireHeld = false;
+    if (event.button === 2) {
+      secondaryFireHeld = false;
+      event.preventDefault();
+      return;
+    }
+  };
+
+  const onContextMenu = (event: MouseEvent): void => {
+    event.preventDefault();
   };
 
   canvas.addEventListener("pointerdown", onPointerDown);
   window.addEventListener("pointerup", onPointerUp);
+  canvas.addEventListener("contextmenu", onContextMenu);
 
-  const spawnShot = (gun: GunDefinition, playerState: PlayerControllerState): void => {
+  const spawnShot = (
+    gun: NormalizedGunDefinition,
+    projectileFactory: ProjectileFactory,
+    playerState: PlayerControllerState
+  ): void => {
     fallbackForward.copy(playerState.forward).normalize();
     shipToAim.subVectors(aimReticle.position, playerRoot.position);
     const useForwardOnly = shipToAim.lengthSq() < minAimDistanceFromShip * minAimDistanceFromShip;
@@ -123,7 +176,7 @@ export function createGunController({
       }
     }
 
-    const projectile = gun.projectileFactory.spawn({
+    const projectile = projectileFactory.spawn({
       direction: aimDirection,
       origin: muzzleWorld
     });
@@ -156,17 +209,37 @@ export function createGunController({
     }
     lastYaw = playerState.yaw;
 
-    const gamepadPrimaryFireHeld = isGamepadPrimaryFireHeld();
-    if (enabled && (fireHeld || gamepadPrimaryFireHeld)) {
-      for (let i = 0; i < guns.length; i += 1) {
-        gunCooldowns[i] -= deltaTime;
-        while (gunCooldowns[i] <= 0) {
-          spawnShot(guns[i], playerState);
-          gunCooldowns[i] += gunFireIntervals[i];
+    const gamepadPrimaryFireHeld = isGamepadFireButtonHeld(GAMEPAD_PRIMARY_FIRE_BUTTON_INDEX);
+    const gamepadSecondaryFireHeld = isGamepadFireButtonHeld(GAMEPAD_SECONDARY_FIRE_BUTTON_INDEX);
+
+    if (enabled && (primaryFireHeld || gamepadPrimaryFireHeld)) {
+      for (let i = 0; i < normalizedGuns.length; i += 1) {
+        const gun = normalizedGuns[i];
+        primaryCooldowns[i] -= deltaTime;
+        while (primaryCooldowns[i] <= 0) {
+          spawnShot(gun, gun.primary.projectileFactory, playerState);
+          primaryCooldowns[i] += primaryFireIntervals[i];
         }
       }
     } else {
-      gunCooldowns.fill(0);
+      primaryCooldowns.fill(0);
+    }
+
+    if (enabled && (secondaryFireHeld || gamepadSecondaryFireHeld)) {
+      for (let i = 0; i < normalizedGuns.length; i += 1) {
+        const gun = normalizedGuns[i];
+        if (!gun.secondary) {
+          continue;
+        }
+
+        secondaryCooldowns[i] -= deltaTime;
+        while (secondaryCooldowns[i] <= 0) {
+          spawnShot(gun, gun.secondary.projectileFactory, playerState);
+          secondaryCooldowns[i] += secondaryFireIntervals[i];
+        }
+      }
+    } else {
+      secondaryCooldowns.fill(0);
     }
 
     for (let i = projectiles.length - 1; i >= 0; i -= 1) {
@@ -197,6 +270,7 @@ export function createGunController({
   const dispose = (): void => {
     canvas.removeEventListener("pointerdown", onPointerDown);
     window.removeEventListener("pointerup", onPointerUp);
+    canvas.removeEventListener("contextmenu", onContextMenu);
 
     for (const projectile of projectiles) {
       projectile.dispose?.();
@@ -206,7 +280,13 @@ export function createGunController({
     projectilesRoot.clear();
     scene.remove(projectilesRoot);
 
-    const uniqueFactories = new Set<ProjectileFactory>(guns.map((gun) => gun.projectileFactory));
+    const uniqueFactories = new Set<ProjectileFactory>();
+    for (const gun of normalizedGuns) {
+      uniqueFactories.add(gun.primary.projectileFactory);
+      if (gun.secondary) {
+        uniqueFactories.add(gun.secondary.projectileFactory);
+      }
+    }
     for (const factory of uniqueFactories) {
       factory.dispose?.();
     }
@@ -217,15 +297,17 @@ export function createGunController({
     setEnabled: (value: boolean) => {
       enabled = value;
       if (!enabled) {
-        fireHeld = false;
-        gunCooldowns.fill(0);
+        primaryFireHeld = false;
+        secondaryFireHeld = false;
+        primaryCooldowns.fill(0);
+        secondaryCooldowns.fill(0);
       }
     },
     dispose
   };
 }
 
-function isGamepadPrimaryFireHeld(): boolean {
+function isGamepadFireButtonHeld(buttonIndex: number): boolean {
   const gamepads = navigator.getGamepads?.();
   if (!gamepads) {
     return false;
@@ -236,12 +318,46 @@ function isGamepadPrimaryFireHeld(): boolean {
       continue;
     }
 
-    if (gamepad.buttons[GAMEPAD_PRIMARY_FIRE_BUTTON_INDEX]?.pressed) {
+    if (gamepad.buttons[buttonIndex]?.pressed) {
       return true;
     }
   }
 
   return false;
+}
+
+function normalizeGunDefinitions(guns: readonly GunDefinition[]): NormalizedGunDefinition[] {
+  return guns
+    .map((gun) => {
+      const primaryProfile =
+        gun.primary ??
+        (gun.projectileFactory
+          ? {
+              fireIntervalSeconds: gun.fireIntervalSeconds,
+              projectileFactory: gun.projectileFactory
+            }
+          : undefined);
+      if (!primaryProfile) {
+        return null;
+      }
+
+      return {
+        hardpoint: gun.hardpoint,
+        primary: {
+          fireIntervalSeconds:
+            primaryProfile.fireIntervalSeconds ?? DEFAULT_GUN_FIRE_INTERVAL_SECONDS,
+          projectileFactory: primaryProfile.projectileFactory
+        },
+        secondary: gun.secondary
+          ? {
+              fireIntervalSeconds:
+                gun.secondary.fireIntervalSeconds ?? DEFAULT_GUN_FIRE_INTERVAL_SECONDS,
+              projectileFactory: gun.secondary.projectileFactory
+            }
+          : undefined
+      };
+    })
+    .filter((gun): gun is NormalizedGunDefinition => gun !== null);
 }
 
 function shortestAngleDelta(current: number, target: number): number {

@@ -61,6 +61,23 @@ export type HealthComponent = {
 const DEFAULT_MULTIPLIER = 1;
 const DEFAULT_ARMOR_REPAIR_EFFICIENCY = 0.5;
 
+export const GLOBAL_DAMAGE_MULTIPLIERS: DamageMultiplierMap = {
+  default: {
+    shield: 1,
+    armor: 1,
+    hull: 1
+  },
+  Laser: { shield: 1.15, armor: 0.9, hull: 1 },
+  Ion: { shield: 1.35, armor: 0.82, hull: 0.9 },
+  Plasma: { shield: 0.9, armor: 1.2, hull: 1.1 },
+  Solar: { shield: 1.1, armor: 1, hull: 1.05 },
+  Cryo: { shield: 0.95, armor: 1.05, hull: 1.05 },
+  Void: { shield: 1, armor: 0.95, hull: 1.25 },
+  Acid: { shield: 0.85, armor: 1.3, hull: 1.05 },
+  Kinetic: { shield: 0.9, armor: 1.1, hull: 1 },
+  Concussive: { shield: 0.95, armor: 1.15, hull: 1.08 }
+};
+
 export function createHealthComponent(config: HealthConfig): HealthComponent {
   const maxShield = clampMin(config.maxShield, 0);
   const maxArmor = clampMin(config.maxArmor, 0);
@@ -82,7 +99,9 @@ export function createHealthComponent(config: HealthConfig): HealthComponent {
   let armorDamageTaken = 0;
   let armorRepairApplied = 0;
   let shieldRechargeDelayRemaining = 0;
-  const normalizedDamageMultipliers = normalizeDamageMultipliers(config.damageMultipliers);
+  const normalizedDamageMultipliers = normalizeDamageMultipliers(
+    mergeDamageMultipliers(GLOBAL_DAMAGE_MULTIPLIERS, config.damageMultipliers)
+  );
 
   const getDamageMultiplier = (damageType: DamageType, layer: HealthLayer): number => {
     const layerMultipliers = normalizedDamageMultipliers[normalizeDamageTypeKey(damageType)];
@@ -283,4 +302,28 @@ function normalizeDamageMultipliers(
   }
 
   return normalized;
+}
+
+function mergeDamageMultipliers(
+  base: DamageMultiplierMap,
+  overrides: DamageMultiplierMap | undefined
+): DamageMultiplierMap {
+  const merged: DamageMultiplierMap = {};
+
+  for (const [key, layerMultipliers] of Object.entries(base)) {
+    merged[key] = { ...(layerMultipliers ?? {}) };
+  }
+
+  if (!overrides) {
+    return merged;
+  }
+
+  for (const [key, layerMultipliers] of Object.entries(overrides)) {
+    merged[key] = {
+      ...(merged[key] ?? {}),
+      ...(layerMultipliers ?? {})
+    };
+  }
+
+  return merged;
 }

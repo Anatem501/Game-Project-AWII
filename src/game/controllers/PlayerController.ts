@@ -80,6 +80,10 @@ export function createPlayerController({
     event.preventDefault();
   };
 
+  const clearMovementInputs = (): void => {
+    pressedKeys.clear();
+  };
+
   const updatePointerFromScreen = (clientX: number, clientY: number): void => {
     const rect = canvas.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) {
@@ -96,8 +100,21 @@ export function createPlayerController({
     clampAimPointerToViewportMargin(aimPointerNdc);
   };
 
+  const onWindowBlur = (): void => {
+    clearMovementInputs();
+  };
+
+  const onVisibilityChange = (): void => {
+    if (!document.hidden) {
+      return;
+    }
+    clearMovementInputs();
+  };
+
   window.addEventListener("keydown", onKeyDown, { passive: false });
   window.addEventListener("keyup", onKeyUp, { passive: false });
+  window.addEventListener("blur", onWindowBlur);
+  document.addEventListener("visibilitychange", onVisibilityChange);
   canvas.addEventListener("pointermove", onPointerMove);
 
   const initialRect = canvas.getBoundingClientRect();
@@ -268,6 +285,8 @@ export function createPlayerController({
   const dispose = (): void => {
     window.removeEventListener("keydown", onKeyDown);
     window.removeEventListener("keyup", onKeyUp);
+    window.removeEventListener("blur", onWindowBlur);
+    document.removeEventListener("visibilitychange", onVisibilityChange);
     canvas.removeEventListener("pointermove", onPointerMove);
   };
 

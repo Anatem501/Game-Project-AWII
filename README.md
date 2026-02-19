@@ -46,3 +46,4 @@ Notes:
 - `src/game/scenes/factories/PlayerFactory.ts` - Ship rig/model creation and configurable gun hardpoints
 - `src/game/ui/MainMenu.ts` - Start and mode select menus
 - `docs/design/` - Design documents
+- `docs/implementation/` - Live implementation notes (model sockets, UI behavior)

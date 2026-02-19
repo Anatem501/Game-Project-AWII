@@ -14,10 +14,6 @@ const SIDE_SHIP_SCALE = 1.5;
 const CENTER_SHIP_SCALE = 2.0;
 const SIDE_SHIP_OPACITY = 0.82;
 const CENTER_SHIP_OPACITY = 1;
-const SIDE_OVERLAY_INTENSITY = 0.28;
-const CENTER_OVERLAY_INTENSITY = 0.08;
-const SIDE_EMISSIVE_INTENSITY = 0.08;
-const CENTER_EMISSIVE_INTENSITY = 0.16;
 const ROTATION_SPEED_RADIANS = 0.5;
 
 export class ShipCarouselPreview {
@@ -197,13 +193,7 @@ export class ShipCarouselPreview {
     const shipInstance = template.clone(true);
     shipInstance.rotation.y = ship.modelYawOffset;
     normalizeModelToPedestal(shipInstance, isSelected ? CENTER_SHIP_SCALE : SIDE_SHIP_SCALE);
-    applyTintOverlayToModel(
-      shipInstance,
-      ship.previewTintHex,
-      isSelected ? CENTER_OVERLAY_INTENSITY : SIDE_OVERLAY_INTENSITY,
-      isSelected ? CENTER_SHIP_OPACITY : SIDE_SHIP_OPACITY,
-      isSelected ? CENTER_EMISSIVE_INTENSITY : SIDE_EMISSIVE_INTENSITY
-    );
+    applyPreviewMaterialState(shipInstance, isSelected ? CENTER_SHIP_OPACITY : SIDE_SHIP_OPACITY);
 
     slot.shipRoot.rotation.set(0, 0, 0);
     slot.shipRoot.add(shipInstance);
@@ -251,45 +241,35 @@ function normalizeModelToPedestal(model: THREE.Object3D, targetSize: number): vo
   model.position.y -= scaledBox.min.y;
 }
 
-function applyTintOverlayToModel(
+function applyPreviewMaterialState(
   root: THREE.Object3D,
-  tintHex: number,
-  overlayIntensity: number,
-  opacity: number,
-  emissiveIntensity: number
+  opacity: number
 ): void {
-  const tint = new THREE.Color(tintHex);
   root.traverse((node) => {
     if (!(node instanceof THREE.Mesh)) {
       return;
     }
 
     if (Array.isArray(node.material)) {
-      node.material = node.material.map((material) =>
-        tintMaterial(material, tint, overlayIntensity, opacity, emissiveIntensity)
-      );
+      node.material = node.material.map((material) => updatePreviewMaterial(material, opacity));
       return;
     }
 
-    node.material = tintMaterial(node.material, tint, overlayIntensity, opacity, emissiveIntensity);
+    node.material = updatePreviewMaterial(node.material, opacity);
   });
 }
 
-function tintMaterial(
+function updatePreviewMaterial(
   material: THREE.Material,
-  tint: THREE.Color,
-  overlayIntensity: number,
-  opacity: number,
-  emissiveIntensity: number
+  opacity: number
 ): THREE.Material {
   const cloned = material.clone();
   if (!(cloned instanceof THREE.MeshStandardMaterial)) {
     return cloned;
   }
 
-  cloned.color.lerp(tint, overlayIntensity);
-  cloned.emissive.copy(tint);
-  cloned.emissiveIntensity = emissiveIntensity;
+  cloned.emissive.setHex(0x000000);
+  cloned.emissiveIntensity = 0;
   cloned.transparent = opacity < 0.999;
   cloned.opacity = opacity;
   cloned.needsUpdate = true;

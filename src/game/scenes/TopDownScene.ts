@@ -12,6 +12,10 @@ import { createPlayerThrusterEffect } from "../effects/PlayerThrusterEffect";
 import { EnemyDualLaserBoltTurret } from "../entities/EnemyDualLaserBoltTurret";
 import { getShipDefinition } from "../ships/ShipCatalog";
 import { createDefaultShipSelection, type ShipSelectionConfig } from "../ships/ShipSelection";
+import {
+  getCannonPrimaryComponentDefinition,
+  getCannonSecondaryComponentDefinition
+} from "../weapons/WeaponComponentCatalog";
 import { createPlayerHealthHud } from "../ui/PlayerHealthHud";
 import { createEnvironment } from "./factories/EnvironmentFactory";
 import { createShipRig } from "./factories/PlayerFactory";
@@ -31,9 +35,11 @@ const GUN_MAX_AIM_ANGLE_RADIANS = THREE.MathUtils.degToRad(37.5);
 const ENEMY_DUAL_TURRET_SPAWN = new THREE.Vector3(30, FLOOR_Y, -24);
 const PLAYER_HURTBOX_RADIUS = 1.05;
 const ENEMY_DUAL_TURRET_HURTBOX_RADIUS = 1.3;
+const ENEMY_DUAL_TURRET_HURTBOX_LOCAL_OFFSET = new THREE.Vector3(0, 1, 0);
 const TEST_MAP_TURRET_RESPAWN_SECONDS = 10;
 const PLAYER_RESPAWN_SECONDS = 5;
-const PLAYER_THRUSTER_LOCAL_OFFSETS: readonly THREE.Vector3[] = [
+const CAMERA_ARROW_KEY_ZOOM_ENABLED = true;
+const DEFAULT_PLAYER_THRUSTER_LOCAL_OFFSETS: readonly THREE.Vector3[] = [
   new THREE.Vector3(-0.12, 0.58, 1.0),
   new THREE.Vector3(0.12, 0.58, 1.0)
 ];
@@ -55,6 +61,11 @@ export function setupTopDownScene(
 ): TopDownSceneController {
   const selection = options.selection ?? createDefaultShipSelection();
   const selectedShip = getShipDefinition(selection.shipId);
+  const selectedPrimaryFire = getCannonPrimaryComponentDefinition(selection.primaryFireComponentId);
+  const selectedSecondaryFire = getCannonSecondaryComponentDefinition(
+    selection.secondaryFireComponentId
+  );
+  let playerThrusterEffect: ReturnType<typeof createPlayerThrusterEffect> | null = null;
 
   const { floor, gridRoot } = createEnvironment(scene, {
     floorY: FLOOR_Y,
@@ -68,16 +79,39 @@ export function setupTopDownScene(
   const { gunHardpoints, playerRoot } = createShipRig(scene, {
     autoAlignGunHardpointsToModel: selectedShip.autoAlignGunHardpointsToModel,
     gunHardpointLocalOffsets: selectedShip.gunHardpointLocalOffsets,
+    modelLocalOffset: selectedShip.modelLocalOffset,
+    modelSizeMultiplier: selectedShip.modelSizeMultiplier,
     modelUrl: selectedShip.modelUrl,
-    modelYawOffset: selectedShip.modelYawOffset
+    modelYawOffset: selectedShip.modelYawOffset,
+    onThrusterSocketsResolved: (thrusterLocalOffsets, thrusterSizeScales) => {
+      if (thrusterLocalOffsets.length === 0) {
+        return;
+      }
+      playerThrusterEffect?.dispose();
+      playerThrusterEffect = createPlayerThrusterEffect(playerRoot, {
+        thrusterLocalOffsets,
+        visualPreset: selectedShip.thrusterVisualPreset,
+        effectScale: selectedShip.thrusterEffectScale,
+        trailLengthScale: selectedShip.thrusterTrailLengthScale,
+        glowOpacityScale: selectedShip.thrusterGlowOpacityScale,
+        thrusterSizeScales:
+          thrusterSizeScales.length === thrusterLocalOffsets.length
+            ? thrusterSizeScales
+            : undefined
+      });
+    }
   });
 
   const { inputAimReticle, trueAimReticle } = createReticles(scene, {
     maxDistanceFromShip: RETICLE_MAX_DISTANCE_FROM_SHIP,
     reticleHeight: RETICLE_HEIGHT
   });
-  const playerThrusterEffect = createPlayerThrusterEffect(playerRoot, {
-    thrusterLocalOffsets: PLAYER_THRUSTER_LOCAL_OFFSETS
+  playerThrusterEffect = createPlayerThrusterEffect(playerRoot, {
+    thrusterLocalOffsets: DEFAULT_PLAYER_THRUSTER_LOCAL_OFFSETS,
+    visualPreset: selectedShip.thrusterVisualPreset,
+    effectScale: selectedShip.thrusterEffectScale,
+    trailLengthScale: selectedShip.thrusterTrailLengthScale,
+    glowOpacityScale: selectedShip.thrusterGlowOpacityScale
   });
 
   const shipController = createShipController({
@@ -102,7 +136,14 @@ export function setupTopDownScene(
     owner: playerRoot
   });
 
-  const laserBoltFactory = createLaserBoltFactory({ faction: "player" });
+  const primaryCannonProjectileFactory = createLaserBoltFactory({
+    faction: "player",
+    ...selectedPrimaryFire.projectile
+  });
+  const secondaryCannonProjectileFactory = createLaserBoltFactory({
+    faction: "player",
+    ...selectedSecondaryFire.projectile
+  });
   const enemyTargetHurtboxes: HurtboxComponent[] = [];
   let enemyDualTurretHealth: ReturnType<typeof createHealthComponent> | null = null;
   let enemyDualLaserBoltTurret: EnemyDualLaserBoltTurret | null = null;
@@ -156,7 +197,10 @@ export function setupTopDownScene(
     });
 
     enemyDualTurretHurtbox = createHurtboxComponent({
-      collisionArea: { radius: ENEMY_DUAL_TURRET_HURTBOX_RADIUS },
+      collisionArea: {
+        radius: ENEMY_DUAL_TURRET_HURTBOX_RADIUS,
+        localOffset: ENEMY_DUAL_TURRET_HURTBOX_LOCAL_OFFSET
+      },
       faction: "enemy",
       health: enemyDualTurretHealth,
       owner: enemyDualLaserBoltTurret.root
@@ -178,9 +222,16 @@ export function setupTopDownScene(
   spawnEnemyDualLaserBoltTurret();
 
   const guns = gunHardpoints.map((hardpoint) => ({
-    fireIntervalSeconds: selectedShip.defaultGunFireIntervalSeconds,
+    primary: {
+      fireIntervalSeconds:
+        selectedPrimaryFire.fireIntervalSeconds ?? selectedShip.defaultGunFireIntervalSeconds,
+      projectileFactory: primaryCannonProjectileFactory
+    },
+    secondary: {
+      fireIntervalSeconds: selectedSecondaryFire.fireIntervalSeconds,
+      projectileFactory: secondaryCannonProjectileFactory
+    },
     hardpoint,
-    projectileFactory: laserBoltFactory
   }));
   const gunController = createGunController({
     aimReticle: inputAimReticle,
@@ -196,6 +247,7 @@ export function setupTopDownScene(
   let playerRespawnSecondsRemaining = 0;
 
   const cameraController = createCameraController({
+    arrowKeyZoomEnabled: CAMERA_ARROW_KEY_ZOOM_ENABLED,
     camera,
     initialTargetPosition: shipController.getState().position,
     initialYaw: shipController.getState().yaw,
@@ -265,7 +317,7 @@ export function setupTopDownScene(
       0,
       1
     );
-    playerThrusterEffect.update(deltaTime, thrusterGrowth, signedForwardSpeed < -0.001);
+    playerThrusterEffect?.update(deltaTime, thrusterGrowth);
 
     floor.position.x = playerState.position.x;
     floor.position.z = playerState.position.z;
@@ -278,8 +330,10 @@ export function setupTopDownScene(
   const dispose = (): void => {
     playerController.dispose();
     gunController.dispose();
+    cameraController.dispose();
     despawnEnemyDualLaserBoltTurret();
-    playerThrusterEffect.dispose();
+    playerThrusterEffect?.dispose();
+    playerThrusterEffect = null;
     playerHealthHud.dispose();
   };
 

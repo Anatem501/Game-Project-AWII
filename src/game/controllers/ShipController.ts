@@ -1,7 +1,7 @@
 import * as THREE from "three";
 
 const TURN_MAX_YAW_RATE_RADIANS = THREE.MathUtils.degToRad(120);
-const TURN_MAX_BANK_ROLL_RADIANS = THREE.MathUtils.degToRad(40);
+const TURN_MAX_BANK_ROLL_RADIANS = THREE.MathUtils.degToRad(28);
 const STRAFE_MAX_BANK_ROLL_RADIANS = THREE.MathUtils.degToRad(14);
 const TOTAL_MAX_BANK_ROLL_RADIANS = THREE.MathUtils.degToRad(52);
 const TURN_BANK_ROLL_SMOOTHING = 9;
@@ -121,12 +121,13 @@ export function createShipController({
       -1,
       1
     );
+    const hasForwardThrustInput = intent.forwardInput > 0.0001;
     const strafeRatio = THREE.MathUtils.clamp(
       localVelocity.x / Math.max(0.001, handling.topManeuveringSpeed),
       -1,
       1
     );
-    const turnRoll = turnRateRatio * TURN_MAX_BANK_ROLL_RADIANS;
+    const turnRoll = hasForwardThrustInput ? turnRateRatio * TURN_MAX_BANK_ROLL_RADIANS : 0;
     const strafeRoll = -strafeRatio * STRAFE_MAX_BANK_ROLL_RADIANS;
     const targetRoll = THREE.MathUtils.clamp(
       turnRoll + strafeRoll,

@@ -5,6 +5,7 @@ import {
   type PrimaryFireComponentId,
   type ShipSelectionConfig
 } from "../ships/ShipSelection";
+import { getCannonPrimaryComponentDefinition } from "../weapons/WeaponComponentCatalog";
 import { ShipCarouselPreview } from "./ShipCarouselPreview";
 
 type MainMenuHandlers = {
@@ -16,32 +17,11 @@ type MainMenuHandlers = {
 type MenuView = "start" | "mode-select" | "ship-select" | "ship-confirm";
 type ComponentSlotId = "gun_primary_fire";
 
-type PrimaryFireComponentDefinition = {
-  id: PrimaryFireComponentId;
-  name: string;
-  weaponType: string;
-  fireType: string;
-  damageType: string;
-  description: string;
-};
-
 const GAMEPAD_NAV_DEADZONE = 0.55;
 const GAMEPAD_CONFIRM_BUTTON_INDEX = 0;
 const FOCUS_REPEAT_INITIAL_MS = 250;
 const FOCUS_REPEAT_HELD_MS = 130;
 const GUN_PRIMARY_FIRE_SLOT_LABEL = "Cannons Primary Fire";
-
-const PRIMARY_FIRE_COMPONENTS: Record<PrimaryFireComponentId, PrimaryFireComponentDefinition> = {
-  repeating_laserbolt_fire: {
-    id: "repeating_laserbolt_fire",
-    name: "Repeating Laserbolt Fire",
-    weaponType: "Cannons",
-    fireType: "Primary",
-    damageType: "Laser",
-    description:
-      "This is the standard green laser bolt pattern used by all current ships. Future fire components can swap this behavior for alternate projectiles or fire effects."
-  }
-};
 
 export class MainMenu {
   private readonly overlay: HTMLDivElement;
@@ -140,10 +120,8 @@ export class MainMenu {
       <p>Use A / D to cycle ships. Enter or controller A confirms.</p>
       <div class="ship-select-layout ship-select-layout-primary">
         <section class="ship-preview-column">
-          <div class="ship-preview-stage">
-            <button class="menu-button menu-button-secondary ship-preview-arrow" data-action="ship-prev" data-focusable="true" type="button">Previous</button>
+          <div class="ship-preview-stage ship-preview-stage-single">
             <canvas class="ship-preview-canvas" data-role="ship-preview-canvas"></canvas>
-            <button class="menu-button menu-button-secondary ship-preview-arrow" data-action="ship-next" data-focusable="true" type="button">Next</button>
           </div>
           <div class="ship-select-labels">
             <span data-role="ship-prev-label"></span>
@@ -164,9 +142,9 @@ export class MainMenu {
         </section>
       </div>
       <div class="menu-action-row">
-        <button class="menu-button" data-action="ship-prev" data-focusable="true">Previous Ship (A)</button>
-        <button class="menu-button" data-action="ship-next" data-focusable="true">Next Ship (D)</button>
-        <button class="menu-button" data-action="ship-confirm" data-focusable="true">Confirm Ship (Enter / Pad A)</button>
+        <button class="menu-button" data-action="ship-prev" data-focusable="true">Previous</button>
+        <button class="menu-button" data-action="ship-confirm" data-focusable="true">Confirm</button>
+        <button class="menu-button" data-action="ship-next" data-focusable="true">Next</button>
         <button class="menu-button menu-button-secondary" data-action="ship-select-back" data-focusable="true">Back</button>
       </div>
     `);
@@ -296,7 +274,7 @@ export class MainMenu {
     const current = this.getShipWithOffset(0);
     const previous = this.getShipWithOffset(-1);
     const next = this.getShipWithOffset(1);
-    const component = getPrimaryFireComponent(this.shipSelection.primaryFireComponentId);
+    const component = getCannonPrimaryComponentDefinition(this.shipSelection.primaryFireComponentId);
     this.shipSelection.shipId = current.id;
 
     this.setTextContent('[data-role="ship-prev-label"]', previous.displayName);
@@ -311,7 +289,9 @@ export class MainMenu {
 
   private refreshShipConfirmContent(): void {
     const selectedShip = this.ships[this.currentShipIndex];
-    const equippedComponent = getPrimaryFireComponent(this.shipSelection.primaryFireComponentId);
+    const equippedComponent = getCannonPrimaryComponentDefinition(
+      this.shipSelection.primaryFireComponentId
+    );
     this.setTextContent('[data-role="ship-current-label"]', selectedShip.displayName);
     this.setTextContent('[data-role="ship-description"]', selectedShip.description);
     this.setTextContent('[data-role="component-slot-primary-fire-value"]', equippedComponent.name);
@@ -364,7 +344,7 @@ export class MainMenu {
     if (optionList) {
       if (canShowChangeButton && this.isComponentPickerOpen) {
         optionList.innerHTML = PRIMARY_FIRE_COMPONENT_OPTIONS.map((componentId) => {
-          const option = getPrimaryFireComponent(componentId);
+          const option = getCannonPrimaryComponentDefinition(componentId);
           const equippedSuffix =
             componentId === this.shipSelection.primaryFireComponentId ? " (Equipped)" : "";
           return `<button class="menu-button menu-button-secondary component-option-button" data-action="select-component-option" data-component-id="${componentId}" data-focusable="true">${option.name}${equippedSuffix}</button>`;
@@ -397,7 +377,10 @@ export class MainMenu {
   private launchSelectedShip(): void {
     this.handlers.onPlayerTest({
       shipId: this.shipSelection.shipId,
-      primaryFireComponentId: this.shipSelection.primaryFireComponentId
+      primaryFireComponentId: this.shipSelection.primaryFireComponentId,
+      secondaryFireComponentId: this.shipSelection.secondaryFireComponentId,
+      missileComponentId: this.shipSelection.missileComponentId,
+      energyComponentId: this.shipSelection.energyComponentId
     });
   }
 
@@ -472,7 +455,7 @@ export class MainMenu {
     }
 
     const componentId = this.hoveredPrimaryFireComponentId ?? this.shipSelection.primaryFireComponentId;
-    const component = getPrimaryFireComponent(componentId);
+    const component = getCannonPrimaryComponentDefinition(componentId);
     statsRoot.innerHTML = `
       <ul class="ship-list">
         <li><span>Name</span><strong>${component.name}</strong></li>
@@ -665,10 +648,6 @@ export class MainMenu {
       event.preventDefault();
     }
   };
-}
-
-function getPrimaryFireComponent(componentId: PrimaryFireComponentId): PrimaryFireComponentDefinition {
-  return PRIMARY_FIRE_COMPONENTS[componentId] ?? PRIMARY_FIRE_COMPONENTS.repeating_laserbolt_fire;
 }
 
 function getConnectedGamepad(): Gamepad | null {

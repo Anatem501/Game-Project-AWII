@@ -1,144 +1,189 @@
+
 import * as THREE from "three";
+
+export type PlayerThrusterVisualPreset = "default" | "purple_rectangular";
 
 export type PlayerThrusterEffectConfig = {
   thrusterLocalOffsets: readonly THREE.Vector3[];
-  flameLength?: number;
-  flameWidth?: number;
-  minIntensity?: number;
-  maxIntensity?: number;
+  thrusterSizeScales?: readonly number[];
+  effectScale?: number;
+  trailLengthScale?: number;
+  glowOpacityScale?: number;
+  visualPreset?: PlayerThrusterVisualPreset;
 };
 
 export type PlayerThrusterEffect = {
-  update: (deltaTime: number, intensityFactor: number, isReversing?: boolean) => void;
+  update: (deltaTime: number, intensityFactor: number) => void;
   dispose: () => void;
 };
 
-const REVERSE_THRUSTER_Y_OFFSET = -0.2;
-const REVERSE_THRUSTER_Y_SMOOTHING = 14;
+type ThrusterEmitter = {
+  baseScale: number;
+  core: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
+  glow: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
+  trail: THREE.Mesh<THREE.CylinderGeometry, THREE.MeshBasicMaterial>;
+  style: PlayerThrusterVisualPreset;
+};
 
-const THRUSTER_VERTEX_SHADER = `
-uniform float uTime;
-uniform float uIntensity;
-
-varying vec2 vUv;
-varying float vJitter;
-
-void main() {
-  vUv = uv;
-
-  float wave = sin(uTime * 21.0 + position.x * 18.0) * 0.025;
-  float flicker = sin(uTime * 37.0 + position.y * 24.0) * 0.012;
-  float stretch = (1.0 + uIntensity * 0.75);
-
-  vec3 displaced = position;
-  displaced.x += wave * (1.0 - uv.y);
-  displaced.y += flicker * (1.0 - uv.y);
-  displaced.z *= stretch;
-
-  vJitter = wave + flicker;
-
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(displaced, 1.0);
-}
-`;
-
-const THRUSTER_FRAGMENT_SHADER = `
-uniform float uTime;
-uniform float uIntensity;
-
-varying vec2 vUv;
-varying float vJitter;
-
-void main() {
-  vec2 centered = vec2((vUv.x - 0.5) * 2.0, vUv.y);
-  float radial = 1.0 - smoothstep(0.0, 0.9, abs(centered.x) + centered.y * 0.2);
-  float fade = 1.0 - smoothstep(0.72, 1.0, vUv.y);
-  float pulse = 0.82 + 0.18 * sin(uTime * 24.0 + vUv.y * 35.0 + vJitter * 12.0);
-  float alpha = radial * fade * pulse * (0.35 + uIntensity * 0.85);
-
-  vec3 inner = vec3(0.9, 0.98, 1.0);
-  vec3 mid = vec3(0.32, 0.72, 1.0);
-  vec3 outer = vec3(0.08, 0.24, 0.95);
-  vec3 color = mix(inner, mid, clamp(vUv.y * 1.3, 0.0, 1.0));
-  color = mix(color, outer, clamp(vUv.y * 0.9, 0.0, 1.0));
-  color *= (0.55 + uIntensity * 0.9);
-
-  if (alpha <= 0.001) {
-    discard;
-  }
-
-  gl_FragColor = vec4(color, alpha);
-}
-`;
+const CORE_RADIUS = 0.085;
+const GLOW_RADIUS = 0.16;
+const RECT_CORE_WIDTH = 0.11;
+const RECT_CORE_HEIGHT = 0.22;
+const RECT_CORE_LENGTH = 0.46;
+const RECT_GLOW_WIDTH = 0.2;
+const RECT_GLOW_HEIGHT = 0.34;
+const RECT_GLOW_LENGTH = 0.76;
+const PURPLE_RECT_GLOW_SCALE_MULTIPLIER = 0.62;
+const PURPLE_RECT_GLOW_OPACITY_BASE = 0.12;
+const PURPLE_RECT_GLOW_OPACITY_GAIN = 0.16;
+const TRAIL_RADIUS_TOP = 0.08;
+const TRAIL_RADIUS_BOTTOM = 0.22;
+const TRAIL_ACTIVATION_THRESHOLD = 0.92;
+const DEFAULT_EFFECT_SCALE = 1;
+const DEFAULT_TRAIL_LENGTH_SCALE = 1;
+const THRUSTER_PULSE_BASE = 1;
+const THRUSTER_PULSE_AMPLITUDE = 0;
 
 export function createPlayerThrusterEffect(
   shipRoot: THREE.Object3D,
   config: PlayerThrusterEffectConfig
 ): PlayerThrusterEffect {
-  const flameLength = config.flameLength ?? 0.4;
-  const flameWidth = config.flameWidth ?? 0.24;
-  const minIntensity = THREE.MathUtils.clamp(config.minIntensity ?? 0.55, 0, 2);
-  const maxIntensity = Math.max(minIntensity, config.maxIntensity ?? 1.55);
+  const root = new THREE.Group();
+  shipRoot.add(root);
+  const visualPreset = config.visualPreset ?? "default";
+  const effectScale = Math.max(0.05, config.effectScale ?? DEFAULT_EFFECT_SCALE);
+  const trailLengthScale = Math.max(0.05, config.trailLengthScale ?? DEFAULT_TRAIL_LENGTH_SCALE);
+  const glowOpacityScale = Math.max(0.05, config.glowOpacityScale ?? 1);
 
-  const group = new THREE.Group();
-  shipRoot.add(group);
+  const coreGeometry =
+    visualPreset === "purple_rectangular"
+      ? new THREE.BoxGeometry(RECT_CORE_WIDTH, RECT_CORE_HEIGHT, RECT_CORE_LENGTH)
+      : new THREE.SphereGeometry(CORE_RADIUS, 14, 14);
+  const glowGeometry =
+    visualPreset === "purple_rectangular"
+      ? new THREE.BoxGeometry(RECT_GLOW_WIDTH, RECT_GLOW_HEIGHT, RECT_GLOW_LENGTH)
+      : new THREE.SphereGeometry(GLOW_RADIUS, 12, 12);
+  const trailGeometry = new THREE.CylinderGeometry(TRAIL_RADIUS_TOP, TRAIL_RADIUS_BOTTOM, 1, 14, 1, true);
+  const emitters: ThrusterEmitter[] = [];
 
-  const geometry = new THREE.PlaneGeometry(flameWidth, flameLength, 1, 10);
-  geometry.translate(0, 0, -flameLength * 0.5);
+  for (let i = 0; i < config.thrusterLocalOffsets.length; i += 1) {
+    const localOffset = config.thrusterLocalOffsets[i];
+    const baseScale = Math.max(0.2, config.thrusterSizeScales?.[i] ?? 1) * effectScale;
 
-  const thrusterMaterials: THREE.ShaderMaterial[] = [];
+    const emitterRoot = new THREE.Group();
+    emitterRoot.position.copy(localOffset);
+    root.add(emitterRoot);
 
-  for (const offset of config.thrusterLocalOffsets) {
-    const material = new THREE.ShaderMaterial({
-      vertexShader: THRUSTER_VERTEX_SHADER,
-      fragmentShader: THRUSTER_FRAGMENT_SHADER,
-      uniforms: {
-        uTime: { value: 0 },
-        uIntensity: { value: minIntensity }
-      },
+    const coreColor = visualPreset === "purple_rectangular" ? 0xdf9bff : 0x9fe9ff;
+    const glowColor = visualPreset === "purple_rectangular" ? 0x8f43ff : 0x2a8dff;
+    const trailColor = visualPreset === "purple_rectangular" ? 0x7f35ff : 0x2a8dff;
+
+    const coreMaterial = new THREE.MeshBasicMaterial({
+      color: coreColor,
       transparent: true,
-      depthWrite: false,
+      opacity: 0.9,
       blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide
+      depthWrite: false
+    });
+    const glowMaterial = new THREE.MeshBasicMaterial({
+      color: glowColor,
+      transparent: true,
+      opacity: 0.48,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
     });
 
-    const flame = new THREE.Mesh(geometry, material);
-    flame.position.copy(offset);
-    flame.rotation.x = -Math.PI * 0.5;
-    flame.rotation.z = Math.PI;
-    group.add(flame);
-    thrusterMaterials.push(material);
+    const core = new THREE.Mesh(coreGeometry, coreMaterial);
+    const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+    const trailMaterial = new THREE.MeshBasicMaterial({
+      color: trailColor,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide
+    });
+    const trail = new THREE.Mesh(trailGeometry, trailMaterial);
+    trail.rotation.x = Math.PI * 0.5;
+    trail.visible = false;
+    emitterRoot.add(core);
+    emitterRoot.add(glow);
+    emitterRoot.add(trail);
+
+    emitters.push({
+      baseScale,
+      core,
+      glow,
+      trail,
+      style: visualPreset
+    });
   }
 
   let time = 0;
-  let currentThrusterYOffset = 0;
 
-  const update = (deltaTime: number, intensityFactor: number, isReversing = false): void => {
+  const update = (deltaTime: number, intensityFactor: number): void => {
     if (deltaTime <= 0) {
       return;
     }
+
     time += deltaTime;
-    const targetYOffset = isReversing ? REVERSE_THRUSTER_Y_OFFSET : 0;
-    const offsetBlend = 1 - Math.exp(-REVERSE_THRUSTER_Y_SMOOTHING * deltaTime);
-    currentThrusterYOffset = THREE.MathUtils.lerp(
-      currentThrusterYOffset,
-      targetYOffset,
-      offsetBlend
-    );
-    group.position.y = currentThrusterYOffset;
-    const clampedIntensity = THREE.MathUtils.clamp(intensityFactor, 0, 1);
-    const intensity = THREE.MathUtils.lerp(minIntensity, maxIntensity, clampedIntensity);
-    for (const material of thrusterMaterials) {
-      material.uniforms.uTime.value = time;
-      material.uniforms.uIntensity.value = intensity;
+    const intensity = THREE.MathUtils.clamp(intensityFactor, 0, 1);
+
+    for (let i = 0; i < emitters.length; i += 1) {
+      const emitter = emitters[i];
+      const pulse = THRUSTER_PULSE_BASE + Math.sin(time * 26 + i * 1.2) * THRUSTER_PULSE_AMPLITUDE;
+      const coreScale = emitter.baseScale * (0.7 + intensity * 1.35) * pulse;
+      let glowScale = emitter.baseScale * (1.1 + intensity * 1.7) * pulse;
+      let glowOpacityBase = 0.28;
+      let glowOpacityGain = 0.32;
+      const trailVisibility = THREE.MathUtils.smoothstep(
+        intensity,
+        TRAIL_ACTIVATION_THRESHOLD,
+        1
+      );
+
+      emitter.core.scale.setScalar(coreScale);
+      if (emitter.style === "purple_rectangular") {
+        glowScale *= PURPLE_RECT_GLOW_SCALE_MULTIPLIER;
+        glowOpacityBase = PURPLE_RECT_GLOW_OPACITY_BASE;
+        glowOpacityGain = PURPLE_RECT_GLOW_OPACITY_GAIN;
+      }
+      emitter.glow.scale.setScalar(glowScale);
+      if (emitter.style === "purple_rectangular") {
+        emitter.core.scale.y *= 1.2;
+        emitter.glow.scale.y *= 1.12;
+      }
+      emitter.core.material.opacity = THREE.MathUtils.clamp(0.55 + intensity * 0.45, 0, 1);
+      emitter.glow.material.opacity = THREE.MathUtils.clamp(
+        (glowOpacityBase + intensity * glowOpacityGain) * glowOpacityScale,
+        0,
+        1
+      );
+
+      if (trailVisibility <= 0.001) {
+        emitter.trail.visible = false;
+      } else {
+        const trailLength =
+          emitter.baseScale * (0.55 + trailVisibility * 2.8) * pulse * trailLengthScale;
+        const trailRadius = emitter.baseScale * (0.5 + trailVisibility * 0.5);
+        emitter.trail.visible = true;
+        emitter.trail.scale.set(trailRadius, trailLength, trailRadius);
+        emitter.trail.position.set(0, 0, trailLength * 0.5);
+        emitter.trail.material.opacity = THREE.MathUtils.clamp(0.08 + trailVisibility * 0.5, 0, 1);
+      }
     }
   };
 
   const dispose = (): void => {
-    for (const material of thrusterMaterials) {
-      material.dispose();
+    for (const emitter of emitters) {
+      emitter.core.material.dispose();
+      emitter.glow.material.dispose();
+      emitter.trail.material.dispose();
     }
-    geometry.dispose();
-    group.removeFromParent();
+    coreGeometry.dispose();
+    glowGeometry.dispose();
+    trailGeometry.dispose();
+    root.removeFromParent();
   };
 
   return { update, dispose };

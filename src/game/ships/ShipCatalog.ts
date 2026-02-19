@@ -1,7 +1,11 @@
 import * as THREE from "three";
 import type { ShipHandlingConfig } from "../controllers/ShipController";
 import type { HealthConfig } from "../components/HealthComponent";
+import type { PlayerThrusterVisualPreset } from "../effects/PlayerThrusterEffect";
 import playerModelUrl from "../../assets/models/SpaceShip V3.glb?url";
+import vagabondM2ShipModelUrl from "../../assets/models/Vagabond-m2-Ship-V01.glb?url";
+import azureArrowV2ShipModelUrl from "../../assets/models/Azure-Arrow-V2-ship-v01.glb?url";
+import bearclawMk2ShipModelUrl from "../../assets/models/AC-Bearclaw-mkII-Ship-V01.glb?url";
 
 export type ShipDefinition = {
   id: string;
@@ -10,21 +14,36 @@ export type ShipDefinition = {
   previewTintHex: number;
   modelUrl: string;
   modelYawOffset: number;
+  modelSizeMultiplier?: number;
+  modelLocalOffset?: THREE.Vector3;
   gunHardpointLocalOffsets?: readonly THREE.Vector3[];
   autoAlignGunHardpointsToModel?: boolean;
+  thrusterVisualPreset?: PlayerThrusterVisualPreset;
+  thrusterEffectScale?: number;
+  thrusterTrailLengthScale?: number;
+  thrusterGlowOpacityScale?: number;
   defaultGunFireIntervalSeconds: number;
   defaultLoadout: readonly string[];
   handling: ShipHandlingConfig;
   health: HealthConfig;
 };
 
+const AZURE_ARROW_V2_GUN_HARDPOINTS: readonly THREE.Vector3[] = [
+  new THREE.Vector3(0, 0, 0),
+  new THREE.Vector3(0, 0, 0)
+];
+
 const TEST_FIGHTER: ShipDefinition = {
   id: "test_fighter",
-  displayName: "Test Fighter",
+  displayName: "Azure Arrow V2",
   description: "Balanced prototype fighter with stable handling and all-round survivability.",
   previewTintHex: 0x6cc8ff,
-  modelUrl: playerModelUrl,
+  modelUrl: azureArrowV2ShipModelUrl,
   modelYawOffset: Math.PI * 0.5,
+  gunHardpointLocalOffsets: AZURE_ARROW_V2_GUN_HARDPOINTS,
+  autoAlignGunHardpointsToModel: false,
+  thrusterEffectScale: 0.44,
+  thrusterTrailLengthScale: 0.42,
   defaultGunFireIntervalSeconds: 0.2,
   defaultLoadout: ["Dual Pulse Cannons", "Micro Missile Rack", "Nanite Repair Kit"],
   handling: {
@@ -43,33 +62,35 @@ const TEST_FIGHTER: ShipDefinition = {
     shieldRechargeDelaySeconds: 3,
     hullRepairRate: 0,
     armorRepairRate: 0,
-    armorRepairEfficiency: 0.5,
-    damageMultipliers: {
-      default: {
-        shield: 1,
-        armor: 1,
-        hull: 1
-      },
-      Laser: { shield: 1.15, armor: 0.9, hull: 1 },
-      Ion: { shield: 1.35, armor: 0.82, hull: 0.9 },
-      Plasma: { shield: 0.9, armor: 1.2, hull: 1.1 },
-      Solar: { shield: 1.1, armor: 1, hull: 1.05 },
-      Cryo: { shield: 0.95, armor: 1.05, hull: 1.05 },
-      Void: { shield: 1, armor: 0.95, hull: 1.25 },
-      Acid: { shield: 0.85, armor: 1.3, hull: 1.05 },
-      Kinetic: { shield: 0.9, armor: 1.1, hull: 1 },
-      Concussive: { shield: 0.95, armor: 1.15, hull: 1.08 }
-    }
+    armorRepairEfficiency: 0.5
   }
 };
 
+const MAURADER_INTERCEPTER_GUN_HARDPOINTS: readonly THREE.Vector3[] = [
+  new THREE.Vector3(-0.68, 1.05, -.16),
+  new THREE.Vector3(-0.18, 1.05, -.1),
+  new THREE.Vector3(0.18, 1.05, -.1),
+  new THREE.Vector3(1.02, 1.05, -.16)
+];
+
+const BEARCLAW_MK2_GUN_HARDPOINTS: readonly THREE.Vector3[] = [
+  new THREE.Vector3(0, 0, 0),
+  new THREE.Vector3(0, 0, 0)
+];
+
 const SWIFT_INTERCEPTOR: ShipDefinition = {
   id: "swift_interceptor",
-  displayName: "Swift Interceptor",
+  displayName: "Maurader-Intercepter",
   description: "High-speed skirmisher tuned for aggressive flanking and rapid target swaps.",
   previewTintHex: 0x77ffbc,
-  modelUrl: playerModelUrl,
+  modelUrl: vagabondM2ShipModelUrl,
   modelYawOffset: Math.PI * 0.5,
+  modelLocalOffset: new THREE.Vector3(0.2, 0, 0),
+  gunHardpointLocalOffsets: MAURADER_INTERCEPTER_GUN_HARDPOINTS,
+  autoAlignGunHardpointsToModel: false,
+  thrusterEffectScale: 0.6,
+  thrusterTrailLengthScale: 0.25,
+  thrusterGlowOpacityScale: 0.6,
   defaultGunFireIntervalSeconds: 0.16,
   defaultLoadout: ["Twin Light Lasers", "EMP Dart Pod", "Overdrive Thrusters"],
   handling: {
@@ -88,33 +109,23 @@ const SWIFT_INTERCEPTOR: ShipDefinition = {
     shieldRechargeDelaySeconds: 2.8,
     hullRepairRate: 0,
     armorRepairRate: 0,
-    armorRepairEfficiency: 0.45,
-    damageMultipliers: {
-      default: {
-        shield: 1,
-        armor: 1,
-        hull: 1
-      },
-      Laser: { shield: 1.1, armor: 0.95, hull: 1 },
-      Ion: { shield: 1.3, armor: 0.85, hull: 0.92 },
-      Plasma: { shield: 0.95, armor: 1.25, hull: 1.12 },
-      Solar: { shield: 1.08, armor: 1, hull: 1.03 },
-      Cryo: { shield: 0.92, armor: 1.08, hull: 1.06 },
-      Void: { shield: 1, armor: 0.97, hull: 1.22 },
-      Acid: { shield: 0.88, armor: 1.28, hull: 1.06 },
-      Kinetic: { shield: 0.93, armor: 1.06, hull: 1.02 },
-      Concussive: { shield: 0.96, armor: 1.12, hull: 1.08 }
-    }
+    armorRepairEfficiency: 0.45
   }
 };
 
-const VANGUARD_MK2: ShipDefinition = {
+const BEARCLAW_MK2: ShipDefinition = {
   id: "vanguard_mk2",
-  displayName: "Vanguard Mk II",
-  description: "Heavier frontline chassis that trades agility for armor depth and durability.",
+  displayName: "AC Bearclaw Mk II",
+  description: "Heavy assault chassis with reinforced armor and stable weapons hardpoints.",
   previewTintHex: 0xffa45c,
-  modelUrl: playerModelUrl,
-  modelYawOffset: Math.PI * 0.5,
+  modelUrl: bearclawMk2ShipModelUrl,
+  modelYawOffset: 0,
+  modelSizeMultiplier: 1.8,
+  gunHardpointLocalOffsets: BEARCLAW_MK2_GUN_HARDPOINTS,
+  autoAlignGunHardpointsToModel: false,
+  thrusterVisualPreset: "purple_rectangular",
+  thrusterEffectScale: 0.62,
+  thrusterTrailLengthScale: 0.24,
   defaultGunFireIntervalSeconds: 0.28,
   defaultLoadout: ["Heavy Laser Lances", "Flak Burst Tube", "Reactive Armor Field"],
   handling: {
@@ -133,30 +144,14 @@ const VANGUARD_MK2: ShipDefinition = {
     shieldRechargeDelaySeconds: 3.6,
     hullRepairRate: 0,
     armorRepairRate: 0,
-    armorRepairEfficiency: 0.56,
-    damageMultipliers: {
-      default: {
-        shield: 1,
-        armor: 1,
-        hull: 1
-      },
-      Laser: { shield: 1.14, armor: 0.88, hull: 0.97 },
-      Ion: { shield: 1.28, armor: 0.8, hull: 0.9 },
-      Plasma: { shield: 0.9, armor: 1.18, hull: 1.08 },
-      Solar: { shield: 1.06, armor: 1, hull: 1.02 },
-      Cryo: { shield: 0.94, armor: 1.02, hull: 1.04 },
-      Void: { shield: 1, armor: 0.92, hull: 1.19 },
-      Acid: { shield: 0.86, armor: 1.24, hull: 1.03 },
-      Kinetic: { shield: 0.9, armor: 1.12, hull: 0.98 },
-      Concussive: { shield: 0.94, armor: 1.18, hull: 1.06 }
-    }
+    armorRepairEfficiency: 0.56
   }
 };
 
 const SHIP_DEFINITIONS: readonly ShipDefinition[] = [
   TEST_FIGHTER,
   SWIFT_INTERCEPTOR,
-  VANGUARD_MK2
+  BEARCLAW_MK2
 ];
 
 const SHIP_CATALOG: Record<string, ShipDefinition> = Object.fromEntries(

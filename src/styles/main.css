@@ -164,6 +164,10 @@ canvas {
   grid-template-columns: 1fr;
 }
 
+.ship-preview-stage-single {
+  grid-template-columns: 1fr;
+}
+
 .ship-preview-arrow {
   align-self: center;
 }
