@@ -4,6 +4,8 @@ import { resolveHitboxAgainstHurtboxes } from "../components/combat/HitboxHurtbo
 import type { HurtboxComponent } from "../components/combat/HurtboxComponent";
 import { createLaserBoltFactory } from "../controllers/projectiles/LaserBoltFactory";
 import { createLaserHitSparkExplosionSystem } from "../effects/LaserHitSparkExplosionSystem";
+import { createPlasmaHitImplosionSystem } from "../effects/PlasmaHitImplosionSystem";
+import { createPlasmaMuzzleGlobBurstSystem } from "../effects/PlasmaMuzzleGlobBurstSystem";
 import { createShipGunSparkBurstSystem } from "../effects/ShipGunSparkBurstSystem";
 import type {
   ProjectileFactory,
@@ -56,7 +58,9 @@ export class EnemyDualLaserBoltTurret {
   private readonly projectileFactory: ProjectileFactory;
   private readonly ownedProjectileFactory?: ProjectileFactory;
   private readonly sparkBursts: ReturnType<typeof createShipGunSparkBurstSystem>;
+  private readonly plasmaMuzzleGlobs: ReturnType<typeof createPlasmaMuzzleGlobBurstSystem>;
   private readonly hitSparkExplosions: ReturnType<typeof createLaserHitSparkExplosionSystem>;
+  private readonly plasmaHitImplosions: ReturnType<typeof createPlasmaHitImplosionSystem>;
   private readonly muzzles: THREE.Object3D[] = [];
   private readonly projectiles: ProjectileInstance[] = [];
   private readonly targetHurtboxes: readonly HurtboxComponent[];
@@ -174,7 +178,9 @@ export class EnemyDualLaserBoltTurret {
     this.projectileRoot = new THREE.Group();
     this.scene.add(this.projectileRoot);
     this.sparkBursts = createShipGunSparkBurstSystem(this.scene);
+    this.plasmaMuzzleGlobs = createPlasmaMuzzleGlobBurstSystem(this.scene);
     this.hitSparkExplosions = createLaserHitSparkExplosionSystem(this.scene);
+    this.plasmaHitImplosions = createPlasmaHitImplosionSystem(this.scene);
 
     this.createMuzzles();
 
@@ -205,7 +211,9 @@ export class EnemyDualLaserBoltTurret {
 
     this.updateProjectiles(deltaTime);
     this.sparkBursts.update(deltaTime);
+    this.plasmaMuzzleGlobs.update(deltaTime);
     this.hitSparkExplosions.update(deltaTime);
+    this.plasmaHitImplosions.update(deltaTime);
     this.fireCooldownSeconds = Math.max(0, this.fireCooldownSeconds - deltaTime);
     this.burstCooldownSeconds = Math.max(0, this.burstCooldownSeconds - deltaTime);
     this.aimUpdateCooldownSeconds = Math.max(0, this.aimUpdateCooldownSeconds - deltaTime);
@@ -322,7 +330,9 @@ export class EnemyDualLaserBoltTurret {
     this.projectileRoot.clear();
     this.projectileRoot.removeFromParent();
     this.sparkBursts.dispose();
+    this.plasmaMuzzleGlobs.dispose();
     this.hitSparkExplosions.dispose();
+    this.plasmaHitImplosions.dispose();
     this.root.removeFromParent();
     this.ownedProjectileFactory?.dispose?.();
   }
@@ -409,7 +419,11 @@ export class EnemyDualLaserBoltTurret {
       direction: this.shotDirection,
       origin: this.muzzleWorldPosition
     });
-    this.sparkBursts.spawnBurst(this.muzzleWorldPosition, this.shotDirection);
+    if (projectile.hitbox?.damageType === "Plasma") {
+      this.plasmaMuzzleGlobs.spawnBurst(this.muzzleWorldPosition, this.shotDirection);
+    } else {
+      this.sparkBursts.spawnBurst(this.muzzleWorldPosition, this.shotDirection);
+    }
 
     projectile.object.removeFromParent();
     this.projectileRoot.add(projectile.object);
@@ -421,8 +435,16 @@ export class EnemyDualLaserBoltTurret {
       const projectile = this.projectiles[i];
       const collision = resolveHitboxAgainstHurtboxes(projectile.hitbox, this.targetHurtboxes);
       if (collision) {
-        projectile.object.getWorldDirection(this.fallbackForward);
-        this.hitSparkExplosions.spawnExplosion(projectile.object.position, this.fallbackForward);
+        const isPlasmaHit = projectile.hitbox?.damageType === "Plasma";
+        if (isPlasmaHit) {
+          this.plasmaHitImplosions.spawnImplosion(
+            projectile.object.position,
+            projectile.hitbox?.collisionArea.radius
+          );
+        } else {
+          projectile.object.getWorldDirection(this.fallbackForward);
+          this.hitSparkExplosions.spawnExplosion(projectile.object.position, this.fallbackForward);
+        }
         projectile.object.removeFromParent();
         projectile.dispose?.();
         this.projectiles.splice(i, 1);

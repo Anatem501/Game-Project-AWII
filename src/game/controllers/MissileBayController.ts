@@ -350,6 +350,7 @@ export function createMissileBayController({
   let burstShotCooldownSeconds = 0;
   let firedFlashSeconds = 0;
   let triggerFireCooldownSeconds = 0;
+  let nextTriggerReadyAtSeconds = 0;
   let hasLastYaw = false;
   let lastYaw = 0;
   let turnDirection = 0;
@@ -542,6 +543,36 @@ export function createMissileBayController({
   const resolvedLegacyPayload = payload ?? FALLBACK_MISSILE_PAYLOAD;
   missileBayInstances = buildBayInstances(missileBays, missileCells, resolvedLegacyPayload);
   initializeLauncherGroups();
+
+  const getNowSeconds = (): number => performance.now() * 0.001;
+
+  const resolveLauncherTriggerIntervalSeconds = (): number => {
+    let intervalSeconds = Number.isFinite(resolvedLegacyPayload.triggerFireIntervalSeconds)
+      ? Math.max(0, resolvedLegacyPayload.triggerFireIntervalSeconds)
+      : 0;
+    for (const launcherPayload of launcherPayloads) {
+      const candidateSeconds = launcherPayload.triggerFireIntervalSeconds;
+      if (!Number.isFinite(candidateSeconds)) {
+        continue;
+      }
+      intervalSeconds = Math.max(intervalSeconds, Math.max(0, candidateSeconds));
+    }
+    return intervalSeconds;
+  };
+
+  const resolveLauncherBurstIntervalSeconds = (): number => {
+    let intervalSeconds = Number.isFinite(resolvedLegacyPayload.burstFireIntervalSeconds)
+      ? Math.max(0.001, resolvedLegacyPayload.burstFireIntervalSeconds)
+      : 0.001;
+    for (const launcherPayload of launcherPayloads) {
+      const candidateSeconds = launcherPayload.burstFireIntervalSeconds;
+      if (!Number.isFinite(candidateSeconds)) {
+        continue;
+      }
+      intervalSeconds = Math.max(intervalSeconds, Math.max(0.001, candidateSeconds));
+    }
+    return intervalSeconds;
+  };
 
   const getActiveTargetLockingConfig = () => {
     const activePayloads = launcherPayloads.filter(
@@ -859,7 +890,14 @@ export function createMissileBayController({
     if (!enabled) {
       return;
     }
-    if (triggerFireCooldownSeconds > 0) {
+    if (getNowSeconds() < nextTriggerReadyAtSeconds) {
+      return;
+    }
+    if (
+      !(triggerFireCooldownSeconds <= 0) ||
+      !(burstShotCooldownSeconds <= 0) ||
+      queuedShots > 0
+    ) {
       return;
     }
     if (roundsRemaining <= 0) {
@@ -870,13 +908,7 @@ export function createMissileBayController({
       event.preventDefault();
       return;
     }
-    queuedShots = Math.min(getAvailableSalvoCount(), queuedShots + 1);
-    const triggerIntervalSeconds = launcherPayloads.reduce(
-      (minSeconds, launcherPayload) =>
-        Math.min(minSeconds, Math.max(0, launcherPayload.triggerFireIntervalSeconds)),
-      Math.max(0, resolvedLegacyPayload.triggerFireIntervalSeconds)
-    );
-    triggerFireCooldownSeconds = Math.max(0, triggerIntervalSeconds);
+    queuedShots = 1;
     event.preventDefault();
   };
 
@@ -894,6 +926,7 @@ export function createMissileBayController({
     burstShotCooldownSeconds = 0;
     firedFlashSeconds = 0;
     triggerFireCooldownSeconds = 0;
+    nextTriggerReadyAtSeconds = 0;
     clearCurrentLocks();
     activeVolleyTargetIds.clear();
     activeVolleyTargetLockCounts.clear();
@@ -916,7 +949,7 @@ export function createMissileBayController({
     camera: THREE.Camera,
     aimTargetWorldPosition?: THREE.Vector3
   ): void => {
-    if (deltaTime <= 0) {
+    if (!Number.isFinite(deltaTime) || deltaTime <= 0) {
       return;
     }
 
@@ -926,6 +959,12 @@ export function createMissileBayController({
     burstShotCooldownSeconds = Math.max(0, burstShotCooldownSeconds - deltaTime);
     firedFlashSeconds = Math.max(0, firedFlashSeconds - deltaTime);
     triggerFireCooldownSeconds = Math.max(0, triggerFireCooldownSeconds - deltaTime);
+    if (!Number.isFinite(burstShotCooldownSeconds)) {
+      burstShotCooldownSeconds = 0;
+    }
+    if (!Number.isFinite(triggerFireCooldownSeconds)) {
+      triggerFireCooldownSeconds = 0;
+    }
     if (ammoCapacity <= 0) {
       clearCurrentLocks();
     } else {
@@ -958,19 +997,23 @@ export function createMissileBayController({
     while (
       queuedShots > 0 &&
       burstShotCooldownSeconds <= 0 &&
+      triggerFireCooldownSeconds <= 0 &&
+      getNowSeconds() >= nextTriggerReadyAtSeconds &&
       canFireSalvo()
     ) {
       if (!fireQueuedSalvo(shipForward, aimTargetWorldPosition)) {
         break;
       }
 
-      queuedShots -= 1;
-      const burstIntervalSeconds = launcherPayloads.reduce(
-        (minSeconds, launcherPayload) =>
-          Math.min(minSeconds, Math.max(0.001, launcherPayload.burstFireIntervalSeconds)),
-        Math.max(0.001, resolvedLegacyPayload.burstFireIntervalSeconds)
+      queuedShots = 0;
+      const triggerIntervalSeconds = resolveLauncherTriggerIntervalSeconds();
+      const burstIntervalSeconds = resolveLauncherBurstIntervalSeconds();
+      triggerFireCooldownSeconds = Math.max(triggerFireCooldownSeconds, triggerIntervalSeconds);
+      burstShotCooldownSeconds = Math.max(burstShotCooldownSeconds, burstIntervalSeconds);
+      nextTriggerReadyAtSeconds = Math.max(
+        nextTriggerReadyAtSeconds,
+        getNowSeconds() + triggerIntervalSeconds
       );
-      burstShotCooldownSeconds += burstIntervalSeconds;
     }
 
     pruneActiveVolleyTargets();
@@ -2091,6 +2134,7 @@ export function createMissileBayController({
       queuedShots = 0;
       burstShotCooldownSeconds = 0;
       triggerFireCooldownSeconds = 0;
+      nextTriggerReadyAtSeconds = 0;
       hasLastYaw = false;
       turnDirection = 0;
       clearCurrentLocks();

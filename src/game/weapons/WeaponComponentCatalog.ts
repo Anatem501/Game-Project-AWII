@@ -2,8 +2,7 @@ import type { LaserBoltFactoryOptions } from "../controllers/projectiles/LaserBo
 
 export const CANNON_PRIMARY_COMPONENT_OPTIONS = [
   "repeating_laserbolt_fire",
-  "focused_laserburst_fire",
-  "heavy_laserlance_fire"
+  "repeating_plasmabolt_fire"
 ] as const;
 
 export type CannonPrimaryComponentId = (typeof CANNON_PRIMARY_COMPONENT_OPTIONS)[number];
@@ -103,46 +102,25 @@ const CANNON_PRIMARY_COMPONENTS: Record<
       collisionRadius: 0.08
     }
   },
-  focused_laserburst_fire: {
-    id: "focused_laserburst_fire",
-    name: "Focused Laserburst Fire",
+  repeating_plasmabolt_fire: {
+    id: "repeating_plasmabolt_fire",
+    name: "Repeating Plasmabolt Fire",
     weaponType: "Cannons",
     fireType: "Primary",
-    damageType: "Laser",
+    damageType: "Plasma",
     description:
-      "Higher-cadence focused laser bolts with tighter projectile profile and improved velocity.",
-    fireIntervalSeconds: 0.15,
+      "Standard red-hot plasmabolt stream. Matches repeating laserbolt cadence with stronger thermal visual profile.",
     projectile: {
-      color: 0x9df7ff,
-      emissive: 0x42d8ff,
-      emissiveIntensity: 2.35,
-      speed: 34,
-      lifetimeSeconds: 1.8,
-      length: 0.42,
-      thickness: 0.048,
-      damage: 6.5,
-      collisionRadius: 0.065
-    }
-  },
-  heavy_laserlance_fire: {
-    id: "heavy_laserlance_fire",
-    name: "Heavy Laserlance Fire",
-    weaponType: "Cannons",
-    fireType: "Primary",
-    damageType: "Laser",
-    description:
-      "Lower-cadence heavy laser lances with thicker projectiles and stronger single-shot impact.",
-    fireIntervalSeconds: 0.3,
-    projectile: {
-      color: 0xb3ff9c,
-      emissive: 0x5dff7a,
-      emissiveIntensity: 2.6,
-      speed: 24,
-      lifetimeSeconds: 2.2,
-      length: 0.72,
-      thickness: 0.11,
-      damage: 15,
-      collisionRadius: 0.12
+      color: 0xff6a74,
+      emissive: 0xff4554,
+      emissiveIntensity: 3.2,
+      speed: 18,
+      lifetimeSeconds: 2,
+      length: 0.44,
+      thickness: 0.06,
+      damage: 8,
+      damageType: "Plasma",
+      collisionRadius: 0.08
     }
   }
 };

@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { createHurtboxComponent } from "../components/combat/HurtboxComponent";
 import type { HurtboxComponent } from "../components/combat/HurtboxComponent";
 import enemyDualLaserTurretModelUrl from "../../assets/models/DualGunTurrretV1.glb?url";
+import plasmaboltModelUrl from "../../assets/models/Plasmabolt-v01.glb?url";
 import { createCameraController } from "../controllers/CameraController";
 import { createGunController } from "../controllers/GunController";
 import {
@@ -11,6 +12,8 @@ import {
 import { createPlayerController } from "../controllers/PlayerController";
 import { createShipController } from "../controllers/ShipController";
 import { createLaserBoltFactory } from "../controllers/projectiles/LaserBoltFactory";
+import { createPlasmaBoltFactory } from "../controllers/projectiles/PlasmaBoltFactory";
+import type { ProjectileFactory } from "../controllers/projectiles/ProjectileTypes";
 import { createHealthComponent } from "../components/HealthComponent";
 import { createPlayerThrusterEffect } from "../effects/PlayerThrusterEffect";
 import { EnemyDualLaserBoltTurret } from "../entities/EnemyDualLaserBoltTurret";
@@ -60,6 +63,7 @@ const MAURADER_DEFAULT_MISSILE_CELL_LOCAL_OFFSETS: readonly THREE.Vector3[] = [
   new THREE.Vector3(0.38, 0.92, -0.34)
 ];
 const REPEATING_LASERBOLT_COMPONENT_ID = "repeating_laserbolt_fire";
+const REPEATING_PLASMABOLT_COMPONENT_ID = "repeating_plasmabolt_fire";
 const CANNON_FIRE_INTERVAL_SECONDS = 0.5;
 
 export type TopDownSceneController = {
@@ -238,10 +242,7 @@ export function setupTopDownScene(
     owner: playerRoot
   });
 
-  const primaryCannonProjectileFactoryByComponentId = new Map<
-    string,
-    ReturnType<typeof createLaserBoltFactory>
-  >();
+  const primaryCannonProjectileFactoryByComponentId = new Map<string, ProjectileFactory>();
   const resolvePrimaryCannonProjectileFactory = (componentId: string) => {
     const cachedFactory = primaryCannonProjectileFactoryByComponentId.get(componentId);
     if (cachedFactory) {
@@ -249,10 +250,17 @@ export function setupTopDownScene(
     }
 
     const component = getCannonPrimaryComponentDefinition(componentId);
-    const factory = createLaserBoltFactory({
-      faction: "player",
-      ...component.projectile
-    });
+    const factory =
+      componentId === REPEATING_PLASMABOLT_COMPONENT_ID
+        ? createPlasmaBoltFactory({
+            faction: "player",
+            modelUrl: plasmaboltModelUrl,
+            ...component.projectile
+          })
+        : createLaserBoltFactory({
+            faction: "player",
+            ...component.projectile
+          });
     primaryCannonProjectileFactoryByComponentId.set(componentId, factory);
     return factory;
   };
@@ -508,7 +516,10 @@ function resolveCannonPrimaryPhaseOffsets(
   if (cannonCount <= 0) {
     return [];
   }
-  if (primaryComponentId !== REPEATING_LASERBOLT_COMPONENT_ID) {
+  if (
+    primaryComponentId !== REPEATING_LASERBOLT_COMPONENT_ID &&
+    primaryComponentId !== REPEATING_PLASMABOLT_COMPONENT_ID
+  ) {
     return new Array(cannonCount).fill(0);
   }
 
@@ -532,5 +543,7 @@ function resolveRepeatingLaserboltPhaseSlots(shipId: string, cannonCount: number
     return Array.from({ length: cannonCount }, (_, index) => index % 2);
   }
 
-  return new Array(cannonCount).fill(0);
+  // Default all other ships to alternating fire slots so repeating
+  // plasmabolt fire inherits the same alternating behavior as laserbolt.
+  return Array.from({ length: cannonCount }, (_, index) => index % 2);
 }

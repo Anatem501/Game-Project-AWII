@@ -2,6 +2,8 @@ import * as THREE from "three";
 import { resolveHitboxAgainstHurtboxes } from "../components/combat/HitboxHurtboxCollision";
 import type { HurtboxComponent } from "../components/combat/HurtboxComponent";
 import { createLaserHitSparkExplosionSystem } from "../effects/LaserHitSparkExplosionSystem";
+import { createPlasmaHitImplosionSystem } from "../effects/PlasmaHitImplosionSystem";
+import { createPlasmaMuzzleGlobBurstSystem } from "../effects/PlasmaMuzzleGlobBurstSystem";
 import { createShipGunSparkBurstSystem } from "../effects/ShipGunSparkBurstSystem";
 import type { PlayerControllerState } from "./PlayerController";
 import type { ProjectileFactory, ProjectileInstance } from "./projectiles/ProjectileTypes";
@@ -83,6 +85,8 @@ export function createGunController({
     spreadRadians: PLAYER_CANNON_MUZZLE_SPREAD_RADIANS
   });
   const hitSparkExplosions = createLaserHitSparkExplosionSystem(scene);
+  const plasmaHitImplosions = createPlasmaHitImplosionSystem(scene);
+  const plasmaMuzzleGlobs = createPlasmaMuzzleGlobBurstSystem(scene);
   const projectilesRoot = new THREE.Group();
   const normalizedGuns = normalizeGunDefinitions(guns);
   const primaryInitialCooldowns = normalizedGuns.map((gun) => {
@@ -112,7 +116,6 @@ export function createGunController({
   const onPointerDown = (event: PointerEvent): void => {
     if (event.button === 0) {
       primaryFireHeld = true;
-      resetPrimaryCooldowns();
       event.preventDefault();
       return;
     }
@@ -194,7 +197,11 @@ export function createGunController({
 
     projectilesRoot.add(projectile.object);
     projectiles.push(projectile);
-    sparkBursts.spawnBurst(muzzleWorld, aimDirection);
+    if (projectile.hitbox?.damageType === "Plasma") {
+      plasmaMuzzleGlobs.spawnBurst(muzzleWorld, aimDirection);
+    } else {
+      sparkBursts.spawnBurst(muzzleWorld, aimDirection);
+    }
   };
 
   const update = (deltaTime: number, playerState: PlayerControllerState): void => {
@@ -228,15 +235,28 @@ export function createGunController({
         }
       }
     } else {
-      resetPrimaryCooldowns();
+      // Cooldowns recover while preserving each gun's phase baseline so
+      // alternating patterns remain intact between trigger presses.
+      for (let i = 0; i < primaryCooldowns.length; i += 1) {
+        const phaseBaseline = primaryInitialCooldowns[i] ?? 0;
+        primaryCooldowns[i] = Math.max(phaseBaseline, primaryCooldowns[i] - deltaTime);
+      }
     }
 
     for (let i = projectiles.length - 1; i >= 0; i -= 1) {
       const projectile = projectiles[i];
       const collision = resolveHitboxAgainstHurtboxes(projectile.hitbox, targetHurtboxes);
       if (collision) {
-        projectile.object.getWorldDirection(fallbackForward);
-        hitSparkExplosions.spawnExplosion(projectile.object.position, fallbackForward);
+        const isPlasmaHit = projectile.hitbox?.damageType === "Plasma";
+        if (isPlasmaHit) {
+          plasmaHitImplosions.spawnImplosion(
+            projectile.object.position,
+            projectile.hitbox?.collisionArea.radius
+          );
+        } else {
+          projectile.object.getWorldDirection(fallbackForward);
+          hitSparkExplosions.spawnExplosion(projectile.object.position, fallbackForward);
+        }
         projectilesRoot.remove(projectile.object);
         projectile.dispose?.();
         projectiles.splice(i, 1);
@@ -253,7 +273,9 @@ export function createGunController({
     }
 
     sparkBursts.update(deltaTime);
+    plasmaMuzzleGlobs.update(deltaTime);
     hitSparkExplosions.update(deltaTime);
+    plasmaHitImplosions.update(deltaTime);
   };
 
   const dispose = (): void => {
@@ -265,7 +287,9 @@ export function createGunController({
       projectile.dispose?.();
     }
     sparkBursts.dispose();
+    plasmaMuzzleGlobs.dispose();
     hitSparkExplosions.dispose();
+    plasmaHitImplosions.dispose();
     projectilesRoot.clear();
     scene.remove(projectilesRoot);
 
