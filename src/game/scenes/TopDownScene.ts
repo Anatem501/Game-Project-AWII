@@ -3,6 +3,7 @@ import { createHurtboxComponent } from "../components/combat/HurtboxComponent";
 import type { HurtboxComponent } from "../components/combat/HurtboxComponent";
 import enemyDualLaserTurretModelUrl from "../../assets/models/DualGunTurrretV1.glb?url";
 import plasmaboltModelUrl from "../../assets/models/Plasmabolt-v01.glb?url";
+import ionboltModelUrl from "../../assets/models/Ionbolt-v01.glb?url";
 import { createCameraController } from "../controllers/CameraController";
 import { createGunController } from "../controllers/GunController";
 import {
@@ -12,6 +13,7 @@ import {
 import { createPlayerController } from "../controllers/PlayerController";
 import { createShipController } from "../controllers/ShipController";
 import { createLaserBoltFactory } from "../controllers/projectiles/LaserBoltFactory";
+import { createIonBoltFactory } from "../controllers/projectiles/IonBoltFactory";
 import { createPlasmaBoltFactory } from "../controllers/projectiles/PlasmaBoltFactory";
 import type { ProjectileFactory } from "../controllers/projectiles/ProjectileTypes";
 import { createHealthComponent } from "../components/HealthComponent";
@@ -64,6 +66,7 @@ const MAURADER_DEFAULT_MISSILE_CELL_LOCAL_OFFSETS: readonly THREE.Vector3[] = [
 ];
 const REPEATING_LASERBOLT_COMPONENT_ID = "repeating_laserbolt_fire";
 const REPEATING_PLASMABOLT_COMPONENT_ID = "repeating_plasmabolt_fire";
+const REPEATING_IONBOLT_COMPONENT_ID = "repeating_ionbolt_fire";
 const CANNON_FIRE_INTERVAL_SECONDS = 0.5;
 
 export type TopDownSceneController = {
@@ -257,10 +260,16 @@ export function setupTopDownScene(
             modelUrl: plasmaboltModelUrl,
             ...component.projectile
           })
-        : createLaserBoltFactory({
-            faction: "player",
-            ...component.projectile
-          });
+        : componentId === REPEATING_IONBOLT_COMPONENT_ID
+          ? createIonBoltFactory({
+              faction: "player",
+              modelUrl: ionboltModelUrl,
+              ...component.projectile
+            })
+          : createLaserBoltFactory({
+              faction: "player",
+              ...component.projectile
+            });
     primaryCannonProjectileFactoryByComponentId.set(componentId, factory);
     return factory;
   };
@@ -518,7 +527,8 @@ function resolveCannonPrimaryPhaseOffsets(
   }
   if (
     primaryComponentId !== REPEATING_LASERBOLT_COMPONENT_ID &&
-    primaryComponentId !== REPEATING_PLASMABOLT_COMPONENT_ID
+    primaryComponentId !== REPEATING_PLASMABOLT_COMPONENT_ID &&
+    primaryComponentId !== REPEATING_IONBOLT_COMPONENT_ID
   ) {
     return new Array(cannonCount).fill(0);
   }

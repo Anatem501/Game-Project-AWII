@@ -2,7 +2,8 @@ import type { LaserBoltFactoryOptions } from "../controllers/projectiles/LaserBo
 
 export const CANNON_PRIMARY_COMPONENT_OPTIONS = [
   "repeating_laserbolt_fire",
-  "repeating_plasmabolt_fire"
+  "repeating_plasmabolt_fire",
+  "repeating_ionbolt_fire"
 ] as const;
 
 export type CannonPrimaryComponentId = (typeof CANNON_PRIMARY_COMPONENT_OPTIONS)[number];
@@ -94,7 +95,7 @@ const CANNON_PRIMARY_COMPONENTS: Record<
       color: 0x72ff9a,
       emissive: 0x2dff55,
       emissiveIntensity: 2.25,
-      speed: 28,
+      speed: 18,
       lifetimeSeconds: 2,
       length: 0.44,
       thickness: 0.06,
@@ -120,6 +121,27 @@ const CANNON_PRIMARY_COMPONENTS: Record<
       thickness: 0.06,
       damage: 8,
       damageType: "Plasma",
+      collisionRadius: 0.08
+    }
+  },
+  repeating_ionbolt_fire: {
+    id: "repeating_ionbolt_fire",
+    name: "Repeating Ionbolt Fire",
+    weaponType: "Cannons",
+    fireType: "Primary",
+    damageType: "Ion",
+    description:
+      "Electrified ionbolt stream with layered glow and animated electrical arcs for sustained suppression.",
+    projectile: {
+      color: 0x73bcff,
+      emissive: 0xf0fbff,
+      emissiveIntensity: 3.1,
+      speed: 18,
+      lifetimeSeconds: 2,
+      length: 0.44,
+      thickness: 0.06,
+      damage: 8,
+      damageType: "Ion",
       collisionRadius: 0.08
     }
   }

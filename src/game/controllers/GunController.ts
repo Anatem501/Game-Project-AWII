@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { resolveHitboxAgainstHurtboxes } from "../components/combat/HitboxHurtboxCollision";
 import type { HurtboxComponent } from "../components/combat/HurtboxComponent";
+import { createIonHitElectricBurstSystem } from "../effects/IonHitElectricBurstSystem";
 import { createLaserHitSparkExplosionSystem } from "../effects/LaserHitSparkExplosionSystem";
 import { createPlasmaHitImplosionSystem } from "../effects/PlasmaHitImplosionSystem";
 import { createPlasmaMuzzleGlobBurstSystem } from "../effects/PlasmaMuzzleGlobBurstSystem";
@@ -18,6 +19,10 @@ const PLAYER_CANNON_MUZZLE_BURST_LIFETIME_SECONDS = 0.11;
 const PLAYER_CANNON_MUZZLE_SPEED_MIN = 1.5;
 const PLAYER_CANNON_MUZZLE_SPEED_MAX = 5.1;
 const PLAYER_CANNON_MUZZLE_SPREAD_RADIANS = THREE.MathUtils.degToRad(9);
+const ION_MUZZLE_BURST_COUNT = 24;
+const ION_MUZZLE_BURST_LIFETIME_SECONDS = 0.12;
+const ION_MUZZLE_BURST_SPEED_MIN = 0.7;
+const ION_MUZZLE_BURST_SPEED_MAX = 2.8;
 
 type GunFireModeDefinition = {
   fireIntervalSeconds?: number;
@@ -85,6 +90,13 @@ export function createGunController({
     spreadRadians: PLAYER_CANNON_MUZZLE_SPREAD_RADIANS
   });
   const hitSparkExplosions = createLaserHitSparkExplosionSystem(scene);
+  const ionMuzzleBursts = createIonHitElectricBurstSystem(scene, {
+    burstCount: ION_MUZZLE_BURST_COUNT,
+    lifetimeSeconds: ION_MUZZLE_BURST_LIFETIME_SECONDS,
+    speedMin: ION_MUZZLE_BURST_SPEED_MIN,
+    speedMax: ION_MUZZLE_BURST_SPEED_MAX
+  });
+  const ionHitBursts = createIonHitElectricBurstSystem(scene);
   const plasmaHitImplosions = createPlasmaHitImplosionSystem(scene);
   const plasmaMuzzleGlobs = createPlasmaMuzzleGlobBurstSystem(scene);
   const projectilesRoot = new THREE.Group();
@@ -197,8 +209,11 @@ export function createGunController({
 
     projectilesRoot.add(projectile.object);
     projectiles.push(projectile);
-    if (projectile.hitbox?.damageType === "Plasma") {
+    const damageType = projectile.hitbox?.damageType;
+    if (damageType === "Plasma") {
       plasmaMuzzleGlobs.spawnBurst(muzzleWorld, aimDirection);
+    } else if (damageType === "Ion") {
+      ionMuzzleBursts.spawnBurst(muzzleWorld, aimDirection);
     } else {
       sparkBursts.spawnBurst(muzzleWorld, aimDirection);
     }
@@ -247,15 +262,19 @@ export function createGunController({
       const projectile = projectiles[i];
       const collision = resolveHitboxAgainstHurtboxes(projectile.hitbox, targetHurtboxes);
       if (collision) {
-        const isPlasmaHit = projectile.hitbox?.damageType === "Plasma";
-        if (isPlasmaHit) {
+        const damageType = projectile.hitbox?.damageType;
+        if (damageType === "Plasma") {
           plasmaHitImplosions.spawnImplosion(
             projectile.object.position,
             projectile.hitbox?.collisionArea.radius
           );
         } else {
           projectile.object.getWorldDirection(fallbackForward);
-          hitSparkExplosions.spawnExplosion(projectile.object.position, fallbackForward);
+          if (damageType === "Ion") {
+            ionHitBursts.spawnBurst(projectile.object.position, fallbackForward);
+          } else {
+            hitSparkExplosions.spawnExplosion(projectile.object.position, fallbackForward);
+          }
         }
         projectilesRoot.remove(projectile.object);
         projectile.dispose?.();
@@ -273,8 +292,10 @@ export function createGunController({
     }
 
     sparkBursts.update(deltaTime);
+    ionMuzzleBursts.update(deltaTime);
     plasmaMuzzleGlobs.update(deltaTime);
     hitSparkExplosions.update(deltaTime);
+    ionHitBursts.update(deltaTime);
     plasmaHitImplosions.update(deltaTime);
   };
 
@@ -287,8 +308,10 @@ export function createGunController({
       projectile.dispose?.();
     }
     sparkBursts.dispose();
+    ionMuzzleBursts.dispose();
     plasmaMuzzleGlobs.dispose();
     hitSparkExplosions.dispose();
+    ionHitBursts.dispose();
     plasmaHitImplosions.dispose();
     projectilesRoot.clear();
     scene.remove(projectilesRoot);
