@@ -59,12 +59,12 @@ const AZURE_ARROW_V2_CANNON_MOUNTS: readonly ShipCannonMountDefinition[] = [
   {
     id: "cannon_mount_1",
     displayName: "Cannons Primary Fire 1",
-    defaultPrimaryComponentId: "repeating_ionbolt_fire"
+    defaultPrimaryComponentId: DEFAULT_CANNON_PRIMARY_COMPONENT_ID
   },
   {
     id: "cannon_mount_2",
     displayName: "Cannons Primary Fire 2",
-    defaultPrimaryComponentId: "repeating_ionbolt_fire"
+    defaultPrimaryComponentId: DEFAULT_CANNON_PRIMARY_COMPONENT_ID
   }
 ] as const;
 
