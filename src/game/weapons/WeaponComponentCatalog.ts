@@ -31,6 +31,8 @@ type WeaponComponentPresentation = {
   fireType: string;
   damageType: string;
   description: string;
+  heatCost?: number;
+  energyCost?: number;
 };
 
 export type CannonPrimaryComponentDefinition = WeaponComponentPresentation & {
@@ -89,6 +91,7 @@ const CANNON_PRIMARY_COMPONENTS: Record<
     weaponType: "Cannons",
     fireType: "Primary",
     damageType: "Laser",
+    energyCost: 3,
     description:
       "Standard green laserbolt stream used by current ship loadouts. Reliable baseline primary fire.",
     projectile: {
@@ -109,6 +112,7 @@ const CANNON_PRIMARY_COMPONENTS: Record<
     weaponType: "Cannons",
     fireType: "Primary",
     damageType: "Plasma",
+    heatCost: 4,
     description:
       "Standard red-hot plasmabolt stream. Matches repeating laserbolt cadence with stronger thermal visual profile.",
     projectile: {
@@ -130,6 +134,7 @@ const CANNON_PRIMARY_COMPONENTS: Record<
     weaponType: "Cannons",
     fireType: "Primary",
     damageType: "Ion",
+    energyCost: 4,
     description:
       "Electrified ionbolt stream with layered glow and animated electrical arcs for sustained suppression.",
     projectile: {
@@ -154,6 +159,8 @@ const MISSILE_BAY_COMPONENTS: Record<MissileBayComponentId, MissileBayComponentD
     weaponType: "Missile Bay",
     fireType: "Payload",
     damageType: "Concussive",
+    heatCost: 0,
+    energyCost: 0,
     description:
       "Standard Concussive Missile V01 payload. Missiles launch in straight-flight barrages and detonate in a medium blast area.",
     burstFireIntervalSeconds: 0.12,
@@ -178,6 +185,7 @@ const MISSILE_BAY_COMPONENTS: Record<MissileBayComponentId, MissileBayComponentD
     weaponType: "Missile Bay",
     fireType: "Payload",
     damageType: "Concussive",
+    heatCost: 12,
     description:
       "Micro-concussive swarm payload that launches triple randomized missiles per volley with predictive lock-strike behavior.",
     burstFireIntervalSeconds: 2.5,

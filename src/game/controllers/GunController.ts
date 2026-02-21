@@ -24,10 +24,17 @@ const ION_MUZZLE_BURST_LIFETIME_SECONDS = 0.12;
 const ION_MUZZLE_BURST_SPEED_MIN = 0.7;
 const ION_MUZZLE_BURST_SPEED_MAX = 2.8;
 
+type WeaponResourceCost = {
+  energyCost: number;
+  heatCost: number;
+};
+
 type GunFireModeDefinition = {
   fireIntervalSeconds?: number;
   phaseOffsetSeconds?: number;
   projectileFactory: ProjectileFactory;
+  heatCost?: number;
+  energyCost?: number;
 };
 
 export type GunDefinition = {
@@ -52,6 +59,8 @@ type GunControllerParams = {
   minAimDistanceFromShip?: number;
   maxAimAngleRadians?: number;
   targetHurtboxes?: readonly HurtboxComponent[];
+  consumePrimaryFireCost?: (cost: WeaponResourceCost) => boolean;
+  getPrimaryFireIntervalMultiplier?: () => number;
 };
 
 export type GunController = {
@@ -69,7 +78,9 @@ export function createGunController({
   hardpointAimOffsetScale = 1,
   minAimDistanceFromShip = MIN_AIM_DISTANCE_FROM_SHIP,
   maxAimAngleRadians = FULL_AIM_ARC_RADIANS,
-  targetHurtboxes = []
+  targetHurtboxes = [],
+  consumePrimaryFireCost,
+  getPrimaryFireIntervalMultiplier
 }: GunControllerParams): GunController {
   const muzzleWorld = new THREE.Vector3();
   const aimDirection = new THREE.Vector3();
@@ -245,16 +256,29 @@ export function createGunController({
         const gun = normalizedGuns[i];
         primaryCooldowns[i] -= deltaTime;
         while (primaryCooldowns[i] <= 0) {
-          spawnShot(gun, gun.primary.projectileFactory, playerState);
-          primaryCooldowns[i] += primaryFireIntervals[i];
+          const consumedCost = consumePrimaryFireCost?.({
+            heatCost: gun.primary.heatCost,
+            energyCost: gun.primary.energyCost
+          }) ?? true;
+
+          if (consumedCost) {
+            spawnShot(gun, gun.primary.projectileFactory, playerState);
+          }
+
+          const intervalMultiplier = Math.max(1, getPrimaryFireIntervalMultiplier?.() ?? 1);
+          primaryCooldowns[i] += primaryFireIntervals[i] * intervalMultiplier;
         }
       }
     } else {
-      // Cooldowns recover while preserving each gun's phase baseline so
-      // alternating patterns remain intact between trigger presses.
+      // Recover cooldowns while preserving phase spacing between guns.
+      // Stop recovery once the next cannon in sequence becomes ready.
+      let minCooldown = Number.POSITIVE_INFINITY;
       for (let i = 0; i < primaryCooldowns.length; i += 1) {
-        const phaseBaseline = primaryInitialCooldowns[i] ?? 0;
-        primaryCooldowns[i] = Math.max(phaseBaseline, primaryCooldowns[i] - deltaTime);
+        minCooldown = Math.min(minCooldown, primaryCooldowns[i] ?? 0);
+      }
+      const recoverStep = Math.max(0, Math.min(deltaTime, minCooldown));
+      for (let i = 0; i < primaryCooldowns.length; i += 1) {
+        primaryCooldowns[i] = Math.max(0, primaryCooldowns[i] - recoverStep);
       }
     }
 
@@ -360,12 +384,14 @@ function isGamepadFireButtonHeld(buttonIndex: number): boolean {
 function normalizeGunDefinitions(guns: readonly GunDefinition[]): NormalizedGunDefinition[] {
   return guns
     .map((gun) => {
-      const primaryProfile =
+      const primaryProfile: GunFireModeDefinition | undefined =
         gun.primary ??
         (gun.projectileFactory
           ? {
               fireIntervalSeconds: gun.fireIntervalSeconds,
-              projectileFactory: gun.projectileFactory
+              projectileFactory: gun.projectileFactory,
+              heatCost: 0,
+              energyCost: 0
             }
           : undefined);
       if (!primaryProfile) {
@@ -378,7 +404,9 @@ function normalizeGunDefinitions(guns: readonly GunDefinition[]): NormalizedGunD
           fireIntervalSeconds:
             primaryProfile.fireIntervalSeconds ?? DEFAULT_GUN_FIRE_INTERVAL_SECONDS,
           phaseOffsetSeconds: primaryProfile.phaseOffsetSeconds ?? 0,
-          projectileFactory: primaryProfile.projectileFactory
+          projectileFactory: primaryProfile.projectileFactory,
+          heatCost: Math.max(0, primaryProfile.heatCost ?? 0),
+          energyCost: Math.max(0, primaryProfile.energyCost ?? 0)
         }
       };
     })

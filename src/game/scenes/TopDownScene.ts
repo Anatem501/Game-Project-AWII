@@ -1,6 +1,11 @@
 import * as THREE from "three";
 import { createHurtboxComponent } from "../components/combat/HurtboxComponent";
 import type { HurtboxComponent } from "../components/combat/HurtboxComponent";
+import {
+  createShipResourceComponent,
+  type ShipResourceComponent,
+  type ShipResourceConfig
+} from "../components/ShipResourceComponent";
 import enemyDualLaserTurretModelUrl from "../../assets/models/DualGunTurrretV1.glb?url";
 import plasmaboltModelUrl from "../../assets/models/Plasmabolt-v01.glb?url";
 import ionboltModelUrl from "../../assets/models/Ionbolt-v01.glb?url";
@@ -17,8 +22,11 @@ import { createIonBoltFactory } from "../controllers/projectiles/IonBoltFactory"
 import { createPlasmaBoltFactory } from "../controllers/projectiles/PlasmaBoltFactory";
 import type { ProjectileFactory } from "../controllers/projectiles/ProjectileTypes";
 import { createHealthComponent } from "../components/HealthComponent";
+import { createCannonOverheatGlowEffect } from "../effects/CannonOverheatGlowEffect";
+import { createCannonOverheatSteamEffect } from "../effects/CannonOverheatSteamEffect";
 import { createPlayerThrusterEffect } from "../effects/PlayerThrusterEffect";
 import { EnemyDualLaserBoltTurret } from "../entities/EnemyDualLaserBoltTurret";
+import { EnemyPlasmaboltTurret } from "../entities/EnemyPlasmaboltTurret";
 import { getShipDefinition } from "../ships/ShipCatalog";
 import {
   createDefaultShipSelection,
@@ -30,7 +38,7 @@ import {
   getCannonPrimaryComponentDefinition,
   getMissileBayComponentDefinition
 } from "../weapons/WeaponComponentCatalog";
-import { createPlayerHealthHud } from "../ui/PlayerHealthHud";
+import { createPlayerHealthHud, type HudMinimapSnapshot } from "../ui/PlayerHealthHud";
 import { createEnvironment } from "./factories/EnvironmentFactory";
 import { createShipRig } from "./factories/PlayerFactory";
 import { createReticles } from "./factories/ReticleFactory";
@@ -47,6 +55,7 @@ const RETICLE_MAX_DISTANCE_FROM_SHIP = 8;
 const GUN_MIN_AIM_DISTANCE_FROM_SHIP = 2.5;
 const GUN_MAX_AIM_ANGLE_RADIANS = THREE.MathUtils.degToRad(37.5);
 const ENEMY_DUAL_TURRET_SPAWN = new THREE.Vector3(30, FLOOR_Y, -24);
+const ENEMY_PLASMABOLT_TURRET_SPAWN = new THREE.Vector3(-34, FLOOR_Y, 28);
 const PLAYER_HURTBOX_RADIUS = 1.05;
 const ENEMY_DUAL_TURRET_HURTBOX_RADIUS = 1.3;
 const ENEMY_DUAL_TURRET_HURTBOX_LOCAL_OFFSET = new THREE.Vector3(0, 1, 0);
@@ -68,6 +77,28 @@ const REPEATING_LASERBOLT_COMPONENT_ID = "repeating_laserbolt_fire";
 const REPEATING_PLASMABOLT_COMPONENT_ID = "repeating_plasmabolt_fire";
 const REPEATING_IONBOLT_COMPONENT_ID = "repeating_ionbolt_fire";
 const CANNON_FIRE_INTERVAL_SECONDS = 0.5;
+const HUD_MINIMAP_RANGE_METERS = 80;
+const ENEMY_PLASMABOLT_EXTRA_HEAT_COST = 1;
+const DEFAULT_PLAYER_RESOURCE_CONFIG: ShipResourceConfig = {
+  maxHeat: 120,
+  heatDissipationPerSecond: 14,
+  maxEnergy: 100,
+  energyRechargePerSecond: 11,
+  minEnergyRatio: 0.5,
+  plasmaHeatPerDamage: 0.7
+};
+
+const DEFAULT_ENEMY_RESOURCE_CONFIG: ShipResourceConfig = {
+  maxHeat: 90,
+  heatDissipationPerSecond: 10,
+  maxEnergy: 0,
+  energyRechargePerSecond: 0,
+  plasmaHeatPerDamage: 0.75
+};
+const DEFAULT_ENEMY_PLASMABOLT_RESOURCE_CONFIG: ShipResourceConfig = {
+  ...DEFAULT_ENEMY_RESOURCE_CONFIG,
+  heatDissipationPerSecond: 6
+};
 
 export type TopDownSceneController = {
   update: (deltaTime: number) => void;
@@ -96,7 +127,12 @@ export function setupTopDownScene(
     selection.missileBayComponentId
   );
   const selectedMissilePayload = getMissileBayComponentDefinition(selectedMissilePayloadComponentId);
+  const playerResources = createShipResourceComponent(DEFAULT_PLAYER_RESOURCE_CONFIG);
+  let enemyDualTurretResources: ShipResourceComponent | null = null;
+  let enemyPlasmaboltTurretResources: ShipResourceComponent | null = null;
   let playerThrusterEffect: ReturnType<typeof createPlayerThrusterEffect> | null = null;
+  let cannonOverheatGlowEffect: ReturnType<typeof createCannonOverheatGlowEffect> | null = null;
+  let cannonOverheatSteamEffect: ReturnType<typeof createCannonOverheatSteamEffect> | null = null;
   let missileBayController: ReturnType<typeof createMissileBayController> | null = null;
 
   const { floor, gridRoot } = createEnvironment(scene, {
@@ -200,6 +236,12 @@ export function setupTopDownScene(
     }
     rebuildMissileBayLaunchers(fallbackOffsets);
   }
+  cannonOverheatGlowEffect = createCannonOverheatGlowEffect(
+    playerRoot,
+    gunHardpoints,
+    missileCellLaunchers
+  );
+  cannonOverheatSteamEffect = createCannonOverheatSteamEffect(scene, gunHardpoints);
 
   const { inputAimReticle, trueAimReticle } = createReticles(scene, {
     maxDistanceFromShip: RETICLE_MAX_DISTANCE_FROM_SHIP,
@@ -274,13 +316,23 @@ export function setupTopDownScene(
     return factory;
   };
   const enemyTargetHurtboxes: HurtboxComponent[] = [];
+  const minimapEnemyPosition = new THREE.Vector3();
   let enemyDualTurretHealth: ReturnType<typeof createHealthComponent> | null = null;
   let enemyDualLaserBoltTurret: EnemyDualLaserBoltTurret | null = null;
   let enemyDualTurretHurtbox: HurtboxComponent | null = null;
-  let turretRespawnSecondsRemaining = 0;
+  let enemyDualTurretRespawnSecondsRemaining = 0;
+  let enemyPlasmaboltTurretHealth: ReturnType<typeof createHealthComponent> | null = null;
+  let enemyPlasmaboltTurret: EnemyPlasmaboltTurret | null = null;
+  let enemyPlasmaboltTurretHurtbox: HurtboxComponent | null = null;
+  let enemyPlasmaboltTurretRespawnSecondsRemaining = 0;
+  let enemyPlasmaboltTurretProjectileFactory: ProjectileFactory | null = null;
+  let enemyPlasmaboltTurretGlowEffect: ReturnType<typeof createCannonOverheatGlowEffect> | null =
+    null;
+  let enemyPlasmaboltTurretSteamEffect: ReturnType<typeof createCannonOverheatSteamEffect> | null =
+    null;
 
-  const spawnEnemyDualLaserBoltTurret = (): void => {
-    enemyDualTurretHealth = createHealthComponent({
+  const createEnemyTurretHealth = () =>
+    createHealthComponent({
       maxArmor: 50,
       maxHull: 70,
       maxShield: 0,
@@ -300,6 +352,55 @@ export function setupTopDownScene(
         }
       }
     });
+
+  const updateEnemyTargetHurtboxes = (): void => {
+    enemyTargetHurtboxes.length = 0;
+    if (enemyDualTurretHurtbox?.isEnabled()) {
+      enemyTargetHurtboxes.push(enemyDualTurretHurtbox);
+    }
+    if (enemyPlasmaboltTurretHurtbox?.isEnabled()) {
+      enemyTargetHurtboxes.push(enemyPlasmaboltTurretHurtbox);
+    }
+  };
+
+  const buildMinimapSnapshot = (
+    playerPosition: THREE.Vector3,
+    playerYawRadians: number
+  ): HudMinimapSnapshot => {
+    const enemies: Array<{ x: number; z: number }> = [];
+    for (const hurtbox of enemyTargetHurtboxes) {
+      if (!hurtbox.canReceiveDamage()) {
+        continue;
+      }
+      hurtbox.getWorldCenter(minimapEnemyPosition);
+      enemies.push({
+        x: minimapEnemyPosition.x,
+        z: minimapEnemyPosition.z
+      });
+    }
+    return {
+      playerPosition: {
+        x: playerPosition.x,
+        z: playerPosition.z
+      },
+      playerYawRadians,
+      enemies,
+      range: HUD_MINIMAP_RANGE_METERS
+    };
+  };
+
+  const enemyPlasmaboltPrimaryComponent = getCannonPrimaryComponentDefinition(
+    REPEATING_PLASMABOLT_COMPONENT_ID
+  );
+  const enemyPlasmaboltHeatCost = Math.max(
+    0,
+    (enemyPlasmaboltPrimaryComponent.heatCost ?? 0) + ENEMY_PLASMABOLT_EXTRA_HEAT_COST
+  );
+  const enemyPlasmaboltEnergyCost = Math.max(0, enemyPlasmaboltPrimaryComponent.energyCost ?? 0);
+
+  const spawnEnemyDualLaserBoltTurret = (): void => {
+    enemyDualTurretResources = createShipResourceComponent(DEFAULT_ENEMY_RESOURCE_CONFIG);
+    enemyDualTurretHealth = createEnemyTurretHealth();
 
     enemyDualLaserBoltTurret = new EnemyDualLaserBoltTurret(scene, {
       aimYawOffsetRadians: -Math.PI * 0.5,
@@ -332,25 +433,126 @@ export function setupTopDownScene(
       },
       faction: "enemy",
       health: enemyDualTurretHealth,
-      owner: enemyDualLaserBoltTurret.root
+      owner: enemyDualLaserBoltTurret.root,
+      onHit: (hitEvent) => {
+        enemyDualTurretResources?.applyIncomingDamageHeat(
+          hitEvent.damagePacket.damageType,
+          hitEvent.damagePacket.amount
+        );
+      }
     });
 
-    enemyTargetHurtboxes.length = 0;
-    enemyTargetHurtboxes.push(enemyDualTurretHurtbox);
+    updateEnemyTargetHurtboxes();
   };
 
   const despawnEnemyDualLaserBoltTurret = (): void => {
     enemyDualTurretHurtbox?.setEnabled(false);
-    enemyTargetHurtboxes.length = 0;
     enemyDualLaserBoltTurret?.dispose();
     enemyDualLaserBoltTurret = null;
     enemyDualTurretHurtbox = null;
+    enemyDualTurretResources = null;
     enemyDualTurretHealth = null;
+    updateEnemyTargetHurtboxes();
+  };
+
+  const spawnEnemyPlasmaboltTurret = (): void => {
+    enemyPlasmaboltTurretResources = createShipResourceComponent(
+      DEFAULT_ENEMY_PLASMABOLT_RESOURCE_CONFIG
+    );
+    enemyPlasmaboltTurretHealth = createEnemyTurretHealth();
+    enemyPlasmaboltTurretProjectileFactory = createPlasmaBoltFactory({
+      faction: "enemy",
+      modelUrl: plasmaboltModelUrl,
+      ...enemyPlasmaboltPrimaryComponent.projectile
+    });
+
+    enemyPlasmaboltTurret = new EnemyPlasmaboltTurret(scene, {
+      aimYawOffsetRadians: -Math.PI * 0.5,
+      burstCooldownMaxSeconds: 5,
+      burstCooldownMinSeconds: 2,
+      burstShotCount: 6,
+      burstWindupMaxSeconds: 0.35,
+      burstWindupMinSeconds: 0.2,
+      detectionRange: 20,
+      leadFactor: 0.6,
+      aimUpdateIntervalSeconds: 0.2,
+      perGunFireIntervalSeconds: 0.3,
+      horizontalSpreadRadians: THREE.MathUtils.degToRad(5),
+      additionalSpreadAtMaxSpeedRadians: THREE.MathUtils.degToRad(4),
+      fireRange: 34,
+      modelDesiredSize: 1.95,
+      modelHeightOffset: -1,
+      modelUrl: enemyDualLaserTurretModelUrl,
+      modelYawOffset: Math.PI,
+      playerTarget: playerRoot,
+      position: ENEMY_PLASMABOLT_TURRET_SPAWN,
+      projectileFactory: enemyPlasmaboltTurretProjectileFactory,
+      targetHurtboxes: [playerHurtbox],
+      turnSpeedRadians: THREE.MathUtils.degToRad(150),
+      consumeShotCost: () => {
+        if (!enemyPlasmaboltTurretResources?.canFireCannons()) {
+          return false;
+        }
+        return (
+          enemyPlasmaboltTurretResources?.tryConsumeWeaponCost({
+            heatCost: enemyPlasmaboltHeatCost,
+            energyCost: enemyPlasmaboltEnergyCost
+          }) ?? false
+        );
+      },
+      getFireIntervalMultiplier: () =>
+        enemyPlasmaboltTurretResources?.getWeaponFireIntervalMultiplier() ?? 1
+    });
+
+    enemyPlasmaboltTurretHurtbox = createHurtboxComponent({
+      collisionArea: {
+        radius: ENEMY_DUAL_TURRET_HURTBOX_RADIUS,
+        localOffset: ENEMY_DUAL_TURRET_HURTBOX_LOCAL_OFFSET
+      },
+      faction: "enemy",
+      health: enemyPlasmaboltTurretHealth,
+      owner: enemyPlasmaboltTurret.root,
+      onHit: (hitEvent) => {
+        enemyPlasmaboltTurretResources?.applyIncomingDamageHeat(
+          hitEvent.damagePacket.damageType,
+          hitEvent.damagePacket.amount
+        );
+      }
+    });
+
+    enemyPlasmaboltTurretGlowEffect = createCannonOverheatGlowEffect(
+      enemyPlasmaboltTurret.root,
+      enemyPlasmaboltTurret.getMuzzleObjects()
+    );
+    enemyPlasmaboltTurretSteamEffect = createCannonOverheatSteamEffect(
+      scene,
+      enemyPlasmaboltTurret.getMuzzleObjects()
+    );
+    updateEnemyTargetHurtboxes();
+  };
+
+  const despawnEnemyPlasmaboltTurret = (): void => {
+    enemyPlasmaboltTurretHurtbox?.setEnabled(false);
+    enemyPlasmaboltTurret?.dispose();
+    enemyPlasmaboltTurret = null;
+    enemyPlasmaboltTurretHurtbox = null;
+    enemyPlasmaboltTurretHealth = null;
+    enemyPlasmaboltTurretResources = null;
+    enemyPlasmaboltTurretProjectileFactory?.dispose?.();
+    enemyPlasmaboltTurretProjectileFactory = null;
+    enemyPlasmaboltTurretGlowEffect?.dispose();
+    enemyPlasmaboltTurretGlowEffect = null;
+    enemyPlasmaboltTurretSteamEffect?.dispose();
+    enemyPlasmaboltTurretSteamEffect = null;
+    updateEnemyTargetHurtboxes();
   };
 
   spawnEnemyDualLaserBoltTurret();
+  spawnEnemyPlasmaboltTurret();
 
   const primaryComponent = getCannonPrimaryComponentDefinition(selectedCannonPrimaryComponentId);
+  const primaryHeatCost = Math.max(0, primaryComponent.heatCost ?? 0);
+  const primaryEnergyCost = Math.max(0, primaryComponent.energyCost ?? 0);
   const primaryFireIntervalSeconds = CANNON_FIRE_INTERVAL_SECONDS;
   const primaryPhaseOffsets = resolveCannonPrimaryPhaseOffsets(
     selectedShip.id,
@@ -363,7 +565,9 @@ export function setupTopDownScene(
       primary: {
         fireIntervalSeconds: primaryFireIntervalSeconds,
         phaseOffsetSeconds: primaryPhaseOffsets[hardpointIndex] ?? 0,
-        projectileFactory: resolvePrimaryCannonProjectileFactory(selectedCannonPrimaryComponentId)
+        projectileFactory: resolvePrimaryCannonProjectileFactory(selectedCannonPrimaryComponentId),
+        heatCost: primaryHeatCost,
+        energyCost: primaryEnergyCost
       },
       hardpoint
     };
@@ -376,6 +580,13 @@ export function setupTopDownScene(
     minAimDistanceFromShip: GUN_MIN_AIM_DISTANCE_FROM_SHIP,
     playerRoot,
     scene,
+    consumePrimaryFireCost: (cost) => {
+      if (!playerResources.canFireCannons()) {
+        return false;
+      }
+      return playerResources.tryConsumeWeaponCost(cost);
+    },
+    getPrimaryFireIntervalMultiplier: () => playerResources.getWeaponFireIntervalMultiplier(),
     targetHurtboxes: enemyTargetHurtboxes
   });
   missileBayController = createMissileBayController({
@@ -385,6 +596,18 @@ export function setupTopDownScene(
     maxAimAngleRadians: GUN_MAX_AIM_ANGLE_RADIANS,
     playerRoot,
     scene,
+    consumeLauncherFireCost: (launcherPayload) => {
+      const heatCost = launcherPayload.heatCost ?? 0;
+      if (heatCost > 0 && !playerResources.canUseHeatEquipment()) {
+        return false;
+      }
+      return playerResources.tryConsumeWeaponCost({
+        heatCost,
+        energyCost: launcherPayload.energyCost ?? 0
+      });
+    },
+    getWeaponFireIntervalMultiplier: () =>
+      playerResources.getWeaponFireIntervalMultiplier(),
     targetHurtboxes: enemyTargetHurtboxes
   });
   let playerIsDestroyed = false;
@@ -400,15 +623,24 @@ export function setupTopDownScene(
   });
   const hudRoot = canvas.parentElement ?? document.body;
   const playerHealthHud = createPlayerHealthHud(hudRoot);
-  playerHealthHud.update(playerHealth.getSnapshot(), missileBayController?.getStatus());
+  playerHealthHud.update(
+    playerHealth.getSnapshot(),
+    missileBayController?.getStatus(),
+    playerResources.getSnapshot(),
+    buildMinimapSnapshot(playerRoot.position, playerSpawnYaw)
+  );
   const previousPlayerPosition = playerRoot.position.clone();
   const playerVelocity = new THREE.Vector3();
+  const enemyTurretForward = new THREE.Vector3();
   let reticleLockSpinYaw = 0;
   const defaultInputReticleColor = new THREE.Color(0x7ce0ff);
   const lockingInputReticleColor = new THREE.Color(0xff6666);
 
   const update = (deltaTime: number): void => {
     let playerState = shipController.getState();
+    playerResources.update(deltaTime);
+    enemyDualTurretResources?.update(deltaTime);
+    enemyPlasmaboltTurretResources?.update(deltaTime);
     if (!playerIsDestroyed) {
       playerState = playerController.update(deltaTime, camera);
     }
@@ -421,6 +653,59 @@ export function setupTopDownScene(
       inputAimReticle.position
     );
     const missileStatus = missileBayController?.getStatus();
+    const resourceSnapshot = playerResources.getSnapshot();
+    const heat01 =
+      resourceSnapshot.heat.max > 0
+        ? THREE.MathUtils.clamp(resourceSnapshot.heat.current / resourceSnapshot.heat.max, 0, 1)
+        : 0;
+    const missilePayloadUsesHeat = (selectedMissilePayload.heatCost ?? 0) > 0;
+    cannonOverheatGlowEffect?.update(
+      deltaTime,
+      heat01,
+      resourceSnapshot.heat.overheated && missilePayloadUsesHeat
+    );
+    cannonOverheatSteamEffect?.update(
+      deltaTime,
+      resourceSnapshot.heat.overheated,
+      playerState.forward
+    );
+    if (enemyPlasmaboltTurretResources) {
+      const enemyResourceSnapshot = enemyPlasmaboltTurretResources.getSnapshot();
+      const enemyHeat01 =
+        enemyResourceSnapshot.heat.max > 0
+          ? THREE.MathUtils.clamp(
+              enemyResourceSnapshot.heat.current / enemyResourceSnapshot.heat.max,
+              0,
+              1
+            )
+          : 0;
+      enemyPlasmaboltTurretGlowEffect?.update(deltaTime, enemyHeat01, false);
+
+      if (enemyPlasmaboltTurret) {
+        const enemyMuzzles = enemyPlasmaboltTurret.getMuzzleObjects();
+        if (enemyMuzzles.length > 0) {
+          enemyMuzzles[0].getWorldDirection(enemyTurretForward);
+          enemyTurretForward.multiplyScalar(-1);
+        } else {
+          enemyPlasmaboltTurret.root.getWorldDirection(enemyTurretForward);
+          enemyTurretForward.multiplyScalar(-1);
+        }
+      } else {
+        enemyTurretForward.set(0, 0, -1);
+      }
+      enemyTurretForward.setY(0);
+      if (enemyTurretForward.lengthSq() <= 0.000001) {
+        enemyTurretForward.set(0, 0, -1);
+      } else {
+        enemyTurretForward.normalize();
+      }
+
+      enemyPlasmaboltTurretSteamEffect?.update(
+        deltaTime,
+        enemyResourceSnapshot.heat.overheated,
+        enemyTurretForward
+      );
+    }
     if (missileStatus?.isLocking) {
       reticleLockSpinYaw += LOCKING_RETICLE_SPIN_RATE_RADIANS_PER_SECOND * deltaTime;
       for (const material of inputReticleMaterials) {
@@ -445,12 +730,32 @@ export function setupTopDownScene(
 
       if (enemyDualTurretHealth.getSnapshot().destroyed) {
         despawnEnemyDualLaserBoltTurret();
-        turretRespawnSecondsRemaining = TEST_MAP_TURRET_RESPAWN_SECONDS;
+        enemyDualTurretRespawnSecondsRemaining = TEST_MAP_TURRET_RESPAWN_SECONDS;
       }
-    } else if (turretRespawnSecondsRemaining > 0) {
-      turretRespawnSecondsRemaining = Math.max(0, turretRespawnSecondsRemaining - deltaTime);
-      if (turretRespawnSecondsRemaining <= 0) {
+    } else if (enemyDualTurretRespawnSecondsRemaining > 0) {
+      enemyDualTurretRespawnSecondsRemaining = Math.max(
+        0,
+        enemyDualTurretRespawnSecondsRemaining - deltaTime
+      );
+      if (enemyDualTurretRespawnSecondsRemaining <= 0) {
         spawnEnemyDualLaserBoltTurret();
+      }
+    }
+    if (enemyPlasmaboltTurret && enemyPlasmaboltTurretHealth) {
+      enemyPlasmaboltTurretHealth.update(deltaTime);
+      enemyPlasmaboltTurret.update(deltaTime);
+
+      if (enemyPlasmaboltTurretHealth.getSnapshot().destroyed) {
+        despawnEnemyPlasmaboltTurret();
+        enemyPlasmaboltTurretRespawnSecondsRemaining = TEST_MAP_TURRET_RESPAWN_SECONDS;
+      }
+    } else if (enemyPlasmaboltTurretRespawnSecondsRemaining > 0) {
+      enemyPlasmaboltTurretRespawnSecondsRemaining = Math.max(
+        0,
+        enemyPlasmaboltTurretRespawnSecondsRemaining - deltaTime
+      );
+      if (enemyPlasmaboltTurretRespawnSecondsRemaining <= 0) {
+        spawnEnemyPlasmaboltTurret();
       }
     }
 
@@ -467,6 +772,7 @@ export function setupTopDownScene(
       playerRespawnSecondsRemaining = Math.max(0, playerRespawnSecondsRemaining - deltaTime);
       if (playerRespawnSecondsRemaining <= 0) {
         playerHealth.reset();
+        playerResources.reset();
         shipController.reset(playerSpawnPosition, playerSpawnYaw);
         playerHurtbox.setEnabled(true);
         gunController.setEnabled(true);
@@ -476,7 +782,12 @@ export function setupTopDownScene(
       }
     }
 
-    playerHealthHud.update(playerHealth.getSnapshot(), missileStatus);
+    playerHealthHud.update(
+      playerHealth.getSnapshot(),
+      missileStatus,
+      resourceSnapshot,
+      buildMinimapSnapshot(playerState.position, playerState.yaw)
+    );
     if (deltaTime > 0) {
       playerVelocity
         .copy(playerState.position)
@@ -506,8 +817,13 @@ export function setupTopDownScene(
     gunController.dispose();
     missileBayController?.dispose();
     missileBayController = null;
+    cannonOverheatGlowEffect?.dispose();
+    cannonOverheatGlowEffect = null;
+    cannonOverheatSteamEffect?.dispose();
+    cannonOverheatSteamEffect = null;
     cameraController.dispose();
     despawnEnemyDualLaserBoltTurret();
+    despawnEnemyPlasmaboltTurret();
     playerThrusterEffect?.dispose();
     playerThrusterEffect = null;
     playerHealthHud.dispose();

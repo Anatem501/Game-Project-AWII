@@ -25,7 +25,31 @@ List core mechanics, dependencies, and balancing assumptions.
 - Weapon components should be interchangeable when they fit the target weapon type/socket.
 - Current prototype ships include both cannon mounts and missile bay launchers.
 - Current missile payloads: `Concussive Barrage missiles` (straight-flight/homing lock behavior) and `Concussive Swarm Missiles` (multi-missile spline-flight with lock-stack targeting).
+- Weapon components now support per-action `heatCost` and `energyCost` values for resource-driven behavior.
 - Additional module families will be documented in later design updates.
+
+## Heat + Energy Systems (Current Design Contract)
+
+- Heat and energy are ship-level resource systems used by weapons/equipment.
+- Heat grows from `heatCost` actions and incoming `Plasma` damage.
+- Heat cooling has a short delay after recent heat gain (`400ms` default).
+- If heat exceeds max, overheat begins:
+  - cannons are disabled immediately;
+  - all heat-cost systems are disabled;
+  - heat clears to zero over a forced `3s` clear window;
+  - systems reactivate only when heat reaches zero.
+- Energy decreases from `energyCost` actions and can go negative to `-50%` of max by default.
+- Energy recharge has a delay after recent energy spend (`800ms` default).
+- At `energy <= 0`, low-power penalties apply:
+  - weapon fire interval multiplier is `2x`;
+  - energy-based equipment is disabled.
+- Current resource-linked weapons:
+  - `Repeating Plasmabolt Fire` (heat),
+  - `Repeating Laserbolt Fire` (energy),
+  - `Repeating Ionbolt Fire` (energy),
+  - `Concussive Swarm Missiles` (heat),
+  - `Concussive Barrage Missiles` (no cost).
+- Detailed implementation guidance and extension checklist are documented in `docs/implementation/resource-systems-design.md`.
 
 ## Equipment Module Model (Design Notes)
 

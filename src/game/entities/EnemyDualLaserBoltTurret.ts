@@ -16,7 +16,13 @@ const DEFAULT_MUZZLE_LOCAL_OFFSETS: readonly THREE.Vector3[] = [
   new THREE.Vector3(4, 0.5, -0.4),
   new THREE.Vector3(4, 0.5, 0.4)
 ];
+const DEFAULT_MUZZLE_SOCKET_NAMES: readonly string[] = ["Cannon01", "Cannon02"];
 const DEFAULT_HORIZONTAL_SPREAD_RADIANS = THREE.MathUtils.degToRad(10);
+
+type MuzzleLocalTransform = {
+  position: THREE.Vector3;
+  rotation: THREE.Quaternion;
+};
 
 export type EnemyDualLaserBoltTurretConfig = {
   position?: THREE.Vector3;
@@ -35,6 +41,7 @@ export type EnemyDualLaserBoltTurretConfig = {
   modelHeightOffset?: number;
   aimYawOffsetRadians?: number;
   muzzleLocalOffsets?: readonly THREE.Vector3[];
+  muzzleSocketNames?: readonly string[];
   autoFire?: boolean;
   playerTarget?: THREE.Object3D | null;
   projectileFactory?: ProjectileFactory;
@@ -48,6 +55,8 @@ export type EnemyDualLaserBoltTurretConfig = {
   burstWindupMinSeconds?: number;
   burstWindupMaxSeconds?: number;
   targetHurtboxes?: readonly HurtboxComponent[];
+  consumeShotCost?: () => boolean;
+  getFireIntervalMultiplier?: () => number;
 };
 
 export class EnemyDualLaserBoltTurret {
@@ -74,7 +83,8 @@ export class EnemyDualLaserBoltTurret {
   private readonly turnSpeedRadians: number;
   private readonly firingArcRadians: number;
   private readonly autoFire: boolean;
-  private readonly muzzleLocalOffsets: readonly THREE.Vector3[];
+  private muzzleLocalTransforms: readonly MuzzleLocalTransform[];
+  private readonly muzzleSocketNames: readonly string[];
   private readonly aimYawOffsetRadians: number;
   private readonly horizontalSpreadRadians: number;
   private readonly additionalSpreadAtMaxSpeedRadians: number;
@@ -84,6 +94,8 @@ export class EnemyDualLaserBoltTurret {
   private readonly aimUpdateIntervalSeconds: number;
   private readonly burstWindupMinSeconds: number;
   private readonly burstWindupMaxSeconds: number;
+  private readonly consumeShotCost?: () => boolean;
+  private readonly getFireIntervalMultiplier?: () => number;
 
   private readonly turretWorldPosition = new THREE.Vector3();
   private readonly muzzleWorldPosition = new THREE.Vector3();
@@ -134,7 +146,16 @@ export class EnemyDualLaserBoltTurret {
       0,
       Math.PI
     );
-    this.muzzleLocalOffsets = config.muzzleLocalOffsets ?? DEFAULT_MUZZLE_LOCAL_OFFSETS;
+    this.muzzleLocalTransforms = (config.muzzleLocalOffsets ?? DEFAULT_MUZZLE_LOCAL_OFFSETS).map(
+      (offset) => ({
+        position: offset.clone(),
+        rotation: new THREE.Quaternion()
+      })
+    );
+    this.muzzleSocketNames =
+      config.muzzleSocketNames && config.muzzleSocketNames.length > 0
+        ? [...config.muzzleSocketNames]
+        : [...DEFAULT_MUZZLE_SOCKET_NAMES];
     this.aimYawOffsetRadians = config.aimYawOffsetRadians ?? 0;
     this.horizontalSpreadRadians = Math.max(
       0,
@@ -153,6 +174,8 @@ export class EnemyDualLaserBoltTurret {
       this.burstWindupMinSeconds,
       config.burstWindupMaxSeconds ?? 0.35
     );
+    this.consumeShotCost = config.consumeShotCost;
+    this.getFireIntervalMultiplier = config.getFireIntervalMultiplier;
     this.autoFire = config.autoFire ?? true;
     this.targetHurtboxes = config.targetHurtboxes ?? [];
     this.playerTarget = config.playerTarget ?? null;
@@ -202,6 +225,10 @@ export class EnemyDualLaserBoltTurret {
 
   isPlayerDetected(): boolean {
     return this.detectedPlayer;
+  }
+
+  getMuzzleObjects(): readonly THREE.Object3D[] {
+    return this.muzzles;
   }
 
   update(deltaTime: number): void {
@@ -285,9 +312,14 @@ export class EnemyDualLaserBoltTurret {
       return;
     }
 
-    this.spawnAlternatingShot();
+    const didFire = this.spawnAlternatingShot();
+    const fireIntervalMultiplier = Math.max(1, this.getFireIntervalMultiplier?.() ?? 1);
+    this.fireCooldownSeconds = this.getInterleavedShotIntervalSeconds() * fireIntervalMultiplier;
+    if (!didFire) {
+      return;
+    }
+
     this.shotsRemainingInBurst -= 1;
-    this.fireCooldownSeconds = this.getInterleavedShotIntervalSeconds();
     if (this.shotsRemainingInBurst <= 0) {
       this.shotsRemainingInBurst = this.burstShotCount;
       this.isBurstPrimed = false;
@@ -362,25 +394,35 @@ export class EnemyDualLaserBoltTurret {
   }
 
   private createMuzzles(): void {
-    for (const offset of this.muzzleLocalOffsets) {
+    for (const muzzleTransform of this.muzzleLocalTransforms) {
       const muzzle = new THREE.Object3D();
-      muzzle.position.copy(offset);
+      muzzle.position.copy(muzzleTransform.position);
+      muzzle.quaternion.copy(muzzleTransform.rotation);
       this.aimNode.add(muzzle);
       this.muzzles.push(muzzle);
     }
   }
 
-  private rebuildMuzzlesForAimNode(): void {
+  private rebuildMuzzlesForAimNode(
+    nextLocalTransforms: readonly MuzzleLocalTransform[] = this.muzzleLocalTransforms
+  ): void {
     for (const muzzle of this.muzzles) {
       muzzle.removeFromParent();
     }
     this.muzzles.length = 0;
+    this.muzzleLocalTransforms = nextLocalTransforms.map((muzzleTransform) => ({
+      position: muzzleTransform.position.clone(),
+      rotation: muzzleTransform.rotation.clone()
+    }));
     this.createMuzzles();
   }
 
-  private spawnAlternatingShot(): void {
+  private spawnAlternatingShot(): boolean {
     if (this.muzzles.length === 0) {
-      return;
+      return false;
+    }
+    if (this.consumeShotCost && !this.consumeShotCost()) {
+      return false;
     }
 
     const muzzle = this.muzzles[this.nextMuzzleIndex];
@@ -428,6 +470,7 @@ export class EnemyDualLaserBoltTurret {
     projectile.object.removeFromParent();
     this.projectileRoot.add(projectile.object);
     this.projectiles.push(projectile);
+    return true;
   }
 
   private updateProjectiles(deltaTime: number): void {
@@ -521,7 +564,16 @@ export class EnemyDualLaserBoltTurret {
         const gunNode = findGunTurretNode(model);
         if (gunNode) {
           this.aimNode = gunNode;
-          this.rebuildMuzzlesForAimNode();
+          const socketOffsets = extractSocketLocalOffsets(
+            this.aimNode,
+            model,
+            this.muzzleSocketNames
+          );
+          if (socketOffsets.length > 0) {
+            this.rebuildMuzzlesForAimNode(socketOffsets);
+          } else {
+            this.rebuildMuzzlesForAimNode();
+          }
         }
       },
       undefined,
@@ -588,9 +640,64 @@ function findGunTurretNode(root: THREE.Object3D): THREE.Object3D | null {
     }
 
     const normalized = node.name.replace(/\s+/g, "").toLowerCase();
-    if (normalized.includes("gunturret")) {
+    if (
+      normalized.includes("gunturret") ||
+      normalized.includes("cannonturret") ||
+      normalized === "turret"
+    ) {
       found = node;
     }
   });
   return found;
+}
+
+function extractSocketLocalOffsets(
+  relativeTo: THREE.Object3D,
+  model: THREE.Object3D,
+  socketNames: readonly string[]
+): MuzzleLocalTransform[] {
+  const worldPosition = new THREE.Vector3();
+  const worldRotation = new THREE.Quaternion();
+  const relativeToWorldRotation = new THREE.Quaternion();
+  const relativeToWorldRotationInverse = new THREE.Quaternion();
+  relativeTo.getWorldQuaternion(relativeToWorldRotation);
+  relativeToWorldRotationInverse.copy(relativeToWorldRotation).invert();
+  const offsets: MuzzleLocalTransform[] = [];
+  for (const socketName of socketNames) {
+    const socketNode = findSocketNodeByName(model, socketName);
+    if (!socketNode) {
+      continue;
+    }
+    socketNode.getWorldPosition(worldPosition);
+    socketNode.getWorldQuaternion(worldRotation);
+    offsets.push({
+      position: relativeTo.worldToLocal(worldPosition.clone()),
+      rotation: relativeToWorldRotationInverse.clone().multiply(worldRotation).normalize()
+    });
+  }
+  return offsets;
+}
+
+function findSocketNodeByName(model: THREE.Object3D, socketName: string): THREE.Object3D | null {
+  const normalizedTargetName = normalizeSocketName(socketName);
+  let found: THREE.Object3D | null = null;
+  model.traverse((node) => {
+    if (found) {
+      return;
+    }
+    if (normalizeSocketName(node.name) === normalizedTargetName) {
+      found = node;
+    }
+  });
+  return found;
+}
+
+function normalizeSocketName(name: string): string {
+  const compactName = name.replace(/\s+/g, "").toLowerCase();
+  if (compactName.length <= 0) {
+    return compactName;
+  }
+
+  // Blender and DCC exports often append numeric suffixes (e.g. ".001").
+  return compactName.replace(/\.\d+$/, "");
 }

@@ -116,6 +116,8 @@ type LockedTargetIndicator = {
   outerMaterial: THREE.SpriteMaterial;
 };
 
+type MissileFireCostResolver = (payload: MissileBayComponentDefinition) => boolean;
+
 type MissileBayControllerParams = {
   canvas: HTMLCanvasElement;
   playerRoot: THREE.Object3D;
@@ -129,6 +131,8 @@ type MissileBayControllerParams = {
   maxAimAngleRadians?: number;
   targetHurtboxes?: readonly HurtboxComponent[];
   payload?: MissileBayComponentDefinition;
+  consumeLauncherFireCost?: MissileFireCostResolver;
+  getWeaponFireIntervalMultiplier?: () => number;
 };
 
 export type MissileBayInstanceConfig = {
@@ -180,7 +184,9 @@ export function createMissileBayController({
   minAimDistanceFromShip = MISSILE_AIM_MIN_DISTANCE_FROM_LAUNCHER,
   maxAimAngleRadians = Math.PI,
   targetHurtboxes = [],
-  payload
+  payload,
+  consumeLauncherFireCost,
+  getWeaponFireIntervalMultiplier
 }: MissileBayControllerParams): MissileBayController {
   const root = new THREE.Group();
   scene.add(root);
@@ -1002,12 +1008,14 @@ export function createMissileBayController({
       canFireSalvo()
     ) {
       if (!fireQueuedSalvo(shipForward, aimTargetWorldPosition)) {
+        queuedShots = 0;
         break;
       }
 
       queuedShots = 0;
-      const triggerIntervalSeconds = resolveLauncherTriggerIntervalSeconds();
-      const burstIntervalSeconds = resolveLauncherBurstIntervalSeconds();
+      const intervalMultiplier = Math.max(1, getWeaponFireIntervalMultiplier?.() ?? 1);
+      const triggerIntervalSeconds = resolveLauncherTriggerIntervalSeconds() * intervalMultiplier;
+      const burstIntervalSeconds = resolveLauncherBurstIntervalSeconds() * intervalMultiplier;
       triggerFireCooldownSeconds = Math.max(triggerFireCooldownSeconds, triggerIntervalSeconds);
       burstShotCooldownSeconds = Math.max(burstShotCooldownSeconds, burstIntervalSeconds);
       nextTriggerReadyAtSeconds = Math.max(
@@ -1326,6 +1334,9 @@ export function createMissileBayController({
       const group = missileLauncherGroups[groupIndex];
       const launcherPayload = launcherPayloads[groupIndex] ?? resolvedLegacyPayload;
       if (group.length === 0 || launcherRoundsRemaining[groupIndex] <= 0) {
+        continue;
+      }
+      if (!(consumeLauncherFireCost?.(launcherPayload) ?? true)) {
         continue;
       }
 

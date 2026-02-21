@@ -361,8 +361,8 @@ canvas {
   position: absolute;
   left: 18px;
   bottom: 18px;
-  width: min(300px, 32vw);
-  min-width: 220px;
+  width: min(520px, 56vw);
+  min-width: 380px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -372,6 +372,19 @@ canvas {
   box-shadow: 0 10px 22px rgba(0, 0, 0, 0.35);
   pointer-events: none;
   z-index: 12;
+}
+
+.player-health-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.player-health-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .player-health-row {
@@ -417,6 +430,99 @@ canvas {
 
 .player-health-fill-hull {
   background: linear-gradient(90deg, #b73636, #ea6868);
+}
+
+.player-resource-verticals {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.player-resource-meter {
+  min-width: 48px;
+  display: grid;
+  grid-template-columns: 1fr;
+  justify-items: center;
+  gap: 4px;
+}
+
+.player-resource-meter.is-alert .player-resource-track {
+  box-shadow: 0 0 10px rgba(255, 127, 86, 0.45);
+}
+
+.player-resource-label {
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #d8eeff;
+}
+
+.player-resource-track {
+  width: 16px;
+  height: 96px;
+  border: 1px solid rgba(145, 188, 224, 0.4);
+  background: rgba(9, 22, 45, 0.8);
+  position: relative;
+  overflow: hidden;
+}
+
+.player-resource-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 0%;
+  transition: height 120ms linear;
+}
+
+.player-resource-fill-heat {
+  background: linear-gradient(180deg, #ffd86f, #ff7a2f);
+}
+
+.player-resource-fill-energy {
+  background: linear-gradient(180deg, #bdeeff, #49c7ff);
+}
+
+.player-resource-value {
+  font-size: 0.58rem;
+  color: #b7dbfb;
+  white-space: nowrap;
+}
+
+.player-resource-state {
+  min-height: 1em;
+  font-size: 0.56rem;
+  color: #ffbb8f;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+.player-minimap-panel {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  display: grid;
+  grid-template-columns: 1fr;
+  justify-items: center;
+  align-content: center;
+  gap: 4px;
+  min-width: 144px;
+  padding: 8px 9px 9px;
+  border: 1px solid rgba(117, 180, 232, 0.48);
+  background: rgba(5, 20, 44, 0.86);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  z-index: 12;
+}
+
+.player-minimap-canvas {
+  width: 132px;
+  height: 132px;
+  border: 1px solid rgba(145, 188, 224, 0.4);
+  background: rgba(9, 22, 45, 0.8);
+  image-rendering: pixelated;
 }
 
 .player-missile-row {
