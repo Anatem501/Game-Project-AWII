@@ -32,6 +32,7 @@ export type HurtboxComponent = {
   readonly health: HealthComponent;
   readonly faction: string | null;
   readonly collisionArea: Readonly<CollisionArea>;
+  setCollisionArea: (collisionArea: CollisionArea) => void;
   setEnabled: (enabled: boolean) => void;
   isEnabled: () => boolean;
   canReceiveDamage: () => boolean;
@@ -76,6 +77,14 @@ export function createHurtboxComponent(config: HurtboxConfig): HurtboxComponent 
     health: config.health,
     faction,
     collisionArea,
+    setCollisionArea: (nextCollisionArea: CollisionArea) => {
+      collisionArea.radius = Math.max(0, nextCollisionArea.radius);
+      if (nextCollisionArea.localOffset) {
+        localOffset.copy(nextCollisionArea.localOffset);
+      } else {
+        localOffset.set(0, 0, 0);
+      }
+    },
     setEnabled: (value: boolean) => {
       enabled = value;
     },

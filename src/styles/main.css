@@ -525,6 +525,32 @@ canvas {
   image-rendering: pixelated;
 }
 
+.player-boundary-minimap-panel {
+  position: absolute;
+  right: 18px;
+  top: 18px;
+  display: grid;
+  grid-template-columns: 1fr;
+  justify-items: center;
+  align-content: center;
+  gap: 4px;
+  min-width: 144px;
+  padding: 8px 9px 9px;
+  border: 1px solid rgba(117, 180, 232, 0.48);
+  background: rgba(5, 20, 44, 0.86);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  z-index: 12;
+}
+
+.player-boundary-minimap-canvas {
+  width: 132px;
+  height: 132px;
+  border: 1px solid rgba(145, 188, 224, 0.4);
+  background: rgba(9, 22, 45, 0.8);
+  image-rendering: pixelated;
+}
+
 .player-missile-row {
   margin-top: 2px;
 }

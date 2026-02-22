@@ -1,4 +1,5 @@
 import { DEFAULT_SHIP_ID, listShipDefinitions, type ShipDefinition } from "../ships/ShipCatalog";
+import { getGameModeLabel, type GameModeId } from "../modes/GameMode";
 import {
   MISSILE_COMPONENT_OPTIONS,
   PRIMARY_FIRE_COMPONENT_OPTIONS,
@@ -18,7 +19,7 @@ import { ShipCarouselPreview } from "./ShipCarouselPreview";
 type MainMenuHandlers = {
   onStart: () => void;
   onBackToStart: () => void;
-  onPlayerTest: (selection: ShipSelectionConfig) => void;
+  onLaunchMode: (modeId: GameModeId, selection: ShipSelectionConfig) => void;
 };
 
 type MenuView = "start" | "mode-select" | "ship-select" | "ship-confirm";
@@ -37,6 +38,7 @@ export class MainMenu {
   private readonly handlers: MainMenuHandlers;
   private readonly ships: readonly ShipDefinition[];
   private currentView: MenuView = "start";
+  private selectedModeId: GameModeId = "testing_mode";
   private currentShipIndex = 0;
   private shipSelection = createDefaultShipSelection(DEFAULT_SHIP_ID);
   private selectedComponentSlot: ComponentSlotId | null = null;
@@ -88,16 +90,22 @@ export class MainMenu {
   showModeSelect(): void {
     this.currentView = "mode-select";
     this.show(`
-      <h1>Mode Select</h1>
-      <p>Choose a mode to launch.</p>
-      <button class="menu-button" data-action="player-test" data-focusable="true">Player Test</button>
+      <h1>Mode / Map Select</h1>
+      <p>Choose the mode and map, then continue to ship selection.</p>
+      <button class="menu-button" data-action="select-testing-mode" data-focusable="true">Test</button>
+      <button class="menu-button" data-action="select-rogue-mode" data-focusable="true">Rogue Pilot</button>
       <button class="menu-button menu-button-secondary" data-action="back" data-focusable="true">Back</button>
     `);
 
     this.panel
-      .querySelector<HTMLButtonElement>('[data-action="player-test"]')
+      .querySelector<HTMLButtonElement>('[data-action="select-testing-mode"]')
       ?.addEventListener("click", () => {
-        this.showShipSelectMenu(this.shipSelection.shipId);
+        this.startModeSelection("testing_mode");
+      });
+    this.panel
+      .querySelector<HTMLButtonElement>('[data-action="select-rogue-mode"]')
+      ?.addEventListener("click", () => {
+        this.startModeSelection("rogue_pilot_mode");
       });
     this.panel.querySelector<HTMLButtonElement>('[data-action="back"]')?.addEventListener("click", () => {
       this.handlers.onBackToStart();
@@ -128,7 +136,7 @@ export class MainMenu {
 
     this.show(`
       <h1>Ship Selection</h1>
-      <p>Use A / D to cycle ships. Enter or controller A confirms.</p>
+      <p>${getGameModeLabel(this.selectedModeId)} selected. Use A / D to cycle ships. Enter or controller A confirms.</p>
       <div class="ship-select-layout ship-select-layout-primary">
         <section class="ship-preview-column">
           <div class="ship-preview-stage ship-preview-stage-single">
@@ -218,7 +226,7 @@ export class MainMenu {
       </div>
       <div class="menu-action-row menu-action-row-confirm">
         <button class="menu-button menu-button-secondary" data-action="ship-confirm-back" data-focusable="true">Back To Ship Select</button>
-        <button class="menu-button" data-action="launch-player-test" data-focusable="true">Launch Selected Ship</button>
+        <button class="menu-button" data-action="launch-selected-mode" data-focusable="true">Launch ${getGameModeLabel(this.selectedModeId)}</button>
       </div>
     `);
 
@@ -226,7 +234,7 @@ export class MainMenu {
       .querySelector<HTMLButtonElement>('[data-action="ship-confirm-back"]')
       ?.addEventListener("click", () => this.showShipSelectMenu(this.shipSelection.shipId));
     this.panel
-      .querySelector<HTMLButtonElement>('[data-action="launch-player-test"]')
+      .querySelector<HTMLButtonElement>('[data-action="launch-selected-mode"]')
       ?.addEventListener("click", () => this.launchSelectedShip());
     this.panel
       .querySelectorAll<HTMLButtonElement>('[data-action="select-component-slot"]')
@@ -247,7 +255,12 @@ export class MainMenu {
     this.setupPreview("single");
     this.refreshShipConfirmContent();
     this.refreshFocusables(1);
-    this.focusElement('[data-action="launch-player-test"]');
+    this.focusElement('[data-action="launch-selected-mode"]');
+  }
+
+  private startModeSelection(modeId: GameModeId): void {
+    this.selectedModeId = modeId;
+    this.showShipSelectMenu(this.shipSelection.shipId);
   }
 
   private setupPreview(mode: "carousel" | "single"): void {
@@ -557,7 +570,7 @@ export class MainMenu {
   }
 
   private launchSelectedShip(): void {
-    this.handlers.onPlayerTest({
+    this.handlers.onLaunchMode(this.selectedModeId, {
       shipId: this.shipSelection.shipId,
       cannonPrimaryComponentId: this.shipSelection.cannonPrimaryComponentId,
       missileBayComponentId: this.shipSelection.missileBayComponentId,

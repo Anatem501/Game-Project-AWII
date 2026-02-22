@@ -10,6 +10,7 @@ export type PlayerThrusterEffectConfig = {
   trailLengthScale?: number;
   glowOpacityScale?: number;
   visualPreset?: PlayerThrusterVisualPreset;
+  emitterYawRadians?: number;
 };
 
 export type PlayerThrusterEffect = {
@@ -54,6 +55,7 @@ export function createPlayerThrusterEffect(
   const effectScale = Math.max(0.05, config.effectScale ?? DEFAULT_EFFECT_SCALE);
   const trailLengthScale = Math.max(0.05, config.trailLengthScale ?? DEFAULT_TRAIL_LENGTH_SCALE);
   const glowOpacityScale = Math.max(0.05, config.glowOpacityScale ?? 1);
+  const emitterYawRadians = config.emitterYawRadians ?? 0;
 
   const coreGeometry =
     visualPreset === "purple_rectangular"
@@ -72,6 +74,7 @@ export function createPlayerThrusterEffect(
 
     const emitterRoot = new THREE.Group();
     emitterRoot.position.copy(localOffset);
+    emitterRoot.rotation.y = emitterYawRadians;
     root.add(emitterRoot);
 
     const coreColor = visualPreset === "purple_rectangular" ? 0xdf9bff : 0x9fe9ff;

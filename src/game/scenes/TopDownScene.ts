@@ -17,16 +17,16 @@ import {
 } from "../controllers/MissileBayController";
 import { createPlayerController } from "../controllers/PlayerController";
 import { createShipController } from "../controllers/ShipController";
-import { createLaserBoltFactory } from "../controllers/projectiles/LaserBoltFactory";
-import { createIonBoltFactory } from "../controllers/projectiles/IonBoltFactory";
-import { createPlasmaBoltFactory } from "../controllers/projectiles/PlasmaBoltFactory";
 import type { ProjectileFactory } from "../controllers/projectiles/ProjectileTypes";
-import { createHealthComponent } from "../components/HealthComponent";
+import { createHealthComponent, type HealthSnapshot } from "../components/HealthComponent";
 import { createCannonOverheatGlowEffect } from "../effects/CannonOverheatGlowEffect";
 import { createCannonOverheatSteamEffect } from "../effects/CannonOverheatSteamEffect";
 import { createPlayerThrusterEffect } from "../effects/PlayerThrusterEffect";
+import { createShieldBubbleEffect } from "../effects/ShieldBubbleEffect";
 import { EnemyDualLaserBoltTurret } from "../entities/EnemyDualLaserBoltTurret";
 import { EnemyPlasmaboltTurret } from "../entities/EnemyPlasmaboltTurret";
+import { EnemyCannonShipController } from "../enemies/EnemyCannonShipController";
+import type { GameMapId } from "../modes/GameMode";
 import { getShipDefinition } from "../ships/ShipCatalog";
 import {
   createDefaultShipSelection,
@@ -35,14 +35,26 @@ import {
   type ShipSelectionConfig
 } from "../ships/ShipSelection";
 import {
+  createCachedCannonPrimaryProjectileFactoryResolver,
+  createCannonPrimaryProjectileFactory
+} from "../weapons/CannonProjectileFactoryResolver";
+import {
   getCannonPrimaryComponentDefinition,
   getMissileBayComponentDefinition
 } from "../weapons/WeaponComponentCatalog";
-import { createPlayerHealthHud, type HudMinimapSnapshot } from "../ui/PlayerHealthHud";
+import {
+  createPlayerHealthHud,
+  type HudBoundarySnapshot,
+  type HudMinimapSnapshot
+} from "../ui/PlayerHealthHud";
+import { createEnemyAiDebugPanel } from "../ui/EnemyAiDebugPanel";
 import { createEnvironment } from "./factories/EnvironmentFactory";
+import {
+  createRoguePilotEnemyCannonShip,
+  ROGUE_PILOT_CANNON_SHIP_ARCHETYPE
+} from "./factories/EnemyCannonShipFactory";
 import { createShipRig } from "./factories/PlayerFactory";
 import { createReticles } from "./factories/ReticleFactory";
-import { snapToGrid } from "./utils/snapToGrid";
 
 const GRID_TILE_SIZE = 22;
 const GRID_DIVISIONS = 22;
@@ -52,6 +64,9 @@ const GRID_Y = -0.96;
 const FLOOR_Y = -1;
 const RETICLE_HEIGHT = 0.03;
 const RETICLE_MAX_DISTANCE_FROM_SHIP = 8;
+const RETICLE_ENEMY_HOVER_PADDING = 0.3;
+const CONCUSSIVE_BARRAGE_COMPONENT_ID = "concussive_barrage_missiles";
+const CONCUSSIVE_SWARM_COMPONENT_ID = "concussive_swarm_missiles";
 const GUN_MIN_AIM_DISTANCE_FROM_SHIP = 2.5;
 const GUN_MAX_AIM_ANGLE_RADIANS = THREE.MathUtils.degToRad(37.5);
 const ENEMY_DUAL_TURRET_SPAWN = new THREE.Vector3(30, FLOOR_Y, -24);
@@ -59,9 +74,15 @@ const ENEMY_PLASMABOLT_TURRET_SPAWN = new THREE.Vector3(-34, FLOOR_Y, 28);
 const PLAYER_HURTBOX_RADIUS = 1.05;
 const ENEMY_DUAL_TURRET_HURTBOX_RADIUS = 1.3;
 const ENEMY_DUAL_TURRET_HURTBOX_LOCAL_OFFSET = new THREE.Vector3(0, 1, 0);
+const SHIELD_HURTBOX_RADIUS_PADDING = 0.08;
 const TEST_MAP_TURRET_RESPAWN_SECONDS = 10;
 const PLAYER_RESPAWN_SECONDS = 5;
 const CAMERA_ARROW_KEY_ZOOM_ENABLED = true;
+const ROGUE_ARENA_CENTER_X = 0;
+const ROGUE_ARENA_CENTER_Z = 0;
+const ROGUE_ARENA_SOFT_RADIUS = 82;
+const ROGUE_ARENA_HARD_RADIUS = 94;
+const ROGUE_ARENA_RETURN_SPEED_UNITS_PER_SECOND = 16;
 const LOCKING_RETICLE_SPIN_RATE_RADIANS_PER_SECOND = THREE.MathUtils.degToRad(180);
 const DEFAULT_PLAYER_THRUSTER_LOCAL_OFFSETS: readonly THREE.Vector3[] = [
   new THREE.Vector3(-0.12, 0.58, 1.0),
@@ -107,7 +128,10 @@ export type TopDownSceneController = {
 
 type TopDownSceneOptions = {
   selection?: ShipSelectionConfig;
+  mapId?: GameMapId;
 };
+
+type ReticleTintMaterial = THREE.MeshBasicMaterial | THREE.MeshStandardMaterial;
 
 export function setupTopDownScene(
   scene: THREE.Scene,
@@ -116,6 +140,7 @@ export function setupTopDownScene(
   options: TopDownSceneOptions = {}
 ): TopDownSceneController {
   const selection = options.selection ?? createDefaultShipSelection();
+  const mapId = options.mapId ?? "test_map";
   const selectedShip = getShipDefinition(selection.shipId);
   const selectedCannonPrimaryComponentId = resolveCannonPrimaryComponentId(
     selectedShip.id,
@@ -131,11 +156,13 @@ export function setupTopDownScene(
   let enemyDualTurretResources: ShipResourceComponent | null = null;
   let enemyPlasmaboltTurretResources: ShipResourceComponent | null = null;
   let playerThrusterEffect: ReturnType<typeof createPlayerThrusterEffect> | null = null;
+  let playerShieldBubbleEffect: ReturnType<typeof createShieldBubbleEffect> | null = null;
   let cannonOverheatGlowEffect: ReturnType<typeof createCannonOverheatGlowEffect> | null = null;
   let cannonOverheatSteamEffect: ReturnType<typeof createCannonOverheatSteamEffect> | null = null;
   let missileBayController: ReturnType<typeof createMissileBayController> | null = null;
 
-  const { floor, gridRoot } = createEnvironment(scene, {
+  const environment = createEnvironment(scene, {
+    mapId,
     floorY: FLOOR_Y,
     gridDivisions: GRID_DIVISIONS,
     gridLineThickness: GRID_LINE_THICKNESS,
@@ -247,15 +274,30 @@ export function setupTopDownScene(
     maxDistanceFromShip: RETICLE_MAX_DISTANCE_FROM_SHIP,
     reticleHeight: RETICLE_HEIGHT
   });
-  const inputReticleMaterials: THREE.MeshBasicMaterial[] = [];
+  const inputReticleMaterials: Array<{
+    material: ReticleTintMaterial;
+    defaultColor: THREE.Color;
+    defaultEmissive: THREE.Color | null;
+  }> = [];
   inputAimReticle.traverse((node) => {
     if (!(node instanceof THREE.Mesh)) {
       return;
     }
-    if (!(node.material instanceof THREE.MeshBasicMaterial)) {
-      return;
+    const materials = Array.isArray(node.material) ? node.material : [node.material];
+    for (const material of materials) {
+      if (
+        !(material instanceof THREE.MeshBasicMaterial) &&
+        !(material instanceof THREE.MeshStandardMaterial)
+      ) {
+        continue;
+      }
+      inputReticleMaterials.push({
+        material,
+        defaultColor: material.color.clone(),
+        defaultEmissive:
+          material instanceof THREE.MeshStandardMaterial ? material.emissive.clone() : null
+      });
     }
-    inputReticleMaterials.push(node.material);
   });
   playerThrusterEffect = createPlayerThrusterEffect(playerRoot, {
     thrusterLocalOffsets: DEFAULT_PLAYER_THRUSTER_LOCAL_OFFSETS,
@@ -280,56 +322,88 @@ export function setupTopDownScene(
   });
 
   const playerHealth = createHealthComponent(selectedShip.health);
+  if (selectedShip.health.maxShield > 0) {
+    playerShieldBubbleEffect = createShieldBubbleEffect(playerRoot);
+  }
   const playerHurtbox = createHurtboxComponent({
     collisionArea: { radius: PLAYER_HURTBOX_RADIUS },
     faction: "player",
     health: playerHealth,
     owner: playerRoot
   });
-
-  const primaryCannonProjectileFactoryByComponentId = new Map<string, ProjectileFactory>();
-  const resolvePrimaryCannonProjectileFactory = (componentId: string) => {
-    const cachedFactory = primaryCannonProjectileFactoryByComponentId.get(componentId);
-    if (cachedFactory) {
-      return cachedFactory;
+  let playerShieldHurtbox: HurtboxComponent | null = null;
+  const playerTargetHurtboxes: HurtboxComponent[] = [];
+  const updatePlayerTargetHurtboxes = (): void => {
+    playerTargetHurtboxes.length = 0;
+    if (playerShieldHurtbox?.isEnabled()) {
+      playerTargetHurtboxes.push(playerShieldHurtbox);
+    }
+    if (playerHurtbox.isEnabled()) {
+      playerTargetHurtboxes.push(playerHurtbox);
+    }
+  };
+  const syncShieldHurtboxCollision = (
+    shieldBubbleEffect: ReturnType<typeof createShieldBubbleEffect> | null,
+    shieldHurtbox: HurtboxComponent | null,
+    snapshot: HealthSnapshot
+  ): void => {
+    if (!shieldBubbleEffect || !shieldHurtbox) {
+      return;
     }
 
-    const component = getCannonPrimaryComponentDefinition(componentId);
-    const factory =
-      componentId === REPEATING_PLASMABOLT_COMPONENT_ID
-        ? createPlasmaBoltFactory({
-            faction: "player",
-            modelUrl: plasmaboltModelUrl,
-            ...component.projectile
-          })
-        : componentId === REPEATING_IONBOLT_COMPONENT_ID
-          ? createIonBoltFactory({
-              faction: "player",
-              modelUrl: ionboltModelUrl,
-              ...component.projectile
-            })
-          : createLaserBoltFactory({
-              faction: "player",
-              ...component.projectile
-            });
-    primaryCannonProjectileFactoryByComponentId.set(componentId, factory);
-    return factory;
+    const collisionArea = shieldBubbleEffect.getCollisionArea();
+    shieldHurtbox.setCollisionArea({
+      radius: collisionArea.radius + SHIELD_HURTBOX_RADIUS_PADDING,
+      localOffset: collisionArea.localOffset
+    });
+    const shieldActive = snapshot.shield.max > 0 && snapshot.shield.current > 0 && !snapshot.destroyed;
+    shieldHurtbox.setEnabled(shieldActive);
   };
+  if (playerShieldBubbleEffect && selectedShip.health.maxShield > 0) {
+    const shieldCollisionArea = playerShieldBubbleEffect.getCollisionArea();
+    playerShieldHurtbox = createHurtboxComponent({
+      collisionArea: {
+        radius: shieldCollisionArea.radius + SHIELD_HURTBOX_RADIUS_PADDING,
+        localOffset: shieldCollisionArea.localOffset
+      },
+      faction: "player",
+      health: playerHealth,
+      owner: playerRoot,
+      enabled: playerHealth.getSnapshot().shield.current > 0
+    });
+  }
+  updatePlayerTargetHurtboxes();
+
+  const primaryCannonProjectileFactoryResolver = createCachedCannonPrimaryProjectileFactoryResolver({
+    faction: "player",
+    assets: {
+      ionboltModelUrl: ionboltModelUrl,
+      plasmaboltModelUrl: plasmaboltModelUrl
+    }
+  });
   const enemyTargetHurtboxes: HurtboxComponent[] = [];
   const minimapEnemyPosition = new THREE.Vector3();
+  const reticleEnemyCenter = new THREE.Vector3();
   let enemyDualTurretHealth: ReturnType<typeof createHealthComponent> | null = null;
   let enemyDualLaserBoltTurret: EnemyDualLaserBoltTurret | null = null;
   let enemyDualTurretHurtbox: HurtboxComponent | null = null;
+  let enemyDualTurretShieldHurtbox: HurtboxComponent | null = null;
   let enemyDualTurretRespawnSecondsRemaining = 0;
   let enemyPlasmaboltTurretHealth: ReturnType<typeof createHealthComponent> | null = null;
   let enemyPlasmaboltTurret: EnemyPlasmaboltTurret | null = null;
   let enemyPlasmaboltTurretHurtbox: HurtboxComponent | null = null;
+  let enemyPlasmaboltTurretShieldHurtbox: HurtboxComponent | null = null;
   let enemyPlasmaboltTurretRespawnSecondsRemaining = 0;
   let enemyPlasmaboltTurretProjectileFactory: ProjectileFactory | null = null;
+  let enemyDualTurretShieldBubbleEffect: ReturnType<typeof createShieldBubbleEffect> | null = null;
   let enemyPlasmaboltTurretGlowEffect: ReturnType<typeof createCannonOverheatGlowEffect> | null =
     null;
   let enemyPlasmaboltTurretSteamEffect: ReturnType<typeof createCannonOverheatSteamEffect> | null =
     null;
+  let enemyPlasmaboltTurretShieldBubbleEffect: ReturnType<typeof createShieldBubbleEffect> | null =
+    null;
+  let rogueEnemyCannonShip: EnemyCannonShipController | null = null;
+  let rogueEnemyCannonShipRespawnSecondsRemaining = 0;
 
   const createEnemyTurretHealth = () =>
     createHealthComponent({
@@ -355,11 +429,20 @@ export function setupTopDownScene(
 
   const updateEnemyTargetHurtboxes = (): void => {
     enemyTargetHurtboxes.length = 0;
+    if (enemyDualTurretShieldHurtbox?.isEnabled()) {
+      enemyTargetHurtboxes.push(enemyDualTurretShieldHurtbox);
+    }
     if (enemyDualTurretHurtbox?.isEnabled()) {
       enemyTargetHurtboxes.push(enemyDualTurretHurtbox);
     }
+    if (enemyPlasmaboltTurretShieldHurtbox?.isEnabled()) {
+      enemyTargetHurtboxes.push(enemyPlasmaboltTurretShieldHurtbox);
+    }
     if (enemyPlasmaboltTurretHurtbox?.isEnabled()) {
       enemyTargetHurtboxes.push(enemyPlasmaboltTurretHurtbox);
+    }
+    if (rogueEnemyCannonShip?.hurtbox.isEnabled()) {
+      enemyTargetHurtboxes.push(rogueEnemyCannonShip.hurtbox);
     }
   };
 
@@ -387,6 +470,48 @@ export function setupTopDownScene(
       enemies,
       range: HUD_MINIMAP_RANGE_METERS
     };
+  };
+  const buildBoundarySnapshot = (playerPosition: THREE.Vector3): HudBoundarySnapshot | undefined => {
+    if (mapId !== "rogue_pilot_map") {
+      return undefined;
+    }
+    return {
+      playerPosition: {
+        x: playerPosition.x,
+        z: playerPosition.z
+      },
+      centerPosition: {
+        x: ROGUE_ARENA_CENTER_X,
+        z: ROGUE_ARENA_CENTER_Z
+      },
+      softRadius: ROGUE_ARENA_SOFT_RADIUS,
+      hardRadius: ROGUE_ARENA_HARD_RADIUS,
+      range: ROGUE_ARENA_HARD_RADIUS + 10
+    };
+  };
+
+  const isReticleOverEnemy = (
+    reticleWorldPosition: THREE.Vector3,
+    extraRadiusPadding: number
+  ): boolean => {
+    for (const hurtbox of enemyTargetHurtboxes) {
+      if (!hurtbox.canReceiveDamage()) {
+        continue;
+      }
+      hurtbox.getWorldCenter(reticleEnemyCenter);
+      reticleEnemyCenter.y = reticleWorldPosition.y;
+      const hitRadius = Math.max(
+        0,
+        hurtbox.collisionArea.radius + extraRadiusPadding
+      );
+      if (
+        reticleWorldPosition.distanceToSquared(reticleEnemyCenter) <=
+        hitRadius * hitRadius
+      ) {
+        return true;
+      }
+    }
+    return false;
   };
 
   const enemyPlasmaboltPrimaryComponent = getCannonPrimaryComponentDefinition(
@@ -422,7 +547,7 @@ export function setupTopDownScene(
       modelYawOffset: Math.PI,
       playerTarget: playerRoot,
       position: ENEMY_DUAL_TURRET_SPAWN,
-      targetHurtboxes: [playerHurtbox],
+      targetHurtboxes: playerTargetHurtboxes,
       turnSpeedRadians: THREE.MathUtils.degToRad(150)
     });
 
@@ -441,15 +566,39 @@ export function setupTopDownScene(
         );
       }
     });
+    if (enemyDualTurretHealth.getSnapshot().shield.max > 0) {
+      enemyDualTurretShieldBubbleEffect = createShieldBubbleEffect(enemyDualLaserBoltTurret.root);
+      const shieldCollisionArea = enemyDualTurretShieldBubbleEffect.getCollisionArea();
+      enemyDualTurretShieldHurtbox = createHurtboxComponent({
+        collisionArea: {
+          radius: shieldCollisionArea.radius + SHIELD_HURTBOX_RADIUS_PADDING,
+          localOffset: shieldCollisionArea.localOffset
+        },
+        faction: "enemy",
+        health: enemyDualTurretHealth,
+        owner: enemyDualLaserBoltTurret.root,
+        enabled: enemyDualTurretHealth.getSnapshot().shield.current > 0,
+        onHit: (hitEvent) => {
+          enemyDualTurretResources?.applyIncomingDamageHeat(
+            hitEvent.damagePacket.damageType,
+            hitEvent.damagePacket.amount
+          );
+        }
+      });
+    }
 
     updateEnemyTargetHurtboxes();
   };
 
   const despawnEnemyDualLaserBoltTurret = (): void => {
+    enemyDualTurretShieldHurtbox?.setEnabled(false);
     enemyDualTurretHurtbox?.setEnabled(false);
     enemyDualLaserBoltTurret?.dispose();
     enemyDualLaserBoltTurret = null;
     enemyDualTurretHurtbox = null;
+    enemyDualTurretShieldHurtbox = null;
+    enemyDualTurretShieldBubbleEffect?.dispose();
+    enemyDualTurretShieldBubbleEffect = null;
     enemyDualTurretResources = null;
     enemyDualTurretHealth = null;
     updateEnemyTargetHurtboxes();
@@ -460,11 +609,15 @@ export function setupTopDownScene(
       DEFAULT_ENEMY_PLASMABOLT_RESOURCE_CONFIG
     );
     enemyPlasmaboltTurretHealth = createEnemyTurretHealth();
-    enemyPlasmaboltTurretProjectileFactory = createPlasmaBoltFactory({
-      faction: "enemy",
-      modelUrl: plasmaboltModelUrl,
-      ...enemyPlasmaboltPrimaryComponent.projectile
-    });
+    enemyPlasmaboltTurretProjectileFactory = createCannonPrimaryProjectileFactory(
+      REPEATING_PLASMABOLT_COMPONENT_ID,
+      {
+        faction: "enemy",
+        assets: {
+          plasmaboltModelUrl: plasmaboltModelUrl
+        }
+      }
+    );
 
     enemyPlasmaboltTurret = new EnemyPlasmaboltTurret(scene, {
       aimYawOffsetRadians: -Math.PI * 0.5,
@@ -487,7 +640,7 @@ export function setupTopDownScene(
       playerTarget: playerRoot,
       position: ENEMY_PLASMABOLT_TURRET_SPAWN,
       projectileFactory: enemyPlasmaboltTurretProjectileFactory,
-      targetHurtboxes: [playerHurtbox],
+      targetHurtboxes: playerTargetHurtboxes,
       turnSpeedRadians: THREE.MathUtils.degToRad(150),
       consumeShotCost: () => {
         if (!enemyPlasmaboltTurretResources?.canFireCannons()) {
@@ -528,14 +681,38 @@ export function setupTopDownScene(
       scene,
       enemyPlasmaboltTurret.getMuzzleObjects()
     );
+    if (enemyPlasmaboltTurretHealth.getSnapshot().shield.max > 0) {
+      enemyPlasmaboltTurretShieldBubbleEffect = createShieldBubbleEffect(
+        enemyPlasmaboltTurret.root
+      );
+      const shieldCollisionArea = enemyPlasmaboltTurretShieldBubbleEffect.getCollisionArea();
+      enemyPlasmaboltTurretShieldHurtbox = createHurtboxComponent({
+        collisionArea: {
+          radius: shieldCollisionArea.radius + SHIELD_HURTBOX_RADIUS_PADDING,
+          localOffset: shieldCollisionArea.localOffset
+        },
+        faction: "enemy",
+        health: enemyPlasmaboltTurretHealth,
+        owner: enemyPlasmaboltTurret.root,
+        enabled: enemyPlasmaboltTurretHealth.getSnapshot().shield.current > 0,
+        onHit: (hitEvent) => {
+          enemyPlasmaboltTurretResources?.applyIncomingDamageHeat(
+            hitEvent.damagePacket.damageType,
+            hitEvent.damagePacket.amount
+          );
+        }
+      });
+    }
     updateEnemyTargetHurtboxes();
   };
 
   const despawnEnemyPlasmaboltTurret = (): void => {
+    enemyPlasmaboltTurretShieldHurtbox?.setEnabled(false);
     enemyPlasmaboltTurretHurtbox?.setEnabled(false);
     enemyPlasmaboltTurret?.dispose();
     enemyPlasmaboltTurret = null;
     enemyPlasmaboltTurretHurtbox = null;
+    enemyPlasmaboltTurretShieldHurtbox = null;
     enemyPlasmaboltTurretHealth = null;
     enemyPlasmaboltTurretResources = null;
     enemyPlasmaboltTurretProjectileFactory?.dispose?.();
@@ -544,11 +721,30 @@ export function setupTopDownScene(
     enemyPlasmaboltTurretGlowEffect = null;
     enemyPlasmaboltTurretSteamEffect?.dispose();
     enemyPlasmaboltTurretSteamEffect = null;
+    enemyPlasmaboltTurretShieldBubbleEffect?.dispose();
+    enemyPlasmaboltTurretShieldBubbleEffect = null;
+    updateEnemyTargetHurtboxes();
+  };
+
+  const spawnRogueEnemyCannonShip = (): void => {
+    if (mapId !== "rogue_pilot_map") {
+      return;
+    }
+    rogueEnemyCannonShip = createRoguePilotEnemyCannonShip(scene, playerRoot, playerTargetHurtboxes);
+
+    updateEnemyTargetHurtboxes();
+  };
+
+  const despawnRogueEnemyCannonShip = (): void => {
+    rogueEnemyCannonShip?.hurtbox.setEnabled(false);
+    rogueEnemyCannonShip?.dispose();
+    rogueEnemyCannonShip = null;
     updateEnemyTargetHurtboxes();
   };
 
   spawnEnemyDualLaserBoltTurret();
   spawnEnemyPlasmaboltTurret();
+  spawnRogueEnemyCannonShip();
 
   const primaryComponent = getCannonPrimaryComponentDefinition(selectedCannonPrimaryComponentId);
   const primaryHeatCost = Math.max(0, primaryComponent.heatCost ?? 0);
@@ -565,7 +761,9 @@ export function setupTopDownScene(
       primary: {
         fireIntervalSeconds: primaryFireIntervalSeconds,
         phaseOffsetSeconds: primaryPhaseOffsets[hardpointIndex] ?? 0,
-        projectileFactory: resolvePrimaryCannonProjectileFactory(selectedCannonPrimaryComponentId),
+        projectileFactory: primaryCannonProjectileFactoryResolver.resolve(
+          selectedCannonPrimaryComponentId
+        ),
         heatCost: primaryHeatCost,
         energyCost: primaryEnergyCost
       },
@@ -617,24 +815,30 @@ export function setupTopDownScene(
     arrowKeyZoomEnabled: CAMERA_ARROW_KEY_ZOOM_ENABLED,
     camera,
     initialTargetPosition: shipController.getState().position,
-    initialYaw: shipController.getState().yaw,
-    maneuveringSpeed: selectedShip.handling.topManeuveringSpeed,
-    thrustSpeed: selectedShip.handling.thrustSpeed
+    initialYaw: shipController.getState().yaw
   });
   const hudRoot = canvas.parentElement ?? document.body;
   const playerHealthHud = createPlayerHealthHud(hudRoot);
+  const enemyAiDebugPanel = createEnemyAiDebugPanel(hudRoot);
   playerHealthHud.update(
     playerHealth.getSnapshot(),
     missileBayController?.getStatus(),
     playerResources.getSnapshot(),
-    buildMinimapSnapshot(playerRoot.position, playerSpawnYaw)
+    buildMinimapSnapshot(playerRoot.position, playerSpawnYaw),
+    buildBoundarySnapshot(playerRoot.position)
   );
   const previousPlayerPosition = playerRoot.position.clone();
   const playerVelocity = new THREE.Vector3();
   const enemyTurretForward = new THREE.Vector3();
+  const reticleCameraAlignmentCorrection = new THREE.Quaternion().setFromAxisAngle(
+    new THREE.Vector3(1, 0, 0),
+    -Math.PI / 2
+  );
+  const reticleSpinAxis = new THREE.Vector3(0, 1, 0);
+  const reticleSpinQuaternion = new THREE.Quaternion();
   let reticleLockSpinYaw = 0;
-  const defaultInputReticleColor = new THREE.Color(0x7ce0ff);
   const lockingInputReticleColor = new THREE.Color(0xff6666);
+  const lockingInputReticleEmissive = new THREE.Color(0xff2d2d);
 
   const update = (deltaTime: number): void => {
     let playerState = shipController.getState();
@@ -653,6 +857,13 @@ export function setupTopDownScene(
       inputAimReticle.position
     );
     const missileStatus = missileBayController?.getStatus();
+    const usesMissileLockReticleFeedback =
+      selectedMissilePayloadComponentId === CONCUSSIVE_BARRAGE_COMPONENT_ID ||
+      selectedMissilePayloadComponentId === CONCUSSIVE_SWARM_COMPONENT_ID;
+    const reticleHoverPadding = usesMissileLockReticleFeedback
+      ? Math.max(RETICLE_ENEMY_HOVER_PADDING, selectedMissilePayload.targetLocking.reticleRadiusPadding)
+      : RETICLE_ENEMY_HOVER_PADDING;
+    const reticleHoveringEnemy = isReticleOverEnemy(inputAimReticle.position, reticleHoverPadding);
     const resourceSnapshot = playerResources.getSnapshot();
     const heat01 =
       resourceSnapshot.heat.max > 0
@@ -706,29 +917,46 @@ export function setupTopDownScene(
         enemyTurretForward
       );
     }
-    if (missileStatus?.isLocking) {
+    if (usesMissileLockReticleFeedback && missileStatus?.isLocking) {
       reticleLockSpinYaw += LOCKING_RETICLE_SPIN_RATE_RADIANS_PER_SECOND * deltaTime;
-      for (const material of inputReticleMaterials) {
-        material.color.copy(lockingInputReticleColor);
-      }
-    } else if ((missileStatus?.lockedTargetCount ?? 0) > 0) {
-      reticleLockSpinYaw = THREE.MathUtils.damp(reticleLockSpinYaw, 0, 22, deltaTime);
-      for (const material of inputReticleMaterials) {
-        material.color.copy(defaultInputReticleColor);
-      }
     } else {
       reticleLockSpinYaw = THREE.MathUtils.damp(reticleLockSpinYaw, 0, 12, deltaTime);
-      for (const material of inputReticleMaterials) {
-        material.color.copy(defaultInputReticleColor);
+    }
+    const shouldShowLockingColor =
+      usesMissileLockReticleFeedback && (reticleHoveringEnemy || missileStatus?.isLocking);
+    for (const reticleMaterial of inputReticleMaterials) {
+      reticleMaterial.material.color.copy(
+        shouldShowLockingColor ? lockingInputReticleColor : reticleMaterial.defaultColor
+      );
+      if (reticleMaterial.material instanceof THREE.MeshStandardMaterial) {
+        reticleMaterial.material.emissive.copy(
+          shouldShowLockingColor
+            ? lockingInputReticleEmissive
+            : (reticleMaterial.defaultEmissive ?? reticleMaterial.material.emissive)
+        );
       }
     }
-    inputAimReticle.rotation.y = playerState.yaw + reticleLockSpinYaw;
+    const playerShieldCollisionSnapshot = playerHealth.getSnapshot();
+    syncShieldHurtboxCollision(
+      playerShieldBubbleEffect,
+      playerShieldHurtbox,
+      playerShieldCollisionSnapshot
+    );
+    updatePlayerTargetHurtboxes();
 
     if (enemyDualLaserBoltTurret && enemyDualTurretHealth) {
       enemyDualTurretHealth.update(deltaTime);
+      const enemyDualTurretHealthSnapshot = enemyDualTurretHealth.getSnapshot();
+      enemyDualTurretShieldBubbleEffect?.update(deltaTime, enemyDualTurretHealthSnapshot);
+      syncShieldHurtboxCollision(
+        enemyDualTurretShieldBubbleEffect,
+        enemyDualTurretShieldHurtbox,
+        enemyDualTurretHealthSnapshot
+      );
       enemyDualLaserBoltTurret.update(deltaTime);
+      updateEnemyTargetHurtboxes();
 
-      if (enemyDualTurretHealth.getSnapshot().destroyed) {
+      if (enemyDualTurretHealthSnapshot.destroyed) {
         despawnEnemyDualLaserBoltTurret();
         enemyDualTurretRespawnSecondsRemaining = TEST_MAP_TURRET_RESPAWN_SECONDS;
       }
@@ -743,9 +971,17 @@ export function setupTopDownScene(
     }
     if (enemyPlasmaboltTurret && enemyPlasmaboltTurretHealth) {
       enemyPlasmaboltTurretHealth.update(deltaTime);
+      const enemyPlasmaboltTurretHealthSnapshot = enemyPlasmaboltTurretHealth.getSnapshot();
+      enemyPlasmaboltTurretShieldBubbleEffect?.update(deltaTime, enemyPlasmaboltTurretHealthSnapshot);
+      syncShieldHurtboxCollision(
+        enemyPlasmaboltTurretShieldBubbleEffect,
+        enemyPlasmaboltTurretShieldHurtbox,
+        enemyPlasmaboltTurretHealthSnapshot
+      );
       enemyPlasmaboltTurret.update(deltaTime);
+      updateEnemyTargetHurtboxes();
 
-      if (enemyPlasmaboltTurretHealth.getSnapshot().destroyed) {
+      if (enemyPlasmaboltTurretHealthSnapshot.destroyed) {
         despawnEnemyPlasmaboltTurret();
         enemyPlasmaboltTurretRespawnSecondsRemaining = TEST_MAP_TURRET_RESPAWN_SECONDS;
       }
@@ -758,13 +994,31 @@ export function setupTopDownScene(
         spawnEnemyPlasmaboltTurret();
       }
     }
+    if (rogueEnemyCannonShip) {
+      rogueEnemyCannonShip.update(deltaTime);
+      if (rogueEnemyCannonShip.isDestroyed()) {
+        despawnRogueEnemyCannonShip();
+        rogueEnemyCannonShipRespawnSecondsRemaining = ROGUE_PILOT_CANNON_SHIP_ARCHETYPE.respawnSeconds;
+      }
+    } else if (mapId === "rogue_pilot_map" && rogueEnemyCannonShipRespawnSecondsRemaining > 0) {
+      rogueEnemyCannonShipRespawnSecondsRemaining = Math.max(
+        0,
+        rogueEnemyCannonShipRespawnSecondsRemaining - deltaTime
+      );
+      if (rogueEnemyCannonShipRespawnSecondsRemaining <= 0) {
+        spawnRogueEnemyCannonShip();
+      }
+    }
 
     if (!playerIsDestroyed) {
       playerHealth.update(deltaTime);
-      if (playerHealth.getSnapshot().destroyed) {
+      const playerHealthSnapshot = playerHealth.getSnapshot();
+      if (playerHealthSnapshot.destroyed) {
         playerIsDestroyed = true;
         playerRespawnSecondsRemaining = PLAYER_RESPAWN_SECONDS;
         playerHurtbox.setEnabled(false);
+        playerShieldHurtbox?.setEnabled(false);
+        updatePlayerTargetHurtboxes();
         gunController.setEnabled(false);
         missileBayController?.setEnabled(false);
       }
@@ -775,18 +1029,77 @@ export function setupTopDownScene(
         playerResources.reset();
         shipController.reset(playerSpawnPosition, playerSpawnYaw);
         playerHurtbox.setEnabled(true);
+        playerShieldHurtbox?.setEnabled(playerHealth.getSnapshot().shield.current > 0);
+        updatePlayerTargetHurtboxes();
         gunController.setEnabled(true);
         missileBayController?.setEnabled(true);
         playerIsDestroyed = false;
         playerState = shipController.getState();
       }
     }
+    if (mapId === "rogue_pilot_map") {
+      applyCircularBoundary2D(
+        playerState.position,
+        deltaTime,
+        ROGUE_ARENA_CENTER_X,
+        ROGUE_ARENA_CENTER_Z,
+        ROGUE_ARENA_SOFT_RADIUS,
+        ROGUE_ARENA_HARD_RADIUS,
+        ROGUE_ARENA_RETURN_SPEED_UNITS_PER_SECOND
+      );
+      if (enemyDualLaserBoltTurret) {
+        applyCircularBoundary2D(
+          enemyDualLaserBoltTurret.root.position,
+          deltaTime,
+          ROGUE_ARENA_CENTER_X,
+          ROGUE_ARENA_CENTER_Z,
+          ROGUE_ARENA_SOFT_RADIUS,
+          ROGUE_ARENA_HARD_RADIUS,
+          ROGUE_ARENA_RETURN_SPEED_UNITS_PER_SECOND * 0.6
+        );
+      }
+      if (enemyPlasmaboltTurret) {
+        applyCircularBoundary2D(
+          enemyPlasmaboltTurret.root.position,
+          deltaTime,
+          ROGUE_ARENA_CENTER_X,
+          ROGUE_ARENA_CENTER_Z,
+          ROGUE_ARENA_SOFT_RADIUS,
+          ROGUE_ARENA_HARD_RADIUS,
+          ROGUE_ARENA_RETURN_SPEED_UNITS_PER_SECOND * 0.6
+        );
+      }
+      if (rogueEnemyCannonShip) {
+        applyCircularBoundary2D(
+          rogueEnemyCannonShip.root.position,
+          deltaTime,
+          ROGUE_ARENA_CENTER_X,
+          ROGUE_ARENA_CENTER_Z,
+          ROGUE_ARENA_SOFT_RADIUS,
+          ROGUE_ARENA_HARD_RADIUS,
+          ROGUE_ARENA_RETURN_SPEED_UNITS_PER_SECOND * 0.75
+        );
+      }
+    }
 
+    const playerHealthSnapshot = playerHealth.getSnapshot();
+    playerShieldBubbleEffect?.update(deltaTime, playerHealthSnapshot);
+    const rogueEnemyDebugSnapshot = rogueEnemyCannonShip?.getDebugSnapshot() ?? null;
+    enemyAiDebugPanel.update(
+      rogueEnemyDebugSnapshot
+        ? {
+            state: rogueEnemyDebugSnapshot.state,
+            burstCooldownSecondsRemaining:
+              rogueEnemyDebugSnapshot.burstCooldownSecondsRemaining
+          }
+        : null
+    );
     playerHealthHud.update(
-      playerHealth.getSnapshot(),
+      playerHealthSnapshot,
       missileStatus,
       resourceSnapshot,
-      buildMinimapSnapshot(playerState.position, playerState.yaw)
+      buildMinimapSnapshot(playerState.position, playerState.yaw),
+      buildBoundarySnapshot(playerState.position)
     );
     if (deltaTime > 0) {
       playerVelocity
@@ -802,14 +1115,23 @@ export function setupTopDownScene(
       0,
       1
     );
+    const playerSpeed01 = THREE.MathUtils.clamp(
+      playerVelocity.length() / Math.max(0.001, selectedShip.handling.thrustSpeed),
+      0,
+      1
+    );
     playerThrusterEffect?.update(deltaTime, thrusterGrowth);
-
-    floor.position.x = playerState.position.x;
-    floor.position.z = playerState.position.z;
-    gridRoot.position.x = snapToGrid(playerState.position.x, GRID_TILE_SIZE);
-    gridRoot.position.z = snapToGrid(playerState.position.z, GRID_TILE_SIZE);
-
     cameraController.update(deltaTime, playerState.position, playerState.yaw);
+    environment.update(deltaTime, {
+      playerPosition: playerState.position,
+      cameraPosition: camera.position,
+      playerVelocity,
+      playerSpeed01
+    });
+    trueAimReticle.quaternion.copy(camera.quaternion).multiply(reticleCameraAlignmentCorrection);
+    inputAimReticle.quaternion.copy(trueAimReticle.quaternion);
+    reticleSpinQuaternion.setFromAxisAngle(reticleSpinAxis, reticleLockSpinYaw);
+    inputAimReticle.quaternion.multiply(reticleSpinQuaternion);
   };
 
   const dispose = (): void => {
@@ -821,15 +1143,80 @@ export function setupTopDownScene(
     cannonOverheatGlowEffect = null;
     cannonOverheatSteamEffect?.dispose();
     cannonOverheatSteamEffect = null;
+    primaryCannonProjectileFactoryResolver.dispose();
     cameraController.dispose();
     despawnEnemyDualLaserBoltTurret();
     despawnEnemyPlasmaboltTurret();
+    despawnRogueEnemyCannonShip();
     playerThrusterEffect?.dispose();
     playerThrusterEffect = null;
+    playerShieldBubbleEffect?.dispose();
+    playerShieldBubbleEffect = null;
+    environment.dispose();
     playerHealthHud.dispose();
+    enemyAiDebugPanel.dispose();
   };
 
   return { update, dispose };
+}
+
+function applyCircularBoundary2D(
+  position: THREE.Vector3,
+  deltaTime: number,
+  centerX: number,
+  centerZ: number,
+  softRadius: number,
+  hardRadius: number,
+  inwardSpeedUnitsPerSecond: number
+): void {
+  const dx = position.x - centerX;
+  const dz = position.z - centerZ;
+  const distanceSq = dx * dx + dz * dz;
+  const softRadiusSq = softRadius * softRadius;
+  if (distanceSq <= softRadiusSq) {
+    return;
+  }
+
+  const distance = Math.sqrt(distanceSq);
+  if (distance <= 0.000001) {
+    return;
+  }
+
+  const outwardX = dx / distance;
+  const outwardZ = dz / distance;
+  const softToHardDistance = Math.max(0.001, hardRadius - softRadius);
+  const penetration01 = THREE.MathUtils.clamp(
+    (distance - softRadius) / softToHardDistance,
+    0,
+    1
+  );
+  const inwardStep =
+    inwardSpeedUnitsPerSecond *
+    penetration01 *
+    penetration01 *
+    Math.max(0, deltaTime);
+
+  position.x -= outwardX * inwardStep;
+  position.z -= outwardZ * inwardStep;
+
+  const clampedDx = position.x - centerX;
+  const clampedDz = position.z - centerZ;
+  const clampedDistanceSq = clampedDx * clampedDx + clampedDz * clampedDz;
+  const hardRadiusSq = hardRadius * hardRadius;
+  if (clampedDistanceSq <= hardRadiusSq) {
+    return;
+  }
+
+  const clampedDistance = Math.sqrt(clampedDistanceSq);
+  if (clampedDistance <= 0.000001) {
+    position.x = centerX;
+    position.z = centerZ;
+    return;
+  }
+
+  const scale = hardRadius / clampedDistance;
+  position.x = centerX + clampedDx * scale;
+  position.z = centerZ + clampedDz * scale;
 }
 
 function resolveCannonPrimaryPhaseOffsets(

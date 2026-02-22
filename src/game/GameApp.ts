@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { GAME_CONFIG } from "./config";
+import { resolveGameMapFromMode, type GameModeId } from "./modes/GameMode";
 import { setupTopDownScene, type TopDownSceneController } from "./scenes/TopDownScene";
 import type { ShipSelectionConfig } from "./ships/ShipSelection";
 import { MainMenu } from "./ui/MainMenu";
@@ -14,7 +15,7 @@ export class GameApp {
   private readonly menu: MainMenu;
   private readonly clock: THREE.Clock;
   private topDownController?: TopDownSceneController;
-  private isPlayerTestActive = false;
+  private isSessionActive = false;
 
   constructor(root: HTMLDivElement) {
     this.root = root;
@@ -35,7 +36,7 @@ export class GameApp {
     this.menu = new MainMenu(this.root, {
       onStart: () => this.menu.showModeSelect(),
       onBackToStart: () => this.menu.showStartMenu(),
-      onPlayerTest: (selection) => this.startPlayerTest(selection)
+      onLaunchMode: (modeId, selection) => this.startMode(modeId, selection)
     });
   }
 
@@ -53,15 +54,16 @@ export class GameApp {
     this.renderer.render(this.scene, this.camera);
   };
 
-  private startPlayerTest(selection: ShipSelectionConfig): void {
-    if (this.isPlayerTestActive) {
+  private startMode(modeId: GameModeId, selection: ShipSelectionConfig): void {
+    if (this.isSessionActive) {
       return;
     }
 
     this.topDownController = setupTopDownScene(this.scene, this.camera, this.renderer.domElement, {
-      selection
+      selection,
+      mapId: resolveGameMapFromMode(modeId)
     });
-    this.isPlayerTestActive = true;
+    this.isSessionActive = true;
     this.menu.hide();
   }
 

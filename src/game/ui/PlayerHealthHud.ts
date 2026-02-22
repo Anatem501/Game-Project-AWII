@@ -35,6 +35,14 @@ export type HudMinimapSnapshot = {
   range?: number;
 };
 
+export type HudBoundarySnapshot = {
+  playerPosition: { x: number; z: number };
+  centerPosition: { x: number; z: number };
+  softRadius: number;
+  hardRadius: number;
+  range?: number;
+};
+
 const DEFAULT_MISSILE_DOT_COUNT = 10;
 const MAX_MISSILE_DOT_COUNT = 64;
 const DEFAULT_MINIMAP_RANGE = 80;
@@ -45,7 +53,8 @@ export type PlayerHealthHud = {
     snapshot: HealthSnapshot,
     missileSnapshot?: MissileHudSnapshot,
     resourceSnapshot?: ShipResourceSnapshot,
-    minimapSnapshot?: HudMinimapSnapshot
+    minimapSnapshot?: HudMinimapSnapshot,
+    boundarySnapshot?: HudBoundarySnapshot
   ) => void;
   dispose: () => void;
 };
@@ -64,6 +73,7 @@ export function createPlayerHealthHud(root: HTMLElement): PlayerHealthHud {
   const resourceMeters = createVerticalResourceMeters();
   const missile = createMissileRow();
   const minimap = createMinimapPanel();
+  const boundaryMinimap = createBoundaryMinimapPanel();
 
   mainColumn.appendChild(shield.row);
   mainColumn.appendChild(armor.row);
@@ -74,12 +84,14 @@ export function createPlayerHealthHud(root: HTMLElement): PlayerHealthHud {
   container.appendChild(content);
   root.appendChild(container);
   root.appendChild(minimap.panel);
+  root.appendChild(boundaryMinimap.panel);
 
   const update = (
     snapshot: HealthSnapshot,
     missileSnapshot?: MissileHudSnapshot,
     resourceSnapshot?: ShipResourceSnapshot,
-    minimapSnapshot?: HudMinimapSnapshot
+    minimapSnapshot?: HudMinimapSnapshot,
+    boundarySnapshot?: HudBoundarySnapshot
   ): void => {
     updateLayer(shield.elements, snapshot.shield.current, snapshot.shield.max);
     updateLayer(armor.elements, snapshot.armor.current, snapshot.armor.max);
@@ -88,14 +100,46 @@ export function createPlayerHealthHud(root: HTMLElement): PlayerHealthHud {
     updateVerticalEnergy(resourceMeters.energy, resourceSnapshot);
     updateMissiles(missile, missileSnapshot);
     updateMinimap(minimap, minimapSnapshot);
+    updateBoundaryMinimap(boundaryMinimap, boundarySnapshot);
   };
 
   const dispose = (): void => {
     container.remove();
     minimap.panel.remove();
+    boundaryMinimap.panel.remove();
   };
 
   return { update, dispose };
+}
+
+function createBoundaryMinimapPanel(): {
+  canvas: HTMLCanvasElement;
+  context: CanvasRenderingContext2D | null;
+  panel: HTMLDivElement;
+  rangeValue: HTMLSpanElement;
+} {
+  const panel = document.createElement("div");
+  panel.className = "player-boundary-minimap-panel";
+  panel.style.display = "none";
+
+  const label = document.createElement("span");
+  label.className = "player-resource-label";
+  label.textContent = "Boundary";
+
+  const canvas = document.createElement("canvas");
+  canvas.className = "player-boundary-minimap-canvas";
+  canvas.width = MINIMAP_SIZE;
+  canvas.height = MINIMAP_SIZE;
+  const context = canvas.getContext("2d");
+
+  const rangeValue = document.createElement("span");
+  rangeValue.className = "player-resource-value";
+  rangeValue.textContent = "Range 0m";
+
+  panel.appendChild(label);
+  panel.appendChild(canvas);
+  panel.appendChild(rangeValue);
+  return { canvas, context, panel, rangeValue };
 }
 
 function createMinimapPanel(): {
@@ -201,11 +245,78 @@ function updateMinimap(
   drawPlayerDot(context, half, half);
 }
 
+function updateBoundaryMinimap(
+  minimap: {
+    canvas: HTMLCanvasElement;
+    context: CanvasRenderingContext2D | null;
+    panel: HTMLDivElement;
+    rangeValue: HTMLSpanElement;
+  },
+  snapshot: HudBoundarySnapshot | undefined
+): void {
+  if (!snapshot) {
+    minimap.panel.style.display = "none";
+    return;
+  }
+  minimap.panel.style.display = "";
+
+  const context = minimap.context;
+  if (!context) {
+    return;
+  }
+
+  const size = minimap.canvas.width;
+  const half = size * 0.5;
+  const hardRadius = Math.max(1, snapshot.hardRadius);
+  const softRadius = THREEClamp(snapshot.softRadius, 0, hardRadius);
+  const range = Math.max(hardRadius, snapshot.range ?? hardRadius + 6);
+  minimap.rangeValue.textContent = `Range ${Math.round(range)}m`;
+
+  context.clearRect(0, 0, size, size);
+  context.fillStyle = "rgba(5, 18, 40, 0.92)";
+  context.fillRect(0, 0, size, size);
+
+  context.strokeStyle = "rgba(120, 170, 210, 0.34)";
+  context.lineWidth = 1;
+  context.strokeRect(0.5, 0.5, size - 1, size - 1);
+
+  const mapRadius = half - 8;
+  const scale = mapRadius / range;
+  const softPixels = softRadius * scale;
+  const hardPixels = hardRadius * scale;
+
+  context.beginPath();
+  context.strokeStyle = "rgba(105, 198, 255, 0.28)";
+  context.lineWidth = 1.2;
+  context.arc(half, half, softPixels, 0, Math.PI * 2);
+  context.stroke();
+
+  context.beginPath();
+  context.strokeStyle = "rgba(255, 153, 122, 0.72)";
+  context.lineWidth = 1.4;
+  context.arc(half, half, hardPixels, 0, Math.PI * 2);
+  context.stroke();
+
+  const dx = snapshot.playerPosition.x - snapshot.centerPosition.x;
+  const dz = snapshot.playerPosition.z - snapshot.centerPosition.z;
+  const playerX = half + dx * scale;
+  const playerY = half + dz * scale;
+
+  context.beginPath();
+  context.fillStyle = "rgba(110, 222, 255, 1)";
+  context.arc(playerX, playerY, 3.8, 0, Math.PI * 2);
+  context.fill();
+}
+
 function drawPlayerDot(context: CanvasRenderingContext2D, x: number, y: number): void {
   context.beginPath();
   context.fillStyle = "rgba(110, 222, 255, 1)";
   context.arc(x, y, 3.8, 0, Math.PI * 2);
   context.fill();
+}
+
+function THREEClamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
 
 function createLayerRow(labelText: string, fillClassName: string): {

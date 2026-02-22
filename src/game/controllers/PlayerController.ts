@@ -55,10 +55,13 @@ export function createPlayerController({
   const lastMouseWorld = new THREE.Vector3();
   const toAim = new THREE.Vector3();
   const shipRight = new THREE.Vector3();
+  const cameraForward = new THREE.Vector3();
 
   const raycaster = new THREE.Raycaster();
   const movementPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   let hasLastMouseWorld = false;
+  inputAimReticle.rotation.order = "XYZ";
+  trueAimReticle.rotation.order = "XYZ";
 
   const onKeyDown = (event: KeyboardEvent): void => {
     const key = event.key.toLowerCase();
@@ -266,6 +269,13 @@ export function createPlayerController({
     }
     trueAimTarget.y = updatedAimWorldY;
     trueAimReticle.position.copy(trueAimTarget);
+    camera.getWorldDirection(cameraForward);
+    const cameraPitchRadians = Math.atan2(
+      cameraForward.y,
+      Math.hypot(cameraForward.x, cameraForward.z)
+    );
+    inputAimReticle.rotation.x = -cameraPitchRadians;
+    trueAimReticle.rotation.x = -cameraPitchRadians;
     trueAimReticle.rotation.y = updatedShipState.yaw;
     trueAimReticle.visible = true;
     inputAimReticle.rotation.y = updatedShipState.yaw;

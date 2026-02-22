@@ -67,3 +67,17 @@ List core mechanics, dependencies, and balancing assumptions.
 - Local co-op support may be added later.
 - Peer-to-peer network multiplayer support may be added later.
 - Additional projectile/payload families and energy launcher gameplay are planned.
+
+## Rogue Pilot Boundary + Enemy Behavior Plan
+
+- Rogue Pilot mode uses an invisible circular arena to keep encounters contained.
+- Boundary model:
+  - soft radius: ships are gradually nudged inward.
+  - hard radius: ships are clamped to guarantee containment.
+- Current implementation priority is player containment. Existing static test enemies can be clamped, but moving enemy behaviors are not yet implemented.
+- Planned moving-enemy behavior:
+  - assign each enemy a `home` anchor (spawn position).
+  - enemy state machine: `engage`, `return-home`, `hard-leash-correct`.
+  - when outside combat leash or target is lost, enemy returns to `home`.
+  - when outside max leash, enemy uses immediate hard-leash correction.
+- Goal: keep targets near encounter space so enemies can reacquire the player quickly and avoid drifting far from spawn.
