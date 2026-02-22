@@ -1,12 +1,11 @@
 import type { StateDefinition } from "../../../ai/StateMachine";
 import type { EnemyShipAiContext, EnemyShipAiStateId } from "../EnemyShipAiTypes";
 
-export function createEnemyPatrolState(): StateDefinition<EnemyShipAiContext, EnemyShipAiStateId> {
+export function createEnemyEngageState(): StateDefinition<EnemyShipAiContext, EnemyShipAiStateId> {
   return {
-    id: "Patrol",
+    id: "Engage",
     onEnter: (context) => {
-      context.agent.onAiStateChanged("Patrol");
-      context.agent.resetAttackBurst();
+      context.agent.onAiStateChanged("Engage");
     },
     update: (context, deltaTime) => {
       if (context.agent.isDestroyed()) {
@@ -15,22 +14,28 @@ export function createEnemyPatrolState(): StateDefinition<EnemyShipAiContext, En
 
       if (
         context.agent.tryTriggerEvadeFromIncomingFire(
-          0.2,
+          0.6,
           0.2,
           context.config.evadeRearThreatRange,
           context.config.evadeCooldownSeconds ?? 6
         )
       ) {
-        context.runtime.returnStateAfterEvade = "Patrol";
+        context.runtime.returnStateAfterEvade = "Engage";
         return "Evade";
       }
 
-      if (context.agent.hasPassiveSensorContact(context.config.passiveSensorRange)) {
-        return "Engage";
+      const hasSensorContact = context.agent.hasPassiveSensorContact(context.config.passiveSensorLoseRange);
+      if (!hasSensorContact) {
+        return "Search";
       }
 
-      context.agent.updatePatrolMovement(deltaTime);
       context.agent.faceTarget(deltaTime);
+      context.agent.updateEngageMovement(deltaTime);
+
+      if (context.agent.canStartLaserBurstAttack()) {
+        return "Attack";
+      }
+      return "Flyby";
     }
   };
 }

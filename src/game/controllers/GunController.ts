@@ -65,6 +65,7 @@ type GunControllerParams = {
 
 export type GunController = {
   update: (deltaTime: number, playerState: PlayerControllerState) => void;
+  isPrimaryFireInputActive: () => boolean;
   setEnabled: (enabled: boolean) => void;
   dispose: () => void;
 };
@@ -131,6 +132,7 @@ export function createGunController({
   };
 
   let primaryFireHeld = false;
+  let lastPrimaryFireInputActive = false;
   let enabled = true;
   let hasLastYaw = false;
   let lastYaw = 0;
@@ -251,7 +253,9 @@ export function createGunController({
 
     const gamepadPrimaryFireHeld = isGamepadFireButtonHeld(GAMEPAD_PRIMARY_FIRE_BUTTON_INDEX);
 
-    if (enabled && (primaryFireHeld || gamepadPrimaryFireHeld)) {
+    lastPrimaryFireInputActive = enabled && (primaryFireHeld || gamepadPrimaryFireHeld);
+
+    if (lastPrimaryFireInputActive) {
       for (let i = 0; i < normalizedGuns.length; i += 1) {
         const gun = normalizedGuns[i];
         primaryCooldowns[i] -= deltaTime;
@@ -351,10 +355,12 @@ export function createGunController({
 
   return {
     update,
+    isPrimaryFireInputActive: () => lastPrimaryFireInputActive,
     setEnabled: (value: boolean) => {
       enabled = value;
       if (!enabled) {
         primaryFireHeld = false;
+        lastPrimaryFireInputActive = false;
         resetPrimaryCooldowns();
       }
     },

@@ -475,6 +475,17 @@ export function setupTopDownScene(
     if (mapId !== "rogue_pilot_map") {
       return undefined;
     }
+    const enemies: Array<{ x: number; z: number }> = [];
+    for (const hurtbox of enemyTargetHurtboxes) {
+      if (!hurtbox.canReceiveDamage()) {
+        continue;
+      }
+      hurtbox.getWorldCenter(minimapEnemyPosition);
+      enemies.push({
+        x: minimapEnemyPosition.x,
+        z: minimapEnemyPosition.z
+      });
+    }
     return {
       playerPosition: {
         x: playerPosition.x,
@@ -486,6 +497,7 @@ export function setupTopDownScene(
       },
       softRadius: ROGUE_ARENA_SOFT_RADIUS,
       hardRadius: ROGUE_ARENA_HARD_RADIUS,
+      enemies,
       range: ROGUE_ARENA_HARD_RADIUS + 10
     };
   };
@@ -730,7 +742,11 @@ export function setupTopDownScene(
     if (mapId !== "rogue_pilot_map") {
       return;
     }
-    rogueEnemyCannonShip = createRoguePilotEnemyCannonShip(scene, playerRoot, playerTargetHurtboxes);
+    rogueEnemyCannonShip = createRoguePilotEnemyCannonShip(scene, playerRoot, playerTargetHurtboxes, {
+      arenaCenter: new THREE.Vector3(ROGUE_ARENA_CENTER_X, FLOOR_Y, ROGUE_ARENA_CENTER_Z),
+      arenaEdgeRadius: ROGUE_ARENA_HARD_RADIUS - 3,
+      playerManeuverSpeed: selectedShip.handling.topManeuveringSpeed
+    });
 
     updateEnemyTargetHurtboxes();
   };
@@ -849,6 +865,7 @@ export function setupTopDownScene(
       playerState = playerController.update(deltaTime, camera);
     }
     gunController.update(deltaTime, playerState);
+    rogueEnemyCannonShip?.setPlayerPrimaryFireActive(gunController.isPrimaryFireInputActive());
     missileBayController?.update(
       deltaTime,
       playerState.forward,
@@ -1243,6 +1260,10 @@ function resolveCannonPrimaryPhaseOffsets(
 }
 
 function resolveRepeatingLaserboltPhaseSlots(shipId: string, cannonCount: number): number[] {
+  if (shipId === "test_fighter" && cannonCount === 4) {
+    return [0, 0, 1, 1];
+  }
+
   if (shipId === "swift_interceptor") {
     if (cannonCount === 4) {
       return [0, 0, 1, 1];

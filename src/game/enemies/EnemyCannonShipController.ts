@@ -7,10 +7,13 @@ import type {
   EnemyShipAiContext,
   EnemyShipAiStateId
 } from "./ai/EnemyShipAiTypes";
-import { createEnemyAttackState } from "./ai/states/CreateEnemyAttackState";
-import { createEnemyChaseState } from "./ai/states/CreateEnemyChaseState";
 import { createEnemyDeadState } from "./ai/states/CreateEnemyDeadState";
+import { createEnemyEngageState } from "./ai/states/CreateEnemyEngageState";
+import { createEnemyFlybyState } from "./ai/states/CreateEnemyFlybyState";
 import { createEnemyPatrolState } from "./ai/states/CreateEnemyPatrolState";
+import { createEnemySearchState } from "./ai/states/CreateEnemySearchState";
+import { createEnemyAttackState } from "./ai/states/CreateEnemyAttackState";
+import { createEnemyEvadeState } from "./ai/states/CreateEnemyEvadeState";
 import { createEnemySpawnState } from "./ai/states/CreateEnemySpawnState";
 
 export type EnemyCannonShipControllerConfig = {
@@ -40,15 +43,21 @@ export class EnemyCannonShipController {
       agent: ship,
       config: ai,
       runtime: {
-        spawnTimeRemaining: ai.spawnDurationSeconds
+        spawnTimeRemaining: ai.spawnDurationSeconds,
+        returnStateAfterEvade: "Patrol",
+        searchReachedLastKnownPosition: false,
+        searchHoldSecondsRemaining: 0
       }
     };
 
     this.stateMachine = new StateMachine(context, [
       createEnemySpawnState(),
       createEnemyPatrolState(),
-      createEnemyChaseState(),
+      createEnemyEngageState(),
       createEnemyAttackState(),
+      createEnemyFlybyState(),
+      createEnemyEvadeState(),
+      createEnemySearchState(),
       createEnemyDeadState()
     ], "Spawn");
   }
@@ -69,6 +78,10 @@ export class EnemyCannonShipController {
 
   setPlayerTarget(target: THREE.Object3D | null): void {
     this.getShip().setPlayerTarget(target);
+  }
+
+  setPlayerPrimaryFireActive(isActive: boolean): void {
+    this.getShip().setPlayerPrimaryFireActive(isActive);
   }
 
   getDebugSnapshot(): EnemyCannonShipControllerDebugSnapshot {

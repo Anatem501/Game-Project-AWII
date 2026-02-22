@@ -17,6 +17,7 @@ export type EnemyCannonShipMovementStats = {
 export type EnemyCannonShipCombatStats = {
   preferredAttackDistance: number;
   burstShotCount: number;
+  burstTelegraphSeconds: number;
   burstShotIntervalSeconds: number;
   burstCooldownSeconds: number;
   projectile: LaserBoltFactoryOptions;
@@ -71,25 +72,31 @@ export function createBasicEnemyCannonShipArchetype(
     },
     ai: {
       spawnDurationSeconds: 0.45,
-      detectionRange: 34,
-      loseTargetRange: 44,
+      passiveSensorRange: 34,
+      passiveSensorLoseRange: 44,
       attackRange,
       attackDisengageRangeMultiplier: 1.15,
-      preferredAttackDistance
+      preferredAttackDistance,
+      aimVisionRange: 26,
+      aimVisionFovRadians: THREE.MathUtils.degToRad(95),
+      evadeRearThreatRange: 24,
+      evadeCooldownSeconds: 6,
+      searchHoldSeconds: 2
     },
     movement: {
       patrolCenter: spawnPosition.clone(),
       patrolRadius: 9,
-      patrolSpeed: 6,
+      patrolSpeed: 8.5,
       patrolOrbitSpeedRadians: 0.6,
-      chaseSpeed: 10,
-      attackStrafeSpeed: 7,
+      chaseSpeed: 13,
+      attackStrafeSpeed: 9.5,
       turnSpeedRadians: THREE.MathUtils.degToRad(180),
       fireArcRadians: THREE.MathUtils.degToRad(20)
     },
     combat: {
       preferredAttackDistance,
       burstShotCount: 3,
+      burstTelegraphSeconds: 0.45,
       burstShotIntervalSeconds: 0.14,
       burstCooldownSeconds: 1.85,
       projectile: {
@@ -100,7 +107,7 @@ export function createBasicEnemyCannonShipArchetype(
     visual: {
       modelUrl,
       modelYawOffset: Math.PI,
-      modelDesiredSize: 2.8
+      modelDesiredSize: 1.68
     },
     collision: {
       hurtboxRadius: 1.45,

@@ -1,12 +1,12 @@
 import type { StateDefinition } from "../../../ai/StateMachine";
 import type { EnemyShipAiContext, EnemyShipAiStateId } from "../EnemyShipAiTypes";
 
-export function createEnemyPatrolState(): StateDefinition<EnemyShipAiContext, EnemyShipAiStateId> {
+export function createEnemyFlybyState(): StateDefinition<EnemyShipAiContext, EnemyShipAiStateId> {
   return {
-    id: "Patrol",
+    id: "Flyby",
     onEnter: (context) => {
-      context.agent.onAiStateChanged("Patrol");
-      context.agent.resetAttackBurst();
+      context.agent.onAiStateChanged("Flyby");
+      context.agent.beginFlybyManeuver();
     },
     update: (context, deltaTime) => {
       if (context.agent.isDestroyed()) {
@@ -15,22 +15,24 @@ export function createEnemyPatrolState(): StateDefinition<EnemyShipAiContext, En
 
       if (
         context.agent.tryTriggerEvadeFromIncomingFire(
-          0.2,
+          0.6,
           0.2,
           context.config.evadeRearThreatRange,
           context.config.evadeCooldownSeconds ?? 6
         )
       ) {
-        context.runtime.returnStateAfterEvade = "Patrol";
+        context.runtime.returnStateAfterEvade = "Flyby";
         return "Evade";
       }
 
-      if (context.agent.hasPassiveSensorContact(context.config.passiveSensorRange)) {
-        return "Engage";
-      }
-
-      context.agent.updatePatrolMovement(deltaTime);
       context.agent.faceTarget(deltaTime);
+      context.agent.updateFlybyMovement(deltaTime);
+
+      if (context.agent.isFlybyManeuverComplete()) {
+        return context.agent.hasPassiveSensorContact(context.config.passiveSensorLoseRange)
+          ? "Engage"
+          : "Search";
+      }
     }
   };
 }

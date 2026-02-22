@@ -12,21 +12,27 @@ export function createEnemyAttackState(): StateDefinition<EnemyShipAiContext, En
         return "Dead";
       }
 
+      const hasSensorContact = context.agent.hasPassiveSensorContact(context.config.passiveSensorLoseRange);
       const distanceToTarget = context.agent.getTargetDistance();
-      if (distanceToTarget === null || distanceToTarget > context.config.loseTargetRange) {
-        return "Patrol";
-      }
-      if (
-        distanceToTarget >
-        context.config.attackRange * context.config.attackDisengageRangeMultiplier
-      ) {
-        return "Chase";
+      if (distanceToTarget === null) {
+        return "Search";
       }
 
-      context.agent.updateAttackMovement(deltaTime, distanceToTarget);
+      if (!context.agent.canStartLaserBurstAttack() && !context.agent.isAttackActionActive()) {
+        return hasSensorContact ? "Engage" : "Search";
+      }
+
       const alignedToTarget = context.agent.faceTarget(deltaTime);
-      if (alignedToTarget) {
+      context.agent.updateAttackMovement(deltaTime, distanceToTarget);
+      const hasAimVision = context.agent.hasAimVisionContact(
+        context.config.aimVisionRange,
+        context.config.aimVisionFovRadians
+      );
+      if (alignedToTarget && hasAimVision) {
         context.agent.tryFireBurstAttack();
+      }
+      if (context.agent.consumeBurstFinishedEvent()) {
+        return hasSensorContact ? "Engage" : "Search";
       }
     }
   };

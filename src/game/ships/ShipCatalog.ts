@@ -10,7 +10,7 @@ import {
 } from "../weapons/WeaponComponentCatalog";
 import playerModelUrl from "../../assets/models/SpaceShip V3.glb?url";
 import vagabondM2ShipModelUrl from "../../assets/models/Vagabond-m2-Ship-V01.glb?url";
-import azureArrowV2ShipModelUrl from "../../assets/models/Azure-Arrow-V2-ship-v01.glb?url";
+import azureArrowV2ShipModelUrl from "../../assets/models/Azure-Arrow-V2-ship-v02.glb?url";
 import bearclawMk2ShipModelUrl from "../../assets/models/AC-Bearclaw-mkII-Ship-V01.glb?url";
 import mx4LancerShipModelUrl from "../../assets/models/Mx4-Lancer-Ship-v01.glb?url";
 
@@ -52,6 +52,8 @@ export type ShipDefinition = {
 
 const AZURE_ARROW_V2_GUN_HARDPOINTS: readonly THREE.Vector3[] = [
   new THREE.Vector3(0, 0, 0),
+  new THREE.Vector3(0, 0, 0),
+  new THREE.Vector3(0, 0, 0),
   new THREE.Vector3(0, 0, 0)
 ];
 
@@ -64,6 +66,16 @@ const AZURE_ARROW_V2_CANNON_MOUNTS: readonly ShipCannonMountDefinition[] = [
   {
     id: "cannon_mount_2",
     displayName: "Cannons Primary Fire 2",
+    defaultPrimaryComponentId: DEFAULT_CANNON_PRIMARY_COMPONENT_ID
+  },
+  {
+    id: "cannon_mount_3",
+    displayName: "Cannons Primary Fire 3",
+    defaultPrimaryComponentId: DEFAULT_CANNON_PRIMARY_COMPONENT_ID
+  },
+  {
+    id: "cannon_mount_4",
+    displayName: "Cannons Primary Fire 4",
     defaultPrimaryComponentId: DEFAULT_CANNON_PRIMARY_COMPONENT_ID
   }
 ] as const;

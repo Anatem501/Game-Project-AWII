@@ -1,11 +1,15 @@
 import type { StateDefinition } from "../../../ai/StateMachine";
 import type { EnemyShipAiContext, EnemyShipAiStateId } from "../EnemyShipAiTypes";
 
-export function createEnemyChaseState(): StateDefinition<EnemyShipAiContext, EnemyShipAiStateId> {
+export function createEnemyRepositionState(): StateDefinition<
+  EnemyShipAiContext,
+  EnemyShipAiStateId
+> {
   return {
-    id: "Chase",
+    id: "Reposition",
     onEnter: (context) => {
-      context.agent.onAiStateChanged("Chase");
+      context.agent.onAiStateChanged("Reposition");
+      context.agent.beginRepositionManeuver();
     },
     update: (context, deltaTime) => {
       if (context.agent.isDestroyed()) {
@@ -19,12 +23,13 @@ export function createEnemyChaseState(): StateDefinition<EnemyShipAiContext, Ene
       if (context.agent.shouldEvadeRearThreat(context.config.evadeRearThreatRange)) {
         return "Evade";
       }
-      if (distanceToTarget <= context.config.attackRange) {
-        return "Attack";
-      }
 
-      context.agent.updateChaseMovement(deltaTime);
       context.agent.faceTarget(deltaTime);
+      context.agent.updateRepositionMovement(deltaTime, distanceToTarget);
+
+      if (context.agent.isRepositionManeuverComplete()) {
+        return "Chase";
+      }
     }
   };
 }

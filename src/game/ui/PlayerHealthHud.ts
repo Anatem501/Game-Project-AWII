@@ -40,6 +40,7 @@ export type HudBoundarySnapshot = {
   centerPosition: { x: number; z: number };
   softRadius: number;
   hardRadius: number;
+  enemies: Array<{ x: number; z: number }>;
   range?: number;
 };
 
@@ -301,6 +302,22 @@ function updateBoundaryMinimap(
   const dz = snapshot.playerPosition.z - snapshot.centerPosition.z;
   const playerX = half + dx * scale;
   const playerY = half + dz * scale;
+
+  for (const enemy of snapshot.enemies) {
+    const enemyDx = enemy.x - snapshot.centerPosition.x;
+    const enemyDz = enemy.z - snapshot.centerPosition.z;
+    const enemyX = half + enemyDx * scale;
+    const enemyY = half + enemyDz * scale;
+    const distanceFromCenter = Math.hypot(enemyX - half, enemyY - half);
+    if (distanceFromCenter > mapRadius) {
+      continue;
+    }
+
+    context.beginPath();
+    context.fillStyle = "rgba(255, 122, 122, 0.95)";
+    context.arc(enemyX, enemyY, 3.2, 0, Math.PI * 2);
+    context.fill();
+  }
 
   context.beginPath();
   context.fillStyle = "rgba(110, 222, 255, 1)";

@@ -12,7 +12,7 @@ export function createEnemyAiDebugPanel(parent: HTMLElement): EnemyAiDebugPanel 
   const panel = document.createElement("div");
   panel.style.position = "absolute";
   panel.style.top = "12px";
-  panel.style.right = "12px";
+  panel.style.left = "12px";
   panel.style.padding = "10px 12px";
   panel.style.minWidth = "190px";
   panel.style.border = "1px solid rgba(255,255,255,0.18)";
@@ -22,7 +22,7 @@ export function createEnemyAiDebugPanel(parent: HTMLElement): EnemyAiDebugPanel 
   panel.style.fontSize = "12px";
   panel.style.lineHeight = "1.45";
   panel.style.pointerEvents = "none";
-  panel.style.zIndex = "10";
+  panel.style.zIndex = "200";
 
   const title = document.createElement("div");
   title.textContent = "Enemy AI (Test)";
