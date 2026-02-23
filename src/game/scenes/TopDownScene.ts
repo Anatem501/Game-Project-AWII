@@ -102,6 +102,7 @@ const MAURADER_DEFAULT_MISSILE_CELL_LOCAL_OFFSETS: readonly THREE.Vector3[] = [
 ];
 const REPEATING_LASERBOLT_COMPONENT_ID = "repeating_laserbolt_fire";
 const REPEATING_PLASMABOLT_COMPONENT_ID = "repeating_plasmabolt_fire";
+const REPEATING_VOIDBOLT_COMPONENT_ID = "repeating_voidbolt_fire";
 const REPEATING_IONBOLT_COMPONENT_ID = "repeating_ionbolt_fire";
 const CANNON_FIRE_INTERVAL_SECONDS = 0.5;
 const HUD_MINIMAP_RANGE_METERS = 80;
@@ -1483,6 +1484,7 @@ function resolveCannonPrimaryPhaseOffsets(
   if (
     primaryComponentId !== REPEATING_LASERBOLT_COMPONENT_ID &&
     primaryComponentId !== REPEATING_PLASMABOLT_COMPONENT_ID &&
+    primaryComponentId !== REPEATING_VOIDBOLT_COMPONENT_ID &&
     primaryComponentId !== REPEATING_IONBOLT_COMPONENT_ID
   ) {
     return new Array(cannonCount).fill(0);

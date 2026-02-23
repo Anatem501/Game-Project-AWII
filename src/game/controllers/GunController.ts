@@ -6,6 +6,7 @@ import { createLaserHitSparkExplosionSystem } from "../effects/LaserHitSparkExpl
 import { createPlasmaHitImplosionSystem } from "../effects/PlasmaHitImplosionSystem";
 import { createPlasmaMuzzleGlobBurstSystem } from "../effects/PlasmaMuzzleGlobBurstSystem";
 import { createShipGunSparkBurstSystem } from "../effects/ShipGunSparkBurstSystem";
+import { createVoidHitVortexSystem } from "../effects/VoidHitVortexSystem";
 import type { PlayerControllerState } from "./PlayerController";
 import type { ProjectileFactory, ProjectileInstance } from "./projectiles/ProjectileTypes";
 
@@ -111,6 +112,16 @@ export function createGunController({
   const ionHitBursts = createIonHitElectricBurstSystem(scene);
   const plasmaHitImplosions = createPlasmaHitImplosionSystem(scene);
   const plasmaMuzzleGlobs = createPlasmaMuzzleGlobBurstSystem(scene);
+  const voidMuzzleGlobs = createPlasmaMuzzleGlobBurstSystem(scene, {
+    globCountPerBurst: 14,
+    burstLifetimeSeconds: 0.2,
+    speedMin: 0.25,
+    speedMax: 1.15,
+    spreadRadians: THREE.MathUtils.degToRad(13),
+    deepColor: 0x180a28,
+    coreColor: 0x4a2d73
+  });
+  const voidHitVortices = createVoidHitVortexSystem(scene);
   const projectilesRoot = new THREE.Group();
   const normalizedGuns = normalizeGunDefinitions(guns);
   const primaryInitialCooldowns = normalizedGuns.map((gun) => {
@@ -225,6 +236,8 @@ export function createGunController({
     const damageType = projectile.hitbox?.damageType;
     if (damageType === "Plasma") {
       plasmaMuzzleGlobs.spawnBurst(muzzleWorld, aimDirection);
+    } else if (damageType === "Void") {
+      voidMuzzleGlobs.spawnBurst(muzzleWorld, aimDirection);
     } else if (damageType === "Ion") {
       ionMuzzleBursts.spawnBurst(muzzleWorld, aimDirection);
     } else {
@@ -300,6 +313,12 @@ export function createGunController({
           projectile.object.getWorldDirection(fallbackForward);
           if (damageType === "Ion") {
             ionHitBursts.spawnBurst(projectile.object.position, fallbackForward);
+          } else if (damageType === "Void") {
+            voidHitVortices.spawnVortex(
+              projectile.object.position,
+              fallbackForward,
+              projectile.hitbox?.collisionArea.radius
+            );
           } else {
             hitSparkExplosions.spawnExplosion(projectile.object.position, fallbackForward);
           }
@@ -322,9 +341,11 @@ export function createGunController({
     sparkBursts.update(deltaTime);
     ionMuzzleBursts.update(deltaTime);
     plasmaMuzzleGlobs.update(deltaTime);
+    voidMuzzleGlobs.update(deltaTime);
     hitSparkExplosions.update(deltaTime);
     ionHitBursts.update(deltaTime);
     plasmaHitImplosions.update(deltaTime);
+    voidHitVortices.update(deltaTime);
   };
 
   const dispose = (): void => {
@@ -338,9 +359,11 @@ export function createGunController({
     sparkBursts.dispose();
     ionMuzzleBursts.dispose();
     plasmaMuzzleGlobs.dispose();
+    voidMuzzleGlobs.dispose();
     hitSparkExplosions.dispose();
     ionHitBursts.dispose();
     plasmaHitImplosions.dispose();
+    voidHitVortices.dispose();
     projectilesRoot.clear();
     scene.remove(projectilesRoot);
 

@@ -19,6 +19,8 @@ type PlasmaMuzzleGlobBurstSystemConfig = {
   speedMin?: number;
   speedMax?: number;
   spreadRadians?: number;
+  deepColor?: number;
+  coreColor?: number;
 };
 
 const DEFAULT_GLOB_COUNT = 20;
@@ -55,6 +57,9 @@ void main() {
 `;
 
 const GLOB_FRAGMENT_SHADER = `
+uniform vec3 uDeepColor;
+uniform vec3 uCoreColor;
+
 varying float vLife;
 varying float vSeed;
 
@@ -66,9 +71,7 @@ void main() {
   float noise = 0.97 + 0.03 * sin(vSeed * 13.0);
   float alpha = (blob * 1.28 + halo * 0.48) * vLife * noise;
 
-  vec3 deepRed = vec3(0.88, 0.03, 0.12);
-  vec3 warmCore = vec3(1.0, 0.16, 0.17);
-  vec3 color = mix(deepRed, warmCore, pow(blob, 0.8));
+  vec3 color = mix(uDeepColor, uCoreColor, pow(blob, 0.8));
   gl_FragColor = vec4(color, alpha);
 }
 `;
@@ -92,6 +95,8 @@ export function createPlasmaMuzzleGlobBurstSystem(
     0,
     Math.PI
   );
+  const deepColor = new THREE.Color(config.deepColor ?? 0xe0081f);
+  const coreColor = new THREE.Color(config.coreColor ?? 0xff292b);
 
   const bursts: GlobBurst[] = [];
   const root = new THREE.Group();
@@ -150,7 +155,9 @@ export function createPlasmaMuzzleGlobBurstSystem(
       uniforms: {
         uAge: { value: 0 },
         uLifetime: { value: burstLifetimeSeconds },
-        uViewportHeight: { value: window.innerHeight || 1080 }
+        uViewportHeight: { value: window.innerHeight || 1080 },
+        uDeepColor: { value: new THREE.Vector3(deepColor.r, deepColor.g, deepColor.b) },
+        uCoreColor: { value: new THREE.Vector3(coreColor.r, coreColor.g, coreColor.b) }
       }
     });
 

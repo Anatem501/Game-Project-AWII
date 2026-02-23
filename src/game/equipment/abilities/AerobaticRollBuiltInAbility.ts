@@ -6,7 +6,7 @@ import type {
   PlayerBuiltInEquipmentAbilityHudSnapshot
 } from "./PlayerBuiltInEquipmentAbility";
 
-const AEROBATIC_ROLL_CHARGE_RECHARGE_SECONDS = 4;
+const AEROBATIC_ROLL_CHARGE_RECHARGE_SECONDS = 5;
 const AEROBATIC_ROLL_MAX_CHARGES = 2;
 
 type AerobaticRollBuiltInAbilityParams = {

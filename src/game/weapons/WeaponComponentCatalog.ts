@@ -4,6 +4,7 @@ import type { LaserBoltFactoryOptions } from "../controllers/projectiles/LaserBo
 export const CANNON_PRIMARY_COMPONENT_OPTIONS = [
   "repeating_laserbolt_fire",
   "repeating_plasmabolt_fire",
+  "repeating_voidbolt_fire",
   "repeating_ionbolt_fire"
 ] as const;
 
@@ -128,6 +129,29 @@ const CANNON_PRIMARY_COMPONENTS: Record<
       thickness: 0.06,
       damage: 8,
       damageType: "Plasma",
+      collisionRadius: 0.08
+    }
+  },
+  repeating_voidbolt_fire: {
+    id: "repeating_voidbolt_fire",
+    name: "Repeating Voidbolt Fire",
+    weaponType: "Cannons",
+    fireType: "Primary",
+    damageType: "Void",
+    heatCost: 0,
+    energyCost: 0,
+    description:
+      "Void-tuned bolt stream using the plasmabolt chassis with a dark core and pale violet shell glow. Does not consume heat or energy.",
+    projectile: {
+      color: 0x06060a,
+      emissive: 0x140a26,
+      emissiveIntensity: 2.9,
+      speed: 18,
+      lifetimeSeconds: 2,
+      length: 0.44,
+      thickness: 0.06,
+      damage: 8,
+      damageType: "Void",
       collisionRadius: 0.08
     }
   },

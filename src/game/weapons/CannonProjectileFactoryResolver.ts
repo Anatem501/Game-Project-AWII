@@ -31,6 +31,30 @@ export function createCannonPrimaryProjectileFactory(
     });
   }
 
+  if (componentId === "repeating_voidbolt_fire") {
+    return createPlasmaBoltFactory({
+      faction: config.faction,
+      modelUrl: config.assets?.plasmaboltModelUrl,
+      shaderVariant: "void",
+      coreColor: 0x24103a,
+      hotColor: 0x341652,
+      rimColor: 0x4a2d73,
+      shellColor: 0xf4edff,
+      glowColor: 0xe3d1ff,
+      glowOpacity: 0.26,
+      glowScale: 1.24,
+      glowLayerStyle: "outline",
+      trailGlobColor: 0x160a26,
+      trailGlobOpacity: 0.58,
+      trailGlobOutlineColor: 0x5d3a93,
+      trailGlobOutlineOpacity: 0.2,
+      trailGlobOutlineScale: 1.22,
+      trailGlobCount: 4,
+      trailGlobLifetimeSeconds: 0.055,
+      ...component.projectile
+    });
+  }
+
   if (componentId === "repeating_ionbolt_fire") {
     return createIonBoltFactory({
       faction: config.faction,

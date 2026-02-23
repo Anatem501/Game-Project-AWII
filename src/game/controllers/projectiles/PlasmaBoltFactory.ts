@@ -30,7 +30,9 @@ uniform float uTime;
 uniform vec3 uCoreColor;
 uniform vec3 uHotColor;
 uniform vec3 uRimColor;
+uniform vec3 uShellColor;
 uniform float uIntensity;
+uniform float uVoidVariant;
 
 varying vec3 vWorldPos;
 varying vec3 vWorldNormal;
@@ -46,25 +48,45 @@ void main() {
   float plasma = mix(longitudinal, transverse, 0.22);
   plasma = smoothstep(0.2, 0.94, plasma);
 
-  float heatMix = plasma * 0.62;
-  vec3 baseColor = mix(uCoreColor, uHotColor, heatMix);
-  vec3 emissive = baseColor * (uIntensity * (0.74 + plasma * 0.46));
-  emissive += uRimColor * fresnel * (uIntensity * 0.9);
+  vec3 emissive;
+  if (uVoidVariant > 0.5) {
+    float innerVoid = 1.0 - smoothstep(0.10, 0.70, plasma);
+    float shellPulse = smoothstep(0.72, 0.97, plasma);
+    float rimMask = pow(fresnel, 1.8);
+    float shellMask = max(rimMask, shellPulse * rimMask * 0.75);
+    vec3 voidCore = mix(uHotColor, uCoreColor, innerVoid);
+    emissive = voidCore * (uIntensity * (0.006 + plasma * 0.02));
+    emissive += uRimColor * shellPulse * (uIntensity * 0.08);
+    emissive += uShellColor * shellMask * (uIntensity * (0.26 + plasma * 0.08));
+  } else {
+    float heatMix = plasma * 0.62;
+    vec3 baseColor = mix(uCoreColor, uHotColor, heatMix);
+    emissive = baseColor * (uIntensity * (0.74 + plasma * 0.46));
+    emissive += uRimColor * fresnel * (uIntensity * 0.9);
+  }
 
   gl_FragColor = vec4(emissive, 1.0);
 }
 `;
 
+export type PlasmaBoltShaderVariant = "plasma" | "void";
+
 export type PlasmaBoltFactoryOptions = LaserBoltFactoryOptions & {
   modelUrl?: string;
+  shaderVariant?: PlasmaBoltShaderVariant;
+  glowLayerStyle?: "shell" | "outline" | "none";
   coreColor?: number;
   hotColor?: number;
   rimColor?: number;
+  shellColor?: number;
   glowColor?: number;
   glowOpacity?: number;
   glowScale?: number;
   trailGlobColor?: number;
   trailGlobOpacity?: number;
+  trailGlobOutlineColor?: number;
+  trailGlobOutlineOpacity?: number;
+  trailGlobOutlineScale?: number;
   trailGlobCount?: number;
   trailGlobSpawnIntervalSeconds?: number;
   trailGlobLifetimeSeconds?: number;
@@ -77,6 +99,9 @@ type TrailGlob = {
   lifetime: number;
   material: THREE.MeshBasicMaterial;
   mesh: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
+  outlineMaterial?: THREE.MeshBasicMaterial;
+  outlineMesh?: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
+  outlineMaxOpacity: number;
   startScale: number;
   velocity: THREE.Vector3;
 };
@@ -99,7 +124,11 @@ export function createPlasmaBoltFactory(
   const coreColor = new THREE.Color(options.coreColor ?? options.color ?? 0xff2b3d);
   const hotColor = new THREE.Color(options.hotColor ?? 0xff4f58);
   const rimColor = new THREE.Color(options.rimColor ?? 0xb10d2b);
+  const shellColor = new THREE.Color(options.shellColor ?? options.hotColor ?? 0xffc2cb);
   const glowColor = new THREE.Color(options.glowColor ?? 0xff2b2b);
+  const shaderVariant = options.shaderVariant ?? "plasma";
+  const glowLayerStyle = options.glowLayerStyle ?? "shell";
+  const hasGlowLayer = glowLayerStyle !== "none";
   const plasmaIntensity = Math.max(0.001, options.emissiveIntensity ?? 3.2);
   const glowOpacity = THREE.MathUtils.clamp(options.glowOpacity ?? 0.18, 0.01, 1);
   const glowScale = Math.max(1.01, options.glowScale ?? 1.18);
@@ -108,7 +137,17 @@ export function createPlasmaBoltFactory(
       ? new THREE.Color(options.trailGlobColor)
       : glowColor.clone();
   const trailGlobOpacity = THREE.MathUtils.clamp(options.trailGlobOpacity ?? 0.82, 0.05, 1);
-  const trailGlobCount = Math.max(2, Math.floor(options.trailGlobCount ?? 9));
+  const trailGlobOutlineColor =
+    options.trailGlobOutlineColor !== undefined
+      ? new THREE.Color(options.trailGlobOutlineColor)
+      : null;
+  const trailGlobOutlineOpacity = THREE.MathUtils.clamp(
+    options.trailGlobOutlineOpacity ?? Math.min(1, trailGlobOpacity * 0.8),
+    0.01,
+    1
+  );
+  const trailGlobOutlineScale = Math.max(1.01, options.trailGlobOutlineScale ?? 1.22);
+  const trailGlobCount = Math.max(0, Math.floor(options.trailGlobCount ?? 9));
   const trailGlobSpawnIntervalSeconds = Math.max(
     0.003,
     options.trailGlobSpawnIntervalSeconds ?? 0.01
@@ -125,7 +164,9 @@ export function createPlasmaBoltFactory(
       uCoreColor: { value: new THREE.Vector3(coreColor.r, coreColor.g, coreColor.b) },
       uHotColor: { value: new THREE.Vector3(hotColor.r, hotColor.g, hotColor.b) },
       uRimColor: { value: new THREE.Vector3(rimColor.r, rimColor.g, rimColor.b) },
-      uIntensity: { value: plasmaIntensity }
+      uShellColor: { value: new THREE.Vector3(shellColor.r, shellColor.g, shellColor.b) },
+      uIntensity: { value: plasmaIntensity },
+      uVoidVariant: { value: shaderVariant === "void" ? 1 : 0 }
     },
     transparent: false,
     depthWrite: true,
@@ -138,6 +179,7 @@ export function createPlasmaBoltFactory(
     transparent: true,
     opacity: glowOpacity,
     blending: THREE.AdditiveBlending,
+    side: glowLayerStyle === "outline" ? THREE.BackSide : THREE.FrontSide,
     depthWrite: false,
     toneMapped: false
   });
@@ -149,6 +191,17 @@ export function createPlasmaBoltFactory(
     depthWrite: false,
     toneMapped: false
   });
+  const trailGlobOutlineMaterial = trailGlobOutlineColor
+    ? new THREE.MeshBasicMaterial({
+        color: trailGlobOutlineColor,
+        transparent: true,
+        opacity: trailGlobOutlineOpacity,
+        blending: THREE.AdditiveBlending,
+        side: THREE.BackSide,
+        depthWrite: false,
+        toneMapped: false
+      })
+    : null;
 
   const loader = new GLTFLoader();
   const shotQuaternion = new THREE.Quaternion();
@@ -192,10 +245,12 @@ export function createPlasmaBoltFactory(
     assignMaterialToMeshes(coreVisual, plasmaMaterial);
     projectileGroup.add(coreVisual);
 
-    const glowVisual = coreVisual.clone(true);
-    assignMaterialToMeshes(glowVisual, glowMaterial);
-    glowVisual.scale.multiplyScalar(glowScale);
-    projectileGroup.add(glowVisual);
+    if (hasGlowLayer) {
+      const glowVisual = coreVisual.clone(true);
+      assignMaterialToMeshes(glowVisual, glowMaterial);
+      glowVisual.scale.multiplyScalar(glowScale);
+      projectileGroup.add(glowVisual);
+    }
 
     const trailRoot = new THREE.Group();
     projectileGroup.add(trailRoot);
@@ -205,6 +260,16 @@ export function createPlasmaBoltFactory(
       material.opacity = 0;
       const mesh = new THREE.Mesh(trailGlobGeometry, material);
       mesh.visible = false;
+      let outlineMaterial: THREE.MeshBasicMaterial | undefined;
+      let outlineMesh: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial> | undefined;
+      if (trailGlobOutlineMaterial) {
+        outlineMaterial = trailGlobOutlineMaterial.clone();
+        outlineMaterial.opacity = 0;
+        outlineMesh = new THREE.Mesh(trailGlobGeometry, outlineMaterial);
+        outlineMesh.visible = false;
+        outlineMesh.scale.setScalar(trailGlobOutlineScale);
+        mesh.add(outlineMesh);
+      }
       trailRoot.add(mesh);
       trailGlobs.push({
         active: false,
@@ -213,6 +278,9 @@ export function createPlasmaBoltFactory(
         lifetime: trailGlobLifetimeSeconds,
         material,
         mesh,
+        outlineMaterial,
+        outlineMesh,
+        outlineMaxOpacity: outlineMaterial ? trailGlobOutlineOpacity : 0,
         startScale: 0.01,
         velocity: new THREE.Vector3()
       });
@@ -256,6 +324,7 @@ export function createPlasmaBoltFactory(
       dispose: () => {
         for (const glob of trailGlobs) {
           glob.material.dispose();
+          glob.outlineMaterial?.dispose();
         }
       }
     };
@@ -273,6 +342,7 @@ export function createPlasmaBoltFactory(
       plasmaMaterial.dispose();
       glowMaterial.dispose();
       trailGlobMaterial.dispose();
+      trailGlobOutlineMaterial?.dispose();
     }
   };
 }
@@ -367,6 +437,13 @@ function updateTrailGlobs(
   spawnAccumulator: number,
   spawnCursor: number
 ): { spawnAccumulator: number; spawnCursor: number } {
+  if (globs.length <= 0) {
+    return {
+      spawnAccumulator,
+      spawnCursor
+    };
+  }
+
   let localSpawnAccumulator = spawnAccumulator + deltaTime;
   let localSpawnCursor = spawnCursor;
 
@@ -388,6 +465,12 @@ function updateTrailGlobs(
     );
     glob.mesh.scale.setScalar(glob.startScale);
     glob.material.opacity = maxOpacity;
+    if (glob.outlineMaterial) {
+      glob.outlineMaterial.opacity = glob.outlineMaxOpacity;
+    }
+    if (glob.outlineMesh) {
+      glob.outlineMesh.visible = true;
+    }
     glob.velocity.set(
       randomRange(-0.18, 0.18),
       randomRange(-0.18, 0.18),
@@ -405,6 +488,12 @@ function updateTrailGlobs(
       glob.active = false;
       glob.mesh.visible = false;
       glob.material.opacity = 0;
+      if (glob.outlineMaterial) {
+        glob.outlineMaterial.opacity = 0;
+      }
+      if (glob.outlineMesh) {
+        glob.outlineMesh.visible = false;
+      }
       continue;
     }
 
@@ -412,6 +501,9 @@ function updateTrailGlobs(
     const scale = THREE.MathUtils.lerp(glob.startScale, glob.endScale, t);
     glob.mesh.scale.setScalar(scale);
     glob.material.opacity = maxOpacity;
+    if (glob.outlineMaterial) {
+      glob.outlineMaterial.opacity = glob.outlineMaxOpacity;
+    }
   }
 
   return {
