@@ -15,8 +15,8 @@ export function createEnemyPatrolState(): StateDefinition<EnemyShipAiContext, En
 
       if (
         context.agent.tryTriggerEvadeFromIncomingFire(
-          0.2,
-          0.2,
+          context.config.patrolEvadeChance01 ?? 0.2,
+          context.config.patrolEvadeRearBonusChance01 ?? 0.2,
           context.config.evadeRearThreatRange,
           context.config.evadeCooldownSeconds ?? 6
         )

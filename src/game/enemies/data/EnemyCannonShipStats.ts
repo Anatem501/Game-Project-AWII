@@ -56,7 +56,6 @@ export function createBasicEnemyCannonShipArchetype(
 ): EnemyCannonShipArchetype {
   const spawnPosition = new THREE.Vector3(20, -1, -6);
   const preferredAttackDistance = 15;
-  const attackRange = 19;
   return {
     id: BASIC_CANNON_SHIP_ARCHETYPE_ID,
     displayName: "Basic Enemy Cannon Ship",
@@ -74,13 +73,28 @@ export function createBasicEnemyCannonShipArchetype(
       spawnDurationSeconds: 0.45,
       passiveSensorRange: 34,
       passiveSensorLoseRange: 44,
-      attackRange,
-      attackDisengageRangeMultiplier: 1.15,
       preferredAttackDistance,
       aimVisionRange: 26,
       aimVisionFovRadians: THREE.MathUtils.degToRad(95),
       evadeRearThreatRange: 24,
       evadeCooldownSeconds: 6,
+      patrolEvadeChance01: 0.2,
+      patrolEvadeRearBonusChance01: 0.2,
+      engageEvadeChance01: 0.6,
+      engageEvadeRearBonusChance01: 0.2,
+      flybyEvadeChance01: 0.6,
+      flybyEvadeRearBonusChance01: 0.2,
+      searchEvadeChance01: 0.2,
+      searchEvadeRearBonusChance01: 0.2,
+      flybyDurationSeconds: 2.8,
+      flybyTurnbackThresholdSeconds: 1,
+      evadeDurationSeconds: 3,
+      evadeStrafeSwitchCountMin: 1,
+      evadeStrafeSwitchCountMax: 4,
+      evadeInitialStrafeSwitchIntervalMinSeconds: 0.25,
+      evadeInitialStrafeSwitchIntervalMaxSeconds: 0.8,
+      evadeStrafeSwitchIntervalMinSeconds: 0.35,
+      evadeStrafeSwitchIntervalMaxSeconds: 0.95,
       searchHoldSeconds: 2
     },
     movement: {
@@ -95,7 +109,7 @@ export function createBasicEnemyCannonShipArchetype(
     },
     combat: {
       preferredAttackDistance,
-      burstShotCount: 3,
+      burstShotCount: 4,
       burstTelegraphSeconds: 0.45,
       burstShotIntervalSeconds: 0.14,
       burstCooldownSeconds: 1.85,

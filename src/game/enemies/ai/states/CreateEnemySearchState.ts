@@ -22,8 +22,8 @@ export function createEnemySearchState(): StateDefinition<EnemyShipAiContext, En
 
       if (
         context.agent.tryTriggerEvadeFromIncomingFire(
-          0.2,
-          0.2,
+          context.config.searchEvadeChance01 ?? 0.2,
+          context.config.searchEvadeRearBonusChance01 ?? 0.2,
           context.config.evadeRearThreatRange,
           context.config.evadeCooldownSeconds ?? 6
         )

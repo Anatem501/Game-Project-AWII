@@ -18,7 +18,7 @@ export function createEnemyAttackState(): StateDefinition<EnemyShipAiContext, En
         return "Search";
       }
 
-      if (!context.agent.canStartLaserBurstAttack() && !context.agent.isAttackActionActive()) {
+      if (!context.agent.canStartPrimaryAttack() && !context.agent.isAttackActionActive()) {
         return hasSensorContact ? "Engage" : "Search";
       }
 
@@ -29,9 +29,9 @@ export function createEnemyAttackState(): StateDefinition<EnemyShipAiContext, En
         context.config.aimVisionFovRadians
       );
       if (alignedToTarget && hasAimVision) {
-        context.agent.tryFireBurstAttack();
+        context.agent.tryExecutePrimaryAttack();
       }
-      if (context.agent.consumeBurstFinishedEvent()) {
+      if (context.agent.consumePrimaryAttackFinishedEvent()) {
         return hasSensorContact ? "Engage" : "Search";
       }
     }

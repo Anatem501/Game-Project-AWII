@@ -104,7 +104,7 @@ const DEFAULT_PLAYER_RESOURCE_CONFIG: ShipResourceConfig = {
   maxHeat: 120,
   heatDissipationPerSecond: 14,
   maxEnergy: 100,
-  energyRechargePerSecond: 11,
+  energyRechargePerSecond: 14,
   minEnergyRatio: 0.5,
   plasmaHeatPerDamage: 0.7
 };
@@ -1028,6 +1028,7 @@ export function setupTopDownScene(
     }
 
     if (!playerIsDestroyed) {
+      playerHealth.setShieldRechargeRateMultiplier(resourceSnapshot.energy.lowPower ? 0.5 : 1);
       playerHealth.update(deltaTime);
       const playerHealthSnapshot = playerHealth.getSnapshot();
       if (playerHealthSnapshot.destroyed) {

@@ -14,8 +14,8 @@ export function createEnemyEngageState(): StateDefinition<EnemyShipAiContext, En
 
       if (
         context.agent.tryTriggerEvadeFromIncomingFire(
-          0.6,
-          0.2,
+          context.config.engageEvadeChance01 ?? 0.6,
+          context.config.engageEvadeRearBonusChance01 ?? 0.2,
           context.config.evadeRearThreatRange,
           context.config.evadeCooldownSeconds ?? 6
         )
@@ -32,7 +32,7 @@ export function createEnemyEngageState(): StateDefinition<EnemyShipAiContext, En
       context.agent.faceTarget(deltaTime);
       context.agent.updateEngageMovement(deltaTime);
 
-      if (context.agent.canStartLaserBurstAttack()) {
+      if (context.agent.canStartPrimaryAttack()) {
         return "Attack";
       }
       return "Flyby";

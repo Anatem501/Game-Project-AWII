@@ -50,6 +50,7 @@ export type DamageBreakdown = {
 
 export type HealthComponent = {
   update: (deltaTime: number) => void;
+  setShieldRechargeRateMultiplier: (multiplier: number) => void;
   applyDamage: (amount: number, damageType?: DamageType) => DamageBreakdown;
   repairShield: (amount: number) => number;
   repairHull: (amount: number) => number;
@@ -99,6 +100,7 @@ export function createHealthComponent(config: HealthConfig): HealthComponent {
   let armorDamageTaken = 0;
   let armorRepairApplied = 0;
   let shieldRechargeDelayRemaining = 0;
+  let shieldRechargeRateMultiplier = 1;
   const normalizedDamageMultipliers = normalizeDamageMultipliers(
     mergeDamageMultipliers(GLOBAL_DAMAGE_MULTIPLIERS, config.damageMultipliers)
   );
@@ -232,7 +234,7 @@ export function createHealthComponent(config: HealthConfig): HealthComponent {
 
     shieldRechargeDelayRemaining = Math.max(0, shieldRechargeDelayRemaining - deltaTime);
     if (shieldRechargeDelayRemaining <= 0 && shieldChargeRate > 0) {
-      repairShield(shieldChargeRate * deltaTime);
+      repairShield(shieldChargeRate * shieldRechargeRateMultiplier * deltaTime);
     }
     if (hullRepairRate > 0) {
       repairHull(hullRepairRate * deltaTime);
@@ -265,6 +267,9 @@ export function createHealthComponent(config: HealthConfig): HealthComponent {
 
   return {
     update,
+    setShieldRechargeRateMultiplier: (multiplier: number) => {
+      shieldRechargeRateMultiplier = clampMin(multiplier, 0);
+    },
     applyDamage,
     repairShield,
     repairHull,
@@ -276,6 +281,7 @@ export function createHealthComponent(config: HealthConfig): HealthComponent {
       armorDamageTaken = 0;
       armorRepairApplied = 0;
       shieldRechargeDelayRemaining = 0;
+      shieldRechargeRateMultiplier = 1;
     },
     getSnapshot
   };

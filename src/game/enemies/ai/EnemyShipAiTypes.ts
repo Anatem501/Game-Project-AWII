@@ -14,13 +14,28 @@ export type EnemyShipAiConfig = {
   spawnDurationSeconds: number;
   passiveSensorRange: number;
   passiveSensorLoseRange: number;
-  attackRange: number;
-  attackDisengageRangeMultiplier: number;
   preferredAttackDistance: number;
   aimVisionRange: number;
   aimVisionFovRadians: number;
   evadeRearThreatRange: number;
   evadeCooldownSeconds?: number;
+  patrolEvadeChance01?: number;
+  patrolEvadeRearBonusChance01?: number;
+  engageEvadeChance01?: number;
+  engageEvadeRearBonusChance01?: number;
+  flybyEvadeChance01?: number;
+  flybyEvadeRearBonusChance01?: number;
+  searchEvadeChance01?: number;
+  searchEvadeRearBonusChance01?: number;
+  flybyDurationSeconds?: number;
+  flybyTurnbackThresholdSeconds?: number;
+  evadeDurationSeconds?: number;
+  evadeStrafeSwitchCountMin?: number;
+  evadeStrafeSwitchCountMax?: number;
+  evadeInitialStrafeSwitchIntervalMinSeconds?: number;
+  evadeInitialStrafeSwitchIntervalMaxSeconds?: number;
+  evadeStrafeSwitchIntervalMinSeconds?: number;
+  evadeStrafeSwitchIntervalMaxSeconds?: number;
   searchHoldSeconds?: number;
 };
 
@@ -41,15 +56,15 @@ export type EnemyShipAiAgent = {
   updatePatrolMovement: (deltaTime: number) => void;
   updateEngageMovement: (deltaTime: number) => void;
   updateAttackMovement: (deltaTime: number, distanceToTarget: number) => void;
-  beginFlybyManeuver: () => void;
-  updateFlybyMovement: (deltaTime: number) => void;
-  isFlybyManeuverComplete: () => boolean;
+  buildFlybyTargetPoint: (out: THREE.Vector3) => boolean;
+  updateFlybyApproachMovement: (deltaTime: number, flybyTargetPoint: THREE.Vector3) => boolean;
+  updateFlybyTurnbackMovement: (deltaTime: number) => void;
   updateSearchMovement: (deltaTime: number, searchTarget: THREE.Vector3) => boolean;
-  updateEvadeMovement: (deltaTime: number) => void;
-  canStartLaserBurstAttack: () => boolean;
+  updateEvadeMovement: (deltaTime: number, strafeSign: 1 | -1) => void;
+  canStartPrimaryAttack: () => boolean;
   isAttackActionActive: () => boolean;
-  tryFireBurstAttack: () => void;
-  consumeBurstFinishedEvent: () => boolean;
+  tryExecutePrimaryAttack: () => void;
+  consumePrimaryAttackFinishedEvent: () => boolean;
   resetAttackBurst: () => void;
   tryTriggerEvadeFromIncomingFire: (
     baseChance01: number,
@@ -57,8 +72,6 @@ export type EnemyShipAiAgent = {
     range: number,
     cooldownSeconds: number
   ) => boolean;
-  beginEvadeManeuver: () => void;
-  isEvadeManeuverComplete: () => boolean;
   onEnterDeadState: () => void;
   onAiStateChanged: (stateId: EnemyShipAiStateId) => void;
 };
