@@ -1,5 +1,9 @@
 import * as THREE from "three";
 import type { ShipController, ShipControllerState } from "./ShipController";
+import type {
+  PlayerBuiltInEquipmentAbility,
+  PlayerBuiltInEquipmentAbilityHudSnapshot
+} from "../equipment/abilities/PlayerBuiltInEquipmentAbility";
 
 const RETICLE_VERTICAL_RANGE = 1.2;
 const RETICLE_MAX_DISTANCE_FROM_SHIP = 8;
@@ -28,20 +32,28 @@ type PlayerControllerParams = {
   shipController: ShipController;
   inputAimReticle: THREE.Object3D;
   trueAimReticle: THREE.Object3D;
+  builtInEquipmentAbility?: PlayerBuiltInEquipmentAbility | null;
 };
 
 export type PlayerControllerState = ShipControllerState;
 
 export type PlayerController = {
   update: (deltaTime: number, camera: THREE.PerspectiveCamera) => PlayerControllerState;
+  isTemporaryManeuverActive: () => boolean;
+  isTemporaryManeuverInvulnerable: () => boolean;
+  getTemporaryManeuverCameraLockYaw: () => number | null;
+  getBuiltInEquipmentAbilityHudSnapshot: () => PlayerBuiltInEquipmentAbilityHudSnapshot | null;
   dispose: () => void;
 };
+
+const BUILT_IN_EQUIPMENT_TRIGGER_KEY = " ";
 
 export function createPlayerController({
   canvas,
   shipController,
   inputAimReticle,
-  trueAimReticle
+  trueAimReticle,
+  builtInEquipmentAbility = null
 }: PlayerControllerParams): PlayerController {
   const pressedKeys = new Set<string>();
   const pointerNdc = new THREE.Vector2(0, 0);
@@ -65,26 +77,41 @@ export function createPlayerController({
 
   const onKeyDown = (event: KeyboardEvent): void => {
     const key = event.key.toLowerCase();
+    if (builtInEquipmentAbility && key === BUILT_IN_EQUIPMENT_TRIGGER_KEY) {
+      builtInEquipmentAbility.onTriggerPressed({ pressedKeys, repeat: event.repeat });
+      event.preventDefault();
+      return;
+    }
     if (!MOVEMENT_KEYS.has(key)) {
       return;
     }
 
     pressedKeys.add(key);
+    if (builtInEquipmentAbility) {
+      builtInEquipmentAbility.onMovementKeysChanged({ pressedKeys, repeat: event.repeat });
+    }
     event.preventDefault();
   };
 
   const onKeyUp = (event: KeyboardEvent): void => {
     const key = event.key.toLowerCase();
+    if (builtInEquipmentAbility && key === BUILT_IN_EQUIPMENT_TRIGGER_KEY) {
+      builtInEquipmentAbility.onTriggerReleased();
+      event.preventDefault();
+      return;
+    }
     if (!MOVEMENT_KEYS.has(key)) {
       return;
     }
 
     pressedKeys.delete(key);
+    builtInEquipmentAbility?.onMovementKeysChanged({ pressedKeys, repeat: event.repeat });
     event.preventDefault();
   };
 
   const clearMovementInputs = (): void => {
     pressedKeys.clear();
+    builtInEquipmentAbility?.onInputsCleared();
   };
 
   const updatePointerFromScreen = (clientX: number, clientY: number): void => {
@@ -130,6 +157,7 @@ export function createPlayerController({
 
   const update = (deltaTime: number, camera: THREE.PerspectiveCamera): PlayerControllerState => {
     const currentShipState = shipController.getState();
+    builtInEquipmentAbility?.update(Math.max(0, deltaTime));
 
     if (deltaTime <= 0) {
       return currentShipState;
@@ -302,7 +330,14 @@ export function createPlayerController({
     canvas.removeEventListener("pointermove", onPointerMove);
   };
 
-  return { update, dispose };
+  return {
+    update,
+    isTemporaryManeuverActive: () => shipController.isTemporaryManeuverActive(),
+    isTemporaryManeuverInvulnerable: () => shipController.isTemporaryManeuverInvulnerable(),
+    getTemporaryManeuverCameraLockYaw: () => shipController.getTemporaryManeuverCameraLockYaw(),
+    getBuiltInEquipmentAbilityHudSnapshot: () => builtInEquipmentAbility?.getHudSnapshot() ?? null,
+    dispose
+  };
 }
 
 function getConnectedGamepad(): Gamepad | null {

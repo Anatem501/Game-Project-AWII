@@ -1,5 +1,7 @@
+import * as THREE from "three";
 import type { HealthSnapshot } from "../components/HealthComponent";
 import type { ShipResourceSnapshot } from "../components/ShipResourceComponent";
+import type { PlayerBuiltInEquipmentAbilityHudSnapshot } from "../equipment/abilities/PlayerBuiltInEquipmentAbility";
 
 type LayerElements = {
   value: HTMLSpanElement;
@@ -53,6 +55,7 @@ export type PlayerHealthHud = {
   update: (
     snapshot: HealthSnapshot,
     missileSnapshot?: MissileHudSnapshot,
+    builtInAbilitySnapshot?: PlayerBuiltInEquipmentAbilityHudSnapshot | null,
     resourceSnapshot?: ShipResourceSnapshot,
     minimapSnapshot?: HudMinimapSnapshot,
     boundarySnapshot?: HudBoundarySnapshot
@@ -73,6 +76,7 @@ export function createPlayerHealthHud(root: HTMLElement): PlayerHealthHud {
   const hull = createLayerRow("Hull", "player-health-fill-hull");
   const resourceMeters = createVerticalResourceMeters();
   const missile = createMissileRow();
+  const ability = createAbilityRow();
   const minimap = createMinimapPanel();
   const boundaryMinimap = createBoundaryMinimapPanel();
 
@@ -80,6 +84,7 @@ export function createPlayerHealthHud(root: HTMLElement): PlayerHealthHud {
   mainColumn.appendChild(armor.row);
   mainColumn.appendChild(hull.row);
   mainColumn.appendChild(missile.row);
+  mainColumn.appendChild(ability.row);
   content.appendChild(mainColumn);
   content.appendChild(resourceMeters.panel);
   container.appendChild(content);
@@ -90,6 +95,7 @@ export function createPlayerHealthHud(root: HTMLElement): PlayerHealthHud {
   const update = (
     snapshot: HealthSnapshot,
     missileSnapshot?: MissileHudSnapshot,
+    builtInAbilitySnapshot?: PlayerBuiltInEquipmentAbilityHudSnapshot | null,
     resourceSnapshot?: ShipResourceSnapshot,
     minimapSnapshot?: HudMinimapSnapshot,
     boundarySnapshot?: HudBoundarySnapshot
@@ -100,6 +106,7 @@ export function createPlayerHealthHud(root: HTMLElement): PlayerHealthHud {
     updateVerticalHeat(resourceMeters.heat, resourceSnapshot);
     updateVerticalEnergy(resourceMeters.energy, resourceSnapshot);
     updateMissiles(missile, missileSnapshot);
+    updateBuiltInAbility(ability, builtInAbilitySnapshot ?? null);
     updateMinimap(minimap, minimapSnapshot);
     updateBoundaryMinimap(boundaryMinimap, boundarySnapshot);
   };
@@ -526,30 +533,58 @@ function createMissileRow(): {
   return { dots, lockProgress, progress, row, track, value };
 }
 
+function createAbilityRow(): {
+  dots: HTMLSpanElement[];
+  progress: HTMLDivElement;
+  row: HTMLDivElement;
+  track: HTMLDivElement;
+  value: HTMLSpanElement;
+} {
+  const row = document.createElement("div");
+  row.className = "player-health-row player-missile-row";
+  row.style.display = "none";
+
+  const label = document.createElement("span");
+  label.className = "player-health-label";
+  label.textContent = "Ability";
+
+  const value = document.createElement("span");
+  value.className = "player-health-value player-missile-state";
+  value.textContent = "";
+
+  const track = document.createElement("div");
+  track.className = "player-missile-track";
+  track.style.minHeight = "14px";
+
+  const progress = document.createElement("div");
+  progress.className = "player-missile-reload-progress";
+  track.appendChild(progress);
+
+  const dots: HTMLSpanElement[] = [];
+  ensureMissileDotPool(track, dots, 2);
+
+  row.appendChild(label);
+  row.appendChild(value);
+  row.appendChild(track);
+  return { dots, progress, row, track, value };
+}
+
 function updateMissiles(
   missile: {
     dots: HTMLSpanElement[];
     lockProgress: HTMLDivElement;
     progress: HTMLDivElement;
+    row: HTMLDivElement;
     track: HTMLDivElement;
     value: HTMLSpanElement;
   },
   snapshot: MissileHudSnapshot | undefined
 ): void {
   if (!snapshot || snapshot.ammoCapacity <= 0) {
-    missile.value.textContent = "No Launcher";
-    missile.lockProgress.style.width = "0%";
-    missile.progress.style.width = "0%";
-    missile.track.style.gridTemplateColumns = `repeat(${DEFAULT_MISSILE_DOT_COUNT}, minmax(0, 1fr))`;
-    missile.track.style.minHeight = "14px";
-    ensureMissileDotPool(missile.track, missile.dots, DEFAULT_MISSILE_DOT_COUNT);
-    for (let i = 0; i < missile.dots.length; i += 1) {
-      const dot = missile.dots[i];
-      dot.className = "player-missile-dot";
-      dot.style.display = i < DEFAULT_MISSILE_DOT_COUNT ? "" : "none";
-    }
+    missile.row.style.display = "none";
     return;
   }
+  missile.row.style.display = "";
 
   const launcherCount = clampInt(snapshot.launcherCount, 1, MAX_MISSILE_DOT_COUNT);
   const cellsPerLauncher = clampInt(snapshot.cellsPerLauncher, 1, MAX_MISSILE_DOT_COUNT);
@@ -618,6 +653,61 @@ function updateMissiles(
   }
 
   missile.value.textContent = `${snapshot.ammoLoaded}/${snapshot.ammoCapacity} (${launcherCount}x${cellsPerLauncher}) ${statusFlags.join(" ")}`;
+}
+
+function updateBuiltInAbility(
+  ability: {
+    dots: HTMLSpanElement[];
+    progress: HTMLDivElement;
+    row: HTMLDivElement;
+    track: HTMLDivElement;
+    value: HTMLSpanElement;
+  },
+  snapshot: PlayerBuiltInEquipmentAbilityHudSnapshot | null
+): void {
+  if (!snapshot || snapshot.chargesMax <= 0) {
+    ability.row.style.display = "none";
+    return;
+  }
+  ability.row.style.display = "";
+
+  const chargesMax = clampInt(snapshot.chargesMax, 1, 8);
+  ensureMissileDotPool(ability.track, ability.dots, chargesMax);
+  ability.track.style.gridTemplateColumns = `repeat(${chargesMax}, minmax(0, 1fr))`;
+
+  for (let i = 0; i < ability.dots.length; i += 1) {
+    const dot = ability.dots[i];
+    if (i >= chargesMax) {
+      dot.style.display = "none";
+      continue;
+    }
+    dot.style.display = "";
+    dot.className = "player-missile-dot";
+    const progress01 = THREE.MathUtils.clamp(snapshot.chargeProgress01BySlot[i] ?? 0, 0, 1);
+    if (progress01 >= 0.999) {
+      dot.classList.add("is-loaded");
+    } else {
+      dot.classList.add("is-fired");
+      if (progress01 > 0.001) {
+        dot.classList.add("is-reloading");
+      }
+    }
+  }
+
+  const nextChargeProgress01 = snapshot.isRecharging
+    ? Math.max(
+        0,
+        ...snapshot.chargeProgress01BySlot
+          .filter((progress01) => progress01 < 0.999)
+          .map((progress01) => THREE.MathUtils.clamp(progress01, 0, 1))
+      )
+    : 0;
+  ability.progress.style.width = `${Math.round(nextChargeProgress01 * 100)}%`;
+
+  const statusSuffix = snapshot.isRecharging
+    ? ` Recharging ${snapshot.nextChargeSecondsRemaining.toFixed(1)}s`
+    : " Ready";
+  ability.value.textContent = `${snapshot.label} ${snapshot.chargesAvailable}/${snapshot.chargesMax}${statusSuffix}`;
 }
 
 function clampInt(value: number, min: number, max: number): number {

@@ -19,6 +19,9 @@ const MISSILE_MODEL_SCALE_MULTIPLIER = 0.5;
 const MISSILE_LIFETIME_FALLBACK_SECONDS = 4.5;
 const MISSILE_AIM_MIN_DISTANCE_FROM_LAUNCHER = 1.25;
 const MISSILE_SMOKE_TRAIL_INTERVAL_SECONDS = 0.065;
+const MISSILE_MAX_TRAIL_SMOKE_SPAWNS_PER_FRAME = 4;
+const MISSILE_MAX_ACTIVE_SMOKE_PARTICLES = 600;
+const MISSILE_MAX_ACTIVE_EXPLOSION_FLASHES = 96;
 const MISSILE_LAUNCHER_AIM_OFFSET_SCALE = 1;
 const SMOKE_DRAG_PER_SECOND = 2.6;
 const LAUNCH_SMOKE_COUNT = 6;
@@ -49,6 +52,17 @@ const LOCKED_TARGET_INNER_ROTATE_SPEED_RADIANS_PER_SECOND = THREE.MathUtils.degT
 const LOCK_OFFSCREEN_GRACE_SECONDS = 3;
 const MISSILE_DEBUG_SPEED_OVERRIDE: number | null = null;
 const FALLBACK_MISSILE_PAYLOAD = getMissileBayComponentDefinition(DEFAULT_MISSILE_BAY_COMPONENT_ID);
+const MISSILE_THRUSTER_SOCKET_PREFIX = "thruster";
+const MINI_THRUSTER_CORE_COLOR = 0xffd48a;
+const MINI_THRUSTER_GLOW_COLOR = 0xff8a2a;
+const MINI_THRUSTER_SOCKET_BACK_OFFSET = 0.055;
+
+type MissileMiniThruster = {
+  baseScale: number;
+  core: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
+  glow: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
+  phaseOffset: number;
+};
 
 type ActiveMissile = {
   flightMode: "homing" | "spline";
@@ -58,6 +72,9 @@ type ActiveMissile = {
   lifeRemaining: number;
   object: THREE.Group;
   payload: MissileBayComponentDefinition;
+  miniThrusterCoreMaterial: THREE.MeshBasicMaterial | null;
+  miniThrusterGlowMaterial: THREE.MeshBasicMaterial | null;
+  miniThrusters: MissileMiniThruster[];
   splinePath: {
     controlA: THREE.Vector3;
     controlB: THREE.Vector3;
@@ -1040,6 +1057,8 @@ export function createMissileBayController({
     lockingProgress01 = 0;
     const trackedIds = new Set<string>();
     const targetLocking = getActiveTargetLockingConfig();
+    const lockAcquireSeconds = Math.max(0.001, targetLocking.acquireSeconds);
+    const lockProgressDecaySeconds = Math.max(0.001, targetLocking.progressDecaySeconds);
     const maxLocksPerTarget = Math.max(1, targetLocking.maxLocksPerTarget);
     const maxLockStacksTotal = Math.max(1, targetLocking.maxLockStacksTotal);
 
@@ -1118,17 +1137,17 @@ export function createMissileBayController({
         if (isHovering && state.lockStacks < maxLocksForState) {
           state.lockSeconds += deltaTime;
           while (
-            state.lockSeconds >= targetLocking.acquireSeconds &&
+            state.lockSeconds >= lockAcquireSeconds &&
             state.lockStacks < maxLocksForState
           ) {
-            state.lockSeconds -= targetLocking.acquireSeconds;
+            state.lockSeconds -= lockAcquireSeconds;
             state.lockStacks += 1;
           }
           if (state.lockStacks < maxLocksForState && state.lockSeconds > 0) {
             isLocking = true;
             lockingProgress01 = Math.max(
               lockingProgress01,
-              state.lockSeconds / targetLocking.acquireSeconds
+              state.lockSeconds / lockAcquireSeconds
             );
           }
         } else {
@@ -1145,9 +1164,9 @@ export function createMissileBayController({
           removeLockedTargetIndicator(hurtbox.id);
           continue;
         }
-        state.lockSeconds = Math.min(targetLocking.acquireSeconds, state.lockSeconds + deltaTime);
+        state.lockSeconds = Math.min(lockAcquireSeconds, state.lockSeconds + deltaTime);
         state.decayDelaySeconds = targetLocking.progressDecayDelaySeconds;
-        if (state.lockSeconds >= targetLocking.acquireSeconds) {
+        if (state.lockSeconds >= lockAcquireSeconds) {
           state.locked = true;
           state.lockStacks = 1;
           state.lockSeconds = 0;
@@ -1155,21 +1174,21 @@ export function createMissileBayController({
           isLocking = true;
           lockingProgress01 = Math.max(
             lockingProgress01,
-            state.lockSeconds / targetLocking.acquireSeconds
+            state.lockSeconds / lockAcquireSeconds
           );
         }
       } else if (state.lockSeconds > 0) {
         if (state.decayDelaySeconds > 0) {
           state.decayDelaySeconds = Math.max(0, state.decayDelaySeconds - deltaTime);
         } else {
-          const decayRatePerSecond = targetLocking.acquireSeconds / targetLocking.progressDecaySeconds;
+          const decayRatePerSecond = lockAcquireSeconds / lockProgressDecaySeconds;
           state.lockSeconds = Math.max(0, state.lockSeconds - decayRatePerSecond * deltaTime);
         }
         if (state.lockSeconds > 0) {
           isLocking = true;
           lockingProgress01 = Math.max(
             lockingProgress01,
-            state.lockSeconds / targetLocking.acquireSeconds
+            state.lockSeconds / lockAcquireSeconds
           );
         }
       }
@@ -1592,28 +1611,37 @@ export function createMissileBayController({
 
     shotQuaternion.setFromUnitVectors(MISSILE_FORWARD_AXIS, missileDirection);
     missile.quaternion.copy(shotQuaternion);
-    missile.add(createMissileBodyVisual(launcherPayload));
+    const bodyVisual = createMissileBodyVisual(launcherPayload);
+    missile.add(bodyVisual);
+    const miniThrusterSockets = extractSocketOffsetsAndSizeScales(
+      missile,
+      bodyVisual,
+      MISSILE_THRUSTER_SOCKET_PREFIX
+    );
 
     const thrusterCoreMaterial = new THREE.MeshBasicMaterial({
       color: 0xfff0a6,
       transparent: true,
-      opacity: 0.82,
+      opacity: 0.9,
       blending: THREE.AdditiveBlending,
-      depthWrite: false
+      depthWrite: false,
+      toneMapped: false
     });
     const thrusterGlowMaterial = new THREE.MeshBasicMaterial({
       color: 0xff9a3d,
       transparent: true,
-      opacity: 0.26,
+      opacity: 0.34,
       blending: THREE.AdditiveBlending,
-      depthWrite: false
+      depthWrite: false,
+      toneMapped: false
     });
     const guidanceGlowMaterial = new THREE.MeshBasicMaterial({
       color: 0x8cd7ff,
       transparent: true,
       opacity: 0.85,
       blending: THREE.AdditiveBlending,
-      depthWrite: false
+      depthWrite: false,
+      toneMapped: false
     });
     const thrusterCore = new THREE.Mesh(thrusterCoreGeometry, thrusterCoreMaterial);
     const thrusterGlow = new THREE.Mesh(thrusterGlowGeometry, thrusterGlowMaterial);
@@ -1624,6 +1652,54 @@ export function createMissileBayController({
     missile.add(thrusterCore);
     missile.add(thrusterGlow);
     missile.add(guidanceGlow);
+    const miniThrusterCoreMaterial =
+      miniThrusterSockets.length > 0
+        ? new THREE.MeshBasicMaterial({
+            color: MINI_THRUSTER_CORE_COLOR,
+            transparent: true,
+            opacity: 0.72,
+            blending: THREE.AdditiveBlending,
+            depthTest: false,
+            depthWrite: false,
+            toneMapped: false
+          })
+        : null;
+    const miniThrusterGlowMaterial =
+      miniThrusterSockets.length > 0
+        ? new THREE.MeshBasicMaterial({
+            color: MINI_THRUSTER_GLOW_COLOR,
+            transparent: true,
+            opacity: 0.32,
+            blending: THREE.AdditiveBlending,
+            depthTest: false,
+            depthWrite: false,
+            toneMapped: false
+          })
+        : null;
+    const miniThrusters: MissileMiniThruster[] =
+      miniThrusterCoreMaterial && miniThrusterGlowMaterial
+        ? miniThrusterSockets.map((socket, index) => {
+            const core = new THREE.Mesh(thrusterCoreGeometry, miniThrusterCoreMaterial);
+            const glow = new THREE.Mesh(thrusterGlowGeometry, miniThrusterGlowMaterial);
+            core.position.copy(socket.offset);
+            glow.position.copy(socket.offset);
+            core.position.z -= MINI_THRUSTER_SOCKET_BACK_OFFSET;
+            glow.position.z -= MINI_THRUSTER_SOCKET_BACK_OFFSET * 1.05;
+            core.renderOrder = 4;
+            glow.renderOrder = 4;
+            const baseScale = Math.max(0.3, socket.sizeScale * 0.55);
+            core.scale.setScalar(baseScale);
+            glow.scale.setScalar(baseScale * 2.25);
+            missile.add(core);
+            missile.add(glow);
+            return {
+              baseScale,
+              core,
+              glow,
+              phaseOffset: index * 0.55 + Math.random() * 0.35
+            };
+          })
+        : [];
 
     root.add(missile);
 
@@ -1639,6 +1715,9 @@ export function createMissileBayController({
       ),
       object: missile,
       payload: launcherPayload,
+      miniThrusterCoreMaterial,
+      miniThrusterGlowMaterial,
+      miniThrusters,
       splinePath,
       targetHurtboxId: launchTargetHurtboxId,
       trailSpawnSeconds: 0,
@@ -1709,18 +1788,37 @@ export function createMissileBayController({
 
       const flamePulse = 0.9 + Math.sin((performance.now() * 0.001 + i) * 28) * 0.1;
       missile.thrusterCore.scale.setScalar(flamePulse);
-      missile.thrusterGlow.scale.setScalar(0.95 + flamePulse * 0.35);
-      missile.thrusterGlow.material.opacity = THREE.MathUtils.clamp(0.14 + flamePulse * 0.16, 0, 1);
+      missile.thrusterGlow.scale.setScalar(1.05 + flamePulse * 0.45);
+      missile.thrusterGlow.material.opacity = THREE.MathUtils.clamp(0.2 + flamePulse * 0.18, 0, 1);
+      if (
+        missile.miniThrusters.length > 0 &&
+        missile.miniThrusterCoreMaterial &&
+        missile.miniThrusterGlowMaterial
+      ) {
+        for (const mini of missile.miniThrusters) {
+          const miniPulse = 0.82 + Math.sin((performance.now() * 0.001) * 26 + mini.phaseOffset) * 0.18;
+          mini.core.scale.setScalar(mini.baseScale * (0.85 + miniPulse * 0.35));
+          mini.glow.scale.setScalar(mini.baseScale * (1.45 + miniPulse * 0.9));
+        }
+        missile.miniThrusterCoreMaterial.opacity = THREE.MathUtils.clamp(0.5 + flamePulse * 0.22, 0, 1);
+        missile.miniThrusterGlowMaterial.opacity = THREE.MathUtils.clamp(0.18 + flamePulse * 0.18, 0, 1);
+      }
       missile.object.rotateZ(deltaTime * 5.4);
       const nosePulse = 0.72 + Math.sin((performance.now() * 0.001 + i * 0.7) * 18) * 0.22;
       missile.guidanceGlow.scale.setScalar(0.85 + nosePulse * 0.45);
       missile.guidanceGlow.material.opacity = THREE.MathUtils.clamp(0.5 + nosePulse * 0.38, 0, 1);
       missile.trailSpawnSeconds += deltaTime;
+      let trailSpawnsThisFrame = 0;
       while (missile.trailSpawnSeconds >= MISSILE_SMOKE_TRAIL_INTERVAL_SECONDS) {
+        if (trailSpawnsThisFrame >= MISSILE_MAX_TRAIL_SMOKE_SPAWNS_PER_FRAME) {
+          missile.trailSpawnSeconds %= MISSILE_SMOKE_TRAIL_INTERVAL_SECONDS;
+          break;
+        }
         missile.trailSpawnSeconds -= MISSILE_SMOKE_TRAIL_INTERVAL_SECONDS;
         missile.thrusterGlow.getWorldPosition(smokeSpawnPosition);
         smokeTrailDirection.copy(missile.velocity).normalize();
         spawnTrailSmoke(smokeSpawnPosition, smokeTrailDirection);
+        trailSpawnsThisFrame += 1;
       }
 
       if (shouldDetonateMissile(missile)) {
@@ -1863,6 +1961,11 @@ export function createMissileBayController({
     origin: THREE.Vector3,
     launcherPayload: MissileBayComponentDefinition
   ): void => {
+    while (activeExplosions.length >= MISSILE_MAX_ACTIVE_EXPLOSION_FLASHES) {
+      const oldest = activeExplosions.shift();
+      oldest?.mesh.removeFromParent();
+      oldest?.mesh.material.dispose();
+    }
     const flash = new THREE.Mesh(
       explosionFlashGeometry,
       new THREE.MeshBasicMaterial({
@@ -1950,6 +2053,11 @@ export function createMissileBayController({
     startScale: number;
     velocity: THREE.Vector3;
   }): void => {
+    while (activeSmokeParticles.length >= MISSILE_MAX_ACTIVE_SMOKE_PARTICLES) {
+      const oldest = activeSmokeParticles.shift();
+      oldest?.mesh.removeFromParent();
+      oldest?.mesh.material.dispose();
+    }
     const smokeMaterial = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
@@ -1997,6 +2105,8 @@ export function createMissileBayController({
     missile.guidanceGlow.material.dispose();
     missile.thrusterCore.material.dispose();
     missile.thrusterGlow.material.dispose();
+    missile.miniThrusterCoreMaterial?.dispose();
+    missile.miniThrusterGlowMaterial?.dispose();
     activeMissiles.splice(index, 1);
   };
 
@@ -2058,6 +2168,38 @@ export function createMissileBayController({
     nose.position.z = MISSILE_BODY_LENGTH * 0.5 + MISSILE_NOSE_LENGTH * 0.5 - 0.02;
     fallbackVisual.add(nose);
     return fallbackVisual;
+  };
+
+  const extractSocketOffsetsAndSizeScales = (
+    ownerRoot: THREE.Object3D,
+    modelRoot: THREE.Object3D,
+    socketPrefix: string
+  ): Array<{ offset: THREE.Vector3; sizeScale: number }> => {
+    const normalizedPrefix = socketPrefix.trim().toLowerCase();
+    if (!normalizedPrefix) {
+      return [];
+    }
+
+    const results: Array<{ index: number; offset: THREE.Vector3; sizeScale: number }> = [];
+    const socketWorldPosition = new THREE.Vector3();
+    ownerRoot.updateWorldMatrix(true, true);
+
+    modelRoot.traverse((node) => {
+      const nodeName = node.name?.trim().toLowerCase();
+      if (!nodeName || !nodeName.startsWith(normalizedPrefix)) {
+        return;
+      }
+      const suffix = nodeName.slice(normalizedPrefix.length);
+      const parsedIndex = suffix ? Number.parseInt(suffix, 10) : Number.NaN;
+      const sortIndex = Number.isFinite(parsedIndex) ? parsedIndex : Number.MAX_SAFE_INTEGER;
+      node.getWorldPosition(socketWorldPosition);
+      const offset = ownerRoot.worldToLocal(socketWorldPosition.clone());
+      const sizeScale = Math.max(0.25, Math.max(node.scale.x, node.scale.y, node.scale.z, 1));
+      results.push({ index: sortIndex, offset, sizeScale });
+    });
+
+    results.sort((a, b) => a.index - b.index);
+    return results.map(({ offset, sizeScale }) => ({ offset, sizeScale }));
   };
 
   const disposeObjectResources = (object: THREE.Object3D): void => {

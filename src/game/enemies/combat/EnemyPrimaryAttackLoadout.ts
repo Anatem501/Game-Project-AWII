@@ -20,6 +20,8 @@ export class EnemyPrimaryAttackLoadout {
   private readonly actions: readonly EnemyPrimaryAttackAction[];
   private readonly selectionPolicy: EnemyPrimaryAttackSelectionPolicy;
   private activeActionIndex: number | null = null;
+  private readyActionIndexCache: number | null = null;
+  private readyActionCacheValid = false;
 
   constructor(config: EnemyPrimaryAttackLoadoutConfig) {
     this.actions = config.actions;
@@ -30,6 +32,7 @@ export class EnemyPrimaryAttackLoadout {
     for (const action of this.actions) {
       action.update(deltaTime);
     }
+    this.readyActionCacheValid = false;
 
     if (this.activeActionIndex !== null && !this.actions[this.activeActionIndex]?.isActive()) {
       this.activeActionIndex = null;
@@ -37,7 +40,7 @@ export class EnemyPrimaryAttackLoadout {
   }
 
   canStartPrimaryAttack(): boolean {
-    return this.actions.some((action) => action.canStart());
+    return this.getReadyActionIndex() !== null;
   }
 
   isAttackActionActive(): boolean {
@@ -51,6 +54,7 @@ export class EnemyPrimaryAttackLoadout {
     const activeAction = this.getActiveAction();
     if (activeAction) {
       activeAction.tryExecute();
+      this.readyActionCacheValid = false;
       return;
     }
 
@@ -60,12 +64,14 @@ export class EnemyPrimaryAttackLoadout {
     }
     this.activeActionIndex = selected.index;
     selected.action.tryExecute();
+    this.readyActionCacheValid = false;
   }
 
   consumePrimaryAttackFinishedEvent(): boolean {
     const activeAction = this.getActiveAction();
     if (activeAction && activeAction.consumeFinishedEvent()) {
       this.activeActionIndex = null;
+      this.readyActionCacheValid = false;
       return true;
     }
 
@@ -74,6 +80,7 @@ export class EnemyPrimaryAttackLoadout {
         if (this.activeActionIndex === i) {
           this.activeActionIndex = null;
         }
+        this.readyActionCacheValid = false;
         return true;
       }
     }
@@ -85,11 +92,13 @@ export class EnemyPrimaryAttackLoadout {
     if (activeAction) {
       activeAction.cancelActive();
       this.activeActionIndex = null;
+      this.readyActionCacheValid = false;
       return;
     }
     for (const action of this.actions) {
       action.cancelActive();
     }
+    this.readyActionCacheValid = false;
   }
 
   resetAll(): void {
@@ -97,6 +106,7 @@ export class EnemyPrimaryAttackLoadout {
       action.resetAll();
     }
     this.activeActionIndex = null;
+    this.readyActionCacheValid = false;
   }
 
   getTelegraphVisualState(): EnemyBurstTelegraphVisualState {
@@ -122,6 +132,24 @@ export class EnemyPrimaryAttackLoadout {
   }
 
   private selectReadyAction(): { action: EnemyPrimaryAttackAction; index: number } | null {
+    const readyIndex = this.getReadyActionIndex();
+    if (readyIndex !== null) {
+      const action = this.actions[readyIndex];
+      if (action) {
+        return { action, index: readyIndex };
+      }
+    }
+
+    return null;
+  }
+
+  private getReadyActionIndex(): number | null {
+    if (this.readyActionCacheValid) {
+      return this.readyActionIndexCache;
+    }
+
+    this.readyActionCacheValid = true;
+    this.readyActionIndexCache = null;
     switch (this.selectionPolicy) {
       case "first_ready":
       default: {
@@ -130,9 +158,10 @@ export class EnemyPrimaryAttackLoadout {
           if (!action.canStart()) {
             continue;
           }
-          return { action, index: i };
+          this.readyActionIndexCache = i;
+          return i;
         }
-        return null;
+        return this.readyActionIndexCache;
       }
     }
   }

@@ -509,6 +509,10 @@ export class EnemyCannonShip {
     return this.isNearPoint2D(searchTarget, 1.8);
   }
 
+  updateCoastMovement(deltaTime: number): void {
+    this.coastForward(deltaTime, this.chaseSpeed * 0.5);
+  }
+
   updateEvadeMovement(deltaTime: number, strafeSign: 1 | -1): void {
     if (!this.perception.tryCopyCurrentTargetWorld(this.targetWorld)) {
       return;
@@ -526,6 +530,24 @@ export class EnemyCannonShip {
       desiredForwardSpeed: this.chaseSpeed * 1.05,
       desiredStrafe: strafeSign
     });
+  }
+
+  updateFleeMovement(deltaTime: number): void {
+    if (!this.perception.tryCopyCurrentTargetWorld(this.targetWorld)) {
+      this.coastForward(deltaTime, this.chaseSpeed * 0.75);
+      return;
+    }
+    this.moveAwayFromWorldPosition(this.targetWorld, this.chaseSpeed, deltaTime);
+  }
+
+  getHealthRatio01(): number {
+    const snapshot = this.health.getSnapshot();
+    const totalMax = snapshot.armor.max + snapshot.hull.max + snapshot.shield.max;
+    const totalCurrent = snapshot.armor.current + snapshot.hull.current + snapshot.shield.current;
+    if (totalMax <= 0) {
+      return snapshot.destroyed ? 0 : 1;
+    }
+    return THREE.MathUtils.clamp(totalCurrent / totalMax, 0, 1);
   }
 
   canStartPrimaryAttack(): boolean {
@@ -702,6 +724,12 @@ export class EnemyCannonShip {
         break;
       case "Search":
         baseIntensity = 0.6;
+        break;
+      case "Coast":
+        baseIntensity = 0.55;
+        break;
+      case "Flee":
+        baseIntensity = 0.85;
         break;
       case "Dead":
         baseIntensity = 0;

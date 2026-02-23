@@ -44,6 +44,7 @@ export type ShipDefinition = {
   thrusterGlowOpacityScale?: number;
   cannonMounts?: readonly ShipCannonMountDefinition[];
   missileBays?: readonly ShipMissileBayDefinition[];
+  builtInEquipmentAbilityId?: "aerobatic_roll";
   defaultGunFireIntervalSeconds: number;
   defaultLoadout: readonly string[];
   handling: ShipHandlingConfig;
@@ -137,6 +138,7 @@ const TEST_FIGHTER: ShipDefinition = {
   cannonMounts: AZURE_ARROW_V2_CANNON_MOUNTS,
   thrusterEffectScale: 0.44,
   thrusterTrailLengthScale: 0.42,
+  builtInEquipmentAbilityId: "aerobatic_roll",
   defaultGunFireIntervalSeconds: 0.2,
   defaultLoadout: ["Dual Pulse Cannons", "Micro Missile Rack", "Nanite Repair Kit"],
   handling: {

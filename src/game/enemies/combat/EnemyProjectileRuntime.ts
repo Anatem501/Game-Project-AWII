@@ -40,6 +40,9 @@ export class EnemyProjectileRuntime {
       const projectile = this.projectiles[i];
       const collision = resolveHitboxAgainstHurtboxes(projectile.hitbox, this.targetHurtboxes);
       if (collision) {
+        if (projectile.beginDestroy?.("collision")) {
+          continue;
+        }
         this.disposeProjectileAtIndex(i);
         continue;
       }
@@ -48,8 +51,15 @@ export class EnemyProjectileRuntime {
         continue;
       }
 
+      if (projectile.beginDestroy?.("expired")) {
+        continue;
+      }
       this.disposeProjectileAtIndex(i);
     }
+  }
+
+  getActiveCount(): number {
+    return this.projectiles.length;
   }
 
   dispose(): void {

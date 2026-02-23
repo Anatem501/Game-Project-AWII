@@ -195,7 +195,7 @@ const MISSILE_BAY_COMPONENTS: Record<MissileBayComponentId, MissileBayComponentD
     triggerFireIntervalSeconds: 2.5,
     missileDamage: 12,
     missileLifetimeSeconds: 4,
-    missileSpeed: 10,
+    missileSpeed: 13,
     missileModelAssetId: "micro_concussive",
     flightMode: "spline",
     missilesPerShot: 2,

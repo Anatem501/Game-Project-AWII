@@ -8,6 +8,10 @@ export type EnemyShipAiStateId =
   | "Flyby"
   | "Evade"
   | "Search"
+  | "Circle"
+  | "Coast"
+  | "Regroup"
+  | "Flee"
   | "Dead";
 
 export type EnemyShipAiConfig = {
@@ -37,6 +41,11 @@ export type EnemyShipAiConfig = {
   evadeStrafeSwitchIntervalMinSeconds?: number;
   evadeStrafeSwitchIntervalMaxSeconds?: number;
   searchHoldSeconds?: number;
+  circleDurationSeconds?: number;
+  coastDurationSeconds?: number;
+  coastHealthThreshold01?: number;
+  regroupDurationSeconds?: number;
+  fleeDurationSeconds?: number;
 };
 
 export type EnemyShipAiRuntime = {
@@ -60,7 +69,10 @@ export type EnemyShipAiAgent = {
   updateFlybyApproachMovement: (deltaTime: number, flybyTargetPoint: THREE.Vector3) => boolean;
   updateFlybyTurnbackMovement: (deltaTime: number) => void;
   updateSearchMovement: (deltaTime: number, searchTarget: THREE.Vector3) => boolean;
+  updateCoastMovement: (deltaTime: number) => void;
   updateEvadeMovement: (deltaTime: number, strafeSign: 1 | -1) => void;
+  updateFleeMovement: (deltaTime: number) => void;
+  getHealthRatio01: () => number;
   canStartPrimaryAttack: () => boolean;
   isAttackActionActive: () => boolean;
   tryExecutePrimaryAttack: () => void;

@@ -10,6 +10,7 @@ export type ProjectileInstance = {
   object: THREE.Object3D;
   hitbox?: HitboxComponent;
   update: (deltaTime: number) => boolean;
+  beginDestroy?: (reason: "collision" | "expired") => boolean;
   dispose?: () => void;
 };
 

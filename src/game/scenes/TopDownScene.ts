@@ -23,9 +23,11 @@ import { createCannonOverheatGlowEffect } from "../effects/CannonOverheatGlowEff
 import { createCannonOverheatSteamEffect } from "../effects/CannonOverheatSteamEffect";
 import { createPlayerThrusterEffect } from "../effects/PlayerThrusterEffect";
 import { createShieldBubbleEffect } from "../effects/ShieldBubbleEffect";
+import { createPlayerBuiltInEquipmentAbility } from "../equipment/abilities/PlayerBuiltInEquipmentAbilityFactory";
 import { EnemyDualLaserBoltTurret } from "../entities/EnemyDualLaserBoltTurret";
 import { EnemyPlasmaboltTurret } from "../entities/EnemyPlasmaboltTurret";
 import { EnemyCannonShipController } from "../enemies/EnemyCannonShipController";
+import { EnemyMissileShipController } from "../enemies/EnemyMissileShipController";
 import type { GameMapId } from "../modes/GameMode";
 import { getShipDefinition } from "../ships/ShipCatalog";
 import {
@@ -53,6 +55,10 @@ import {
   createRoguePilotEnemyCannonShip,
   ROGUE_PILOT_CANNON_SHIP_ARCHETYPE
 } from "./factories/EnemyCannonShipFactory";
+import {
+  createRoguePilotEnemyMissileShip,
+  ROGUE_PILOT_MISSILE_SHIP_ARCHETYPE
+} from "./factories/EnemyMissileShipFactory";
 import { createShipRig } from "./factories/PlayerFactory";
 import { createReticles } from "./factories/ReticleFactory";
 
@@ -80,8 +86,8 @@ const PLAYER_RESPAWN_SECONDS = 5;
 const CAMERA_ARROW_KEY_ZOOM_ENABLED = true;
 const ROGUE_ARENA_CENTER_X = 0;
 const ROGUE_ARENA_CENTER_Z = 0;
-const ROGUE_ARENA_SOFT_RADIUS = 82;
-const ROGUE_ARENA_HARD_RADIUS = 94;
+const ROGUE_ARENA_SOFT_RADIUS = 164;
+const ROGUE_ARENA_HARD_RADIUS = 188;
 const ROGUE_ARENA_RETURN_SPEED_UNITS_PER_SECOND = 16;
 const LOCKING_RETICLE_SPIN_RATE_RADIANS_PER_SECOND = THREE.MathUtils.degToRad(180);
 const DEFAULT_PLAYER_THRUSTER_LOCAL_OFFSETS: readonly THREE.Vector3[] = [
@@ -147,6 +153,7 @@ export function setupTopDownScene(
     selection.cannonPrimaryComponentId
   );
   const shipMissileBays = selectedShip.missileBays ?? [];
+  const playerHasMissileBays = shipMissileBays.length > 0;
   const selectedMissilePayloadComponentId = resolveMissileBayComponentId(
     selectedShip.id,
     selection.missileBayComponentId
@@ -313,12 +320,17 @@ export function setupTopDownScene(
   });
   const playerSpawnPosition = playerRoot.position.clone();
   const playerSpawnYaw = shipController.getState().yaw;
+  const playerBuiltInEquipmentAbility = createPlayerBuiltInEquipmentAbility({
+    shipDefinition: selectedShip,
+    shipController
+  });
 
   const playerController = createPlayerController({
     canvas,
     inputAimReticle,
     shipController,
-    trueAimReticle
+    trueAimReticle,
+    builtInEquipmentAbility: playerBuiltInEquipmentAbility
   });
 
   const playerHealth = createHealthComponent(selectedShip.health);
@@ -404,6 +416,15 @@ export function setupTopDownScene(
     null;
   let rogueEnemyCannonShip: EnemyCannonShipController | null = null;
   let rogueEnemyCannonShipRespawnSecondsRemaining = 0;
+  const ROGUE_MISSILE_SHIP_COUNT = 3;
+  const rogueEnemyMissileShips: Array<EnemyMissileShipController | null> = Array.from(
+    { length: ROGUE_MISSILE_SHIP_COUNT },
+    () => null
+  );
+  const rogueEnemyMissileShipRespawnSecondsRemaining: number[] = Array.from(
+    { length: ROGUE_MISSILE_SHIP_COUNT },
+    () => 0
+  );
 
   const createEnemyTurretHealth = () =>
     createHealthComponent({
@@ -443,6 +464,11 @@ export function setupTopDownScene(
     }
     if (rogueEnemyCannonShip?.hurtbox.isEnabled()) {
       enemyTargetHurtboxes.push(rogueEnemyCannonShip.hurtbox);
+    }
+    for (const missileShip of rogueEnemyMissileShips) {
+      if (missileShip?.hurtbox.isEnabled()) {
+        enemyTargetHurtboxes.push(missileShip.hurtbox);
+      }
     }
   };
 
@@ -758,9 +784,32 @@ export function setupTopDownScene(
     updateEnemyTargetHurtboxes();
   };
 
+  const spawnRogueEnemyMissileShip = (slotIndex: number): void => {
+    if (mapId !== "rogue_pilot_map") {
+      return;
+    }
+    rogueEnemyMissileShips[slotIndex]?.hurtbox.setEnabled(false);
+    rogueEnemyMissileShips[slotIndex]?.dispose();
+    rogueEnemyMissileShips[slotIndex] = createRoguePilotEnemyMissileShip(scene, playerRoot, playerTargetHurtboxes, {
+      arenaCenter: new THREE.Vector3(ROGUE_ARENA_CENTER_X, FLOOR_Y, ROGUE_ARENA_CENTER_Z),
+      arenaEdgeRadius: ROGUE_ARENA_HARD_RADIUS - 3
+    });
+    updateEnemyTargetHurtboxes();
+  };
+
+  const despawnRogueEnemyMissileShip = (slotIndex: number): void => {
+    rogueEnemyMissileShips[slotIndex]?.hurtbox.setEnabled(false);
+    rogueEnemyMissileShips[slotIndex]?.dispose();
+    rogueEnemyMissileShips[slotIndex] = null;
+    updateEnemyTargetHurtboxes();
+  };
+
   spawnEnemyDualLaserBoltTurret();
   spawnEnemyPlasmaboltTurret();
   spawnRogueEnemyCannonShip();
+  for (let i = 0; i < ROGUE_MISSILE_SHIP_COUNT; i += 1) {
+    spawnRogueEnemyMissileShip(i);
+  }
 
   const primaryComponent = getCannonPrimaryComponentDefinition(selectedCannonPrimaryComponentId);
   const primaryHeatCost = Math.max(0, primaryComponent.heatCost ?? 0);
@@ -836,9 +885,61 @@ export function setupTopDownScene(
   const hudRoot = canvas.parentElement ?? document.body;
   const playerHealthHud = createPlayerHealthHud(hudRoot);
   const enemyAiDebugPanel = createEnemyAiDebugPanel(hudRoot);
+  const missileWarningLabelStyle = {
+    color: "#ffbf86",
+    secondaryColor: "#fff0dd",
+    outlineColor: "#06212a",
+    glowColor: "#ff8a3d",
+    fontFamily: "\"Rajdhani\", \"Exo 2\", \"Orbitron\", sans-serif",
+    fontWeight: "300",
+    fontSizeRatio: 0.3,
+    outlineWidthRatio: 0.02,
+    outlineMinPx: 0,
+    shadowBlurRatio: 0.05,
+    holographic: true,
+    width: 768,
+    height: 112
+  } as const;
+  const playerNotificationMissileLockingLabel = createWorldTextSprite(
+    "MISSILE LOCKING",
+    missileWarningLabelStyle
+  );
+  const playerNotificationMissileIncomingLabel = createWorldTextSprite("MISSILE INCOMING", {
+    ...missileWarningLabelStyle,
+    color: "#ffb38a",
+    secondaryColor: "#ffe7d9",
+    glowColor: "#ff6f3f"
+  });
+  const playerNotificationOverheatedLabel = createWorldTextSprite("OVERHEATED", {
+    ...missileWarningLabelStyle,
+    color: "#ffb066",
+    secondaryColor: "#ffe3c0",
+    glowColor: "#ff7a2d"
+  });
+  const playerNotificationLowEnergyLabel = createWorldTextSprite("LOW ENERGY", {
+    ...missileWarningLabelStyle,
+    color: "#ffe56e",
+    secondaryColor: "#fff7be",
+    glowColor: "#ffd22e"
+  });
+  const playerNotificationLabels = [
+    playerNotificationMissileIncomingLabel,
+    playerNotificationMissileLockingLabel,
+    playerNotificationOverheatedLabel,
+    playerNotificationLowEnergyLabel
+  ] as const;
+  for (const label of playerNotificationLabels) {
+    label.sprite.position.set(0, -1.34, 0.35);
+    label.sprite.scale.set(3.75, 0.62, 1);
+    label.sprite.center.set(0.5, 0.5);
+    label.sprite.visible = false;
+    label.material.opacity = 0;
+    playerRoot.add(label.sprite);
+  }
   playerHealthHud.update(
     playerHealth.getSnapshot(),
-    missileBayController?.getStatus(),
+    playerHasMissileBays ? missileBayController?.getStatus() : undefined,
+    playerController.getBuiltInEquipmentAbilityHudSnapshot(),
     playerResources.getSnapshot(),
     buildMinimapSnapshot(playerRoot.position, playerSpawnYaw),
     buildBoundarySnapshot(playerRoot.position)
@@ -864,8 +965,14 @@ export function setupTopDownScene(
     if (!playerIsDestroyed) {
       playerState = playerController.update(deltaTime, camera);
     }
+    cameraController.setYawLock(
+      !playerIsDestroyed ? playerController.getTemporaryManeuverCameraLockYaw() : null
+    );
     gunController.update(deltaTime, playerState);
     rogueEnemyCannonShip?.setPlayerPrimaryFireActive(gunController.isPrimaryFireInputActive());
+    for (const missileShip of rogueEnemyMissileShips) {
+      missileShip?.setPlayerPrimaryFireActive(gunController.isPrimaryFireInputActive());
+    }
     missileBayController?.update(
       deltaTime,
       playerState.forward,
@@ -873,7 +980,7 @@ export function setupTopDownScene(
       camera,
       inputAimReticle.position
     );
-    const missileStatus = missileBayController?.getStatus();
+    const missileStatus = playerHasMissileBays ? missileBayController?.getStatus() : undefined;
     const usesMissileLockReticleFeedback =
       selectedMissilePayloadComponentId === CONCUSSIVE_BARRAGE_COMPONENT_ID ||
       selectedMissilePayloadComponentId === CONCUSSIVE_SWARM_COMPONENT_ID;
@@ -953,12 +1060,94 @@ export function setupTopDownScene(
         );
       }
     }
+    let enemyMissileLockActive = false;
+    let enemyMissileLockProgress01 = 0;
+    let enemyMissileIncomingActive = false;
+    for (const missileShip of rogueEnemyMissileShips) {
+      if (!missileShip) {
+        continue;
+      }
+      if (missileShip.isLockingPlayer()) {
+        enemyMissileLockActive = true;
+        enemyMissileLockProgress01 = Math.max(
+          enemyMissileLockProgress01,
+          missileShip.getLockProgress01()
+        );
+      }
+      if (missileShip.hasIncomingHomingMissileThreat()) {
+        enemyMissileIncomingActive = true;
+      }
+    }
+    for (const label of playerNotificationLabels) {
+      label.sprite.visible = false;
+      label.material.opacity = 0;
+    }
+    const activePlayerNotifications: Array<{
+      label: (typeof playerNotificationLabels)[number];
+      strength01: number;
+      pulseSpeed: number;
+    }> = [];
+    if (enemyMissileIncomingActive) {
+      activePlayerNotifications.push({
+        label: playerNotificationMissileIncomingLabel,
+        strength01: 1,
+        pulseSpeed: 0.028
+      });
+    }
+    if (enemyMissileLockActive) {
+      activePlayerNotifications.push({
+        label: playerNotificationMissileLockingLabel,
+        strength01: THREE.MathUtils.clamp(enemyMissileLockProgress01, 0, 1),
+        pulseSpeed: 0.02
+      });
+    }
+    if (resourceSnapshot.heat.overheated) {
+      activePlayerNotifications.push({
+        label: playerNotificationOverheatedLabel,
+        strength01: 1,
+        pulseSpeed: 0.024
+      });
+    }
+    if (resourceSnapshot.energy.lowPower) {
+      activePlayerNotifications.push({
+        label: playerNotificationLowEnergyLabel,
+        strength01: 1,
+        pulseSpeed: 0.018
+      });
+    }
+    const notificationBaseY = -1.34;
+    const notificationStepY = 0.46;
+    for (let i = 0; i < activePlayerNotifications.length; i += 1) {
+      const notification = activePlayerNotifications[i];
+      const pulse = 0.5 + 0.5 * Math.sin(performance.now() * notification.pulseSpeed + i * 0.6);
+      const y = notificationBaseY - i * notificationStepY;
+      notification.label.sprite.visible = true;
+      notification.label.sprite.position.set(0, y, 0.35);
+      notification.label.sprite.scale.set(
+        3.75 + notification.strength01 * 0.16 + pulse * 0.045,
+        0.62 + notification.strength01 * 0.03 + pulse * 0.015,
+        1
+      );
+      notification.label.material.opacity = THREE.MathUtils.clamp(
+        0.3 + notification.strength01 * 0.28 + pulse * 0.22,
+        0,
+        0.9
+      );
+    }
     const playerShieldCollisionSnapshot = playerHealth.getSnapshot();
     syncShieldHurtboxCollision(
       playerShieldBubbleEffect,
       playerShieldHurtbox,
       playerShieldCollisionSnapshot
     );
+    const playerManeuverInvulnerable =
+      !playerIsDestroyed && playerController.isTemporaryManeuverInvulnerable();
+    if (!playerIsDestroyed) {
+      playerHurtbox.setEnabled(!playerManeuverInvulnerable);
+      if (playerManeuverInvulnerable) {
+        playerShieldHurtbox?.setEnabled(false);
+      }
+    }
     updatePlayerTargetHurtboxes();
 
     if (enemyDualLaserBoltTurret && enemyDualTurretHealth) {
@@ -1026,6 +1215,28 @@ export function setupTopDownScene(
         spawnRogueEnemyCannonShip();
       }
     }
+    for (let i = 0; i < rogueEnemyMissileShips.length; i += 1) {
+      const missileShip = rogueEnemyMissileShips[i];
+      if (missileShip) {
+        missileShip.update(deltaTime);
+        if (missileShip.isDestroyed()) {
+          despawnRogueEnemyMissileShip(i);
+          rogueEnemyMissileShipRespawnSecondsRemaining[i] =
+            ROGUE_PILOT_MISSILE_SHIP_ARCHETYPE.respawnSeconds;
+        }
+        continue;
+      }
+      if (mapId !== "rogue_pilot_map" || rogueEnemyMissileShipRespawnSecondsRemaining[i] <= 0) {
+        continue;
+      }
+      rogueEnemyMissileShipRespawnSecondsRemaining[i] = Math.max(
+        0,
+        rogueEnemyMissileShipRespawnSecondsRemaining[i] - deltaTime
+      );
+      if (rogueEnemyMissileShipRespawnSecondsRemaining[i] <= 0) {
+        spawnRogueEnemyMissileShip(i);
+      }
+    }
 
     if (!playerIsDestroyed) {
       playerHealth.setShieldRechargeRateMultiplier(resourceSnapshot.energy.lowPower ? 0.5 : 1);
@@ -1046,6 +1257,7 @@ export function setupTopDownScene(
         playerHealth.reset();
         playerResources.reset();
         shipController.reset(playerSpawnPosition, playerSpawnYaw);
+        cameraController.setYawLock(null);
         playerHurtbox.setEnabled(true);
         playerShieldHurtbox?.setEnabled(playerHealth.getSnapshot().shield.current > 0);
         updatePlayerTargetHurtboxes();
@@ -1098,6 +1310,20 @@ export function setupTopDownScene(
           ROGUE_ARENA_RETURN_SPEED_UNITS_PER_SECOND * 0.75
         );
       }
+      for (const missileShip of rogueEnemyMissileShips) {
+        if (!missileShip) {
+          continue;
+        }
+        applyCircularBoundary2D(
+          missileShip.root.position,
+          deltaTime,
+          ROGUE_ARENA_CENTER_X,
+          ROGUE_ARENA_CENTER_Z,
+          ROGUE_ARENA_SOFT_RADIUS,
+          ROGUE_ARENA_HARD_RADIUS,
+          ROGUE_ARENA_RETURN_SPEED_UNITS_PER_SECOND * 0.65
+        );
+      }
     }
 
     const playerHealthSnapshot = playerHealth.getSnapshot();
@@ -1115,6 +1341,7 @@ export function setupTopDownScene(
     playerHealthHud.update(
       playerHealthSnapshot,
       missileStatus,
+      playerController.getBuiltInEquipmentAbilityHudSnapshot(),
       resourceSnapshot,
       buildMinimapSnapshot(playerState.position, playerState.yaw),
       buildBoundarySnapshot(playerState.position)
@@ -1166,10 +1393,17 @@ export function setupTopDownScene(
     despawnEnemyDualLaserBoltTurret();
     despawnEnemyPlasmaboltTurret();
     despawnRogueEnemyCannonShip();
+    for (let i = 0; i < rogueEnemyMissileShips.length; i += 1) {
+      despawnRogueEnemyMissileShip(i);
+    }
     playerThrusterEffect?.dispose();
     playerThrusterEffect = null;
     playerShieldBubbleEffect?.dispose();
     playerShieldBubbleEffect = null;
+    playerNotificationMissileLockingLabel.dispose();
+    playerNotificationMissileIncomingLabel.dispose();
+    playerNotificationOverheatedLabel.dispose();
+    playerNotificationLowEnergyLabel.dispose();
     environment.dispose();
     playerHealthHud.dispose();
     enemyAiDebugPanel.dispose();
@@ -1281,4 +1515,104 @@ function resolveRepeatingLaserboltPhaseSlots(shipId: string, cannonCount: number
   // Default all other ships to alternating fire slots so repeating
   // plasmabolt fire inherits the same alternating behavior as laserbolt.
   return Array.from({ length: cannonCount }, (_, index) => index % 2);
+}
+
+function createWorldTextSprite(
+  text: string,
+  options: {
+    color: string;
+    secondaryColor?: string;
+    outlineColor?: string;
+    glowColor?: string;
+    fontFamily?: string;
+    fontWeight?: string | number;
+    fontSizeRatio?: number;
+    outlineWidthRatio?: number;
+    outlineMinPx?: number;
+    shadowBlurRatio?: number;
+    holographic?: boolean;
+    width?: number;
+    height?: number;
+  }
+): {
+  sprite: THREE.Sprite;
+  material: THREE.SpriteMaterial;
+  texture: THREE.CanvasTexture;
+  dispose: () => void;
+} {
+  const width = Math.max(64, Math.floor(options.width ?? 512));
+  const height = Math.max(32, Math.floor(options.height ?? 128));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (context) {
+    context.clearRect(0, 0, width, height);
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    const fontSize = Math.floor(height * (options.fontSizeRatio ?? 0.42));
+    const fontWeight = options.fontWeight ?? "700";
+    const fontFamily = options.fontFamily ?? "Arial";
+    context.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
+    context.lineJoin = "round";
+    context.shadowColor = options.glowColor ?? options.color;
+    context.shadowBlur = Math.max(0, Math.floor(height * (options.shadowBlurRatio ?? 0.16)));
+    context.strokeStyle = options.outlineColor ?? "rgba(0,0,0,0.85)";
+    context.lineWidth = Math.max(
+      options.outlineMinPx ?? 2,
+      Math.floor(height * (options.outlineWidthRatio ?? 0.08))
+    );
+    if (context.lineWidth > 0) {
+      context.strokeText(text, width * 0.5, height * 0.54);
+    }
+    if (options.holographic) {
+      const gradient = context.createLinearGradient(0, height * 0.2, 0, height * 0.85);
+      gradient.addColorStop(0, options.secondaryColor ?? "#f4ffff");
+      gradient.addColorStop(0.35, options.color);
+      gradient.addColorStop(0.68, options.secondaryColor ?? "#d6ffff");
+      gradient.addColorStop(1, options.color);
+      context.fillStyle = gradient;
+    } else {
+      context.fillStyle = options.color;
+    }
+    context.fillText(text, width * 0.5, height * 0.54);
+
+    if (options.holographic) {
+      context.save();
+      context.globalCompositeOperation = "source-atop";
+      context.fillStyle = "rgba(255,255,255,0.18)";
+      for (let y = Math.floor(height * 0.18); y < height; y += 5) {
+        context.fillRect(0, y, width, 1);
+      }
+      context.fillStyle = "rgba(255,255,255,0.08)";
+      context.fillRect(0, Math.floor(height * 0.28), width, 2);
+      context.restore();
+    }
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.needsUpdate = true;
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthWrite: false,
+    depthTest: false,
+    opacity: 0,
+    toneMapped: false,
+    blending: options.holographic ? THREE.AdditiveBlending : THREE.NormalBlending
+  });
+  const sprite = new THREE.Sprite(material);
+  sprite.renderOrder = 20;
+
+  return {
+    sprite,
+    material,
+    texture,
+    dispose: () => {
+      sprite.removeFromParent();
+      material.dispose();
+      texture.dispose();
+    }
+  };
 }

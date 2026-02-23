@@ -19,6 +19,7 @@ type CameraControllerParams = {
 export type CameraController = {
   update: (deltaTime: number, targetPosition: THREE.Vector3, targetYaw: number) => void;
   setArrowKeyZoomEnabled: (enabled: boolean) => void;
+  setYawLock: (yaw: number | null) => void;
   dispose: () => void;
 };
 
@@ -39,6 +40,7 @@ export function createCameraController({
   let zoomInputEnabled = arrowKeyZoomEnabled;
   let zoomInHeld = false;
   let zoomOutHeld = false;
+  let yawLock: number | null = null;
 
   const onKeyDown = (event: KeyboardEvent): void => {
     if (!zoomInputEnabled) {
@@ -105,7 +107,8 @@ export function createCameraController({
     const zoomBlend = 1 - Math.exp(-CAMERA_ZOOM_RESPONSE_SHARPNESS * deltaTime);
     currentDistance = THREE.MathUtils.lerp(currentDistance, targetDistance, zoomBlend);
 
-    cameraForward.set(-Math.sin(targetYaw), 0, -Math.cos(targetYaw));
+    const cameraFollowYaw = yawLock ?? targetYaw;
+    cameraForward.set(-Math.sin(cameraFollowYaw), 0, -Math.cos(cameraFollowYaw));
     computeTiltedCameraOffset(
       cameraForward,
       CAMERA_TILT_RADIANS,
@@ -128,6 +131,9 @@ export function createCameraController({
         zoomInHeld = false;
         zoomOutHeld = false;
       }
+    },
+    setYawLock: (yaw: number | null) => {
+      yawLock = yaw;
     },
     dispose: () => {
       window.removeEventListener("keydown", onKeyDown);

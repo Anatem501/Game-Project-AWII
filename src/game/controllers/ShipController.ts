@@ -6,6 +6,28 @@ const STRAFE_MAX_BANK_ROLL_RADIANS = THREE.MathUtils.degToRad(14);
 const TOTAL_MAX_BANK_ROLL_RADIANS = THREE.MathUtils.degToRad(52);
 const TURN_BANK_ROLL_SMOOTHING = 9;
 const IDLE_FORWARD_SPEED_UNITS_PER_SECOND = 1;
+const SHIP_ROTATION_ORDER = "YXZ";
+
+const MANEUVER_SIDE_ROLL_DURATION_SECONDS = 1.12;
+const MANEUVER_FORWARD_ROLL_DURATION_SECONDS = 1.28;
+const MANEUVER_SIDE_ROLL_DISTANCE = 7.8;
+const MANEUVER_SIDE_ROLL_FORWARD_DISTANCE = 3.1;
+const MANEUVER_FORWARD_ROLL_DISTANCE = 9.4;
+const MANEUVER_FORWARD_ROLL_LATERAL_SWAY_DISTANCE = 1.15;
+
+export type ShipTemporaryManeuverKind =
+  | "side_roll_left"
+  | "side_roll_right"
+  | "forward_barrel_roll";
+
+type ShipTemporaryManeuverState = {
+  kind: ShipTemporaryManeuverKind;
+  elapsedSeconds: number;
+  durationSeconds: number;
+  startPosition: THREE.Vector3;
+  startYaw: number;
+  cameraLockYaw: number;
+};
 
 export type ShipHandlingConfig = {
   thrustSpeed: number;
@@ -39,6 +61,10 @@ export type ShipController = {
   update: (deltaTime: number, intent: ShipControlIntent) => ShipControllerState;
   getState: () => ShipControllerState;
   reset: (position?: THREE.Vector3, yaw?: number) => ShipControllerState;
+  startTemporaryManeuver: (kind: ShipTemporaryManeuverKind) => boolean;
+  isTemporaryManeuverActive: () => boolean;
+  isTemporaryManeuverInvulnerable: () => boolean;
+  getTemporaryManeuverCameraLockYaw: () => number | null;
 };
 
 export function createShipController({
@@ -51,9 +77,12 @@ export function createShipController({
   const forward = new THREE.Vector3(0, 0, -1);
   const right = new THREE.Vector3(1, 0, 0);
   const movementQuaternion = new THREE.Quaternion();
+  const desiredTemporaryPosition = new THREE.Vector3();
 
   let shipYaw = initialYaw;
   let visualRoll = 0;
+  let visualPitch = 0;
+  let activeTemporaryManeuver: ShipTemporaryManeuverState | null = null;
 
   const state: ShipControllerState = {
     forward,
@@ -66,7 +95,12 @@ export function createShipController({
       return state;
     }
 
-    shipRoot.rotation.set(0, shipYaw, visualRoll);
+    if (activeTemporaryManeuver) {
+      updateTemporaryManeuver(deltaTime);
+      return state;
+    }
+
+    shipRoot.rotation.set(visualPitch, shipYaw, visualRoll, SHIP_ROTATION_ORDER);
     shipRoot.getWorldQuaternion(movementQuaternion);
     forward.set(0, 0, -1).applyQuaternion(movementQuaternion).setY(0).normalize();
     right.set(-forward.z, 0, forward.x).normalize();
@@ -136,8 +170,9 @@ export function createShipController({
     );
     const rollBlend = 1 - Math.exp(-TURN_BANK_ROLL_SMOOTHING * deltaTime);
     visualRoll = THREE.MathUtils.lerp(visualRoll, targetRoll, rollBlend);
+    visualPitch = THREE.MathUtils.lerp(visualPitch, 0, rollBlend);
 
-    shipRoot.rotation.set(0, shipYaw, visualRoll);
+    shipRoot.rotation.set(visualPitch, shipYaw, visualRoll, SHIP_ROTATION_ORDER);
     shipRoot.getWorldQuaternion(movementQuaternion);
     forward.set(0, 0, -1).applyQuaternion(movementQuaternion).setY(0).normalize();
     right.set(-forward.z, 0, forward.x).normalize();
@@ -155,6 +190,92 @@ export function createShipController({
     return state;
   };
 
+  const updateTemporaryManeuver = (deltaTime: number): void => {
+    const maneuver = activeTemporaryManeuver;
+    if (!maneuver) {
+      return;
+    }
+
+    maneuver.elapsedSeconds = Math.min(
+      maneuver.durationSeconds,
+      maneuver.elapsedSeconds + Math.max(0, deltaTime)
+    );
+    const t = THREE.MathUtils.clamp(
+      maneuver.elapsedSeconds / Math.max(0.0001, maneuver.durationSeconds),
+      0,
+      1
+    );
+    const eased = easeInOutCubic(t);
+
+    const startForward = new THREE.Vector3(
+      -Math.sin(maneuver.startYaw),
+      0,
+      -Math.cos(maneuver.startYaw)
+    );
+    const startRight = new THREE.Vector3(-startForward.z, 0, startForward.x);
+    let localStrafe = 0;
+    let localForward = 0;
+    let localUp = 0;
+    let yawDelta = 0;
+    let roll = 0;
+    let pitch = 0;
+
+    switch (maneuver.kind) {
+      case "side_roll_left":
+      case "side_roll_right": {
+        const directionSign = maneuver.kind === "side_roll_right" ? 1 : -1;
+        localStrafe = directionSign * MANEUVER_SIDE_ROLL_DISTANCE * easeInOutCubic(t);
+        localForward = MANEUVER_SIDE_ROLL_FORWARD_DISTANCE * eased;
+        roll = directionSign * Math.PI * 2 * eased;
+        break;
+      }
+      case "forward_barrel_roll": {
+        localForward = MANEUVER_FORWARD_ROLL_DISTANCE * eased;
+        localStrafe = Math.sin(Math.PI * t) * MANEUVER_FORWARD_ROLL_LATERAL_SWAY_DISTANCE;
+        roll = Math.PI * 2 * eased;
+        break;
+      }
+      default:
+        break;
+    }
+
+    const desiredYaw = normalizeAngleRadians(maneuver.startYaw + yawDelta);
+    const desiredPitch = pitch;
+    const desiredRoll = roll;
+    desiredTemporaryPosition
+      .copy(maneuver.startPosition)
+      .addScaledVector(startRight, localStrafe)
+      .addScaledVector(startForward, localForward);
+    desiredTemporaryPosition.y = maneuver.startPosition.y + localUp;
+
+    shipYaw = desiredYaw;
+    visualPitch = desiredPitch;
+    visualRoll = desiredRoll;
+    shipRoot.position.copy(desiredTemporaryPosition);
+
+    shipRoot.rotation.set(visualPitch, shipYaw, visualRoll, SHIP_ROTATION_ORDER);
+    shipRoot.getWorldQuaternion(movementQuaternion);
+    forward.set(0, 0, -1).applyQuaternion(movementQuaternion).setY(0);
+    if (forward.lengthSq() <= 0.000001) {
+      forward.set(-Math.sin(shipYaw), 0, -Math.cos(shipYaw));
+    } else {
+      forward.normalize();
+    }
+    state.yaw = shipYaw;
+
+    if (t >= 0.9999) {
+      // Canonicalize to level orientation so normal flight roll smoothing does not
+      // "unwind" a completed 360-degree maneuver and create a visible second roll.
+      visualPitch = 0;
+      visualRoll = 0;
+      activeTemporaryManeuver = null;
+      localVelocity.set(0, IDLE_FORWARD_SPEED_UNITS_PER_SECOND);
+      shipRoot.rotation.set(visualPitch, shipYaw, visualRoll, SHIP_ROTATION_ORDER);
+      shipRoot.getWorldQuaternion(movementQuaternion);
+      forward.set(0, 0, -1).applyQuaternion(movementQuaternion).setY(0).normalize();
+    }
+  };
+
   return {
     update,
     getState: () => state,
@@ -162,7 +283,9 @@ export function createShipController({
       localVelocity.set(0, IDLE_FORWARD_SPEED_UNITS_PER_SECOND);
       shipYaw = yaw;
       visualRoll = 0;
-      shipRoot.rotation.set(0, shipYaw, visualRoll);
+      visualPitch = 0;
+      activeTemporaryManeuver = null;
+      shipRoot.rotation.set(visualPitch, shipYaw, visualRoll, SHIP_ROTATION_ORDER);
       if (position) {
         shipRoot.position.copy(position);
       }
@@ -171,7 +294,29 @@ export function createShipController({
       forward.set(0, 0, -1).applyQuaternion(movementQuaternion).setY(0).normalize();
       state.yaw = shipYaw;
       return state;
-    }
+    },
+    startTemporaryManeuver: (kind: ShipTemporaryManeuverKind): boolean => {
+      if (activeTemporaryManeuver) {
+        return false;
+      }
+      activeTemporaryManeuver = {
+        kind,
+        elapsedSeconds: 0,
+        durationSeconds:
+          kind === "forward_barrel_roll"
+            ? MANEUVER_FORWARD_ROLL_DURATION_SECONDS
+            : MANEUVER_SIDE_ROLL_DURATION_SECONDS,
+        startPosition: shipRoot.position.clone(),
+        startYaw: shipYaw,
+        cameraLockYaw: shipYaw
+      };
+      localVelocity.set(0, IDLE_FORWARD_SPEED_UNITS_PER_SECOND);
+      return true;
+    },
+    isTemporaryManeuverActive: (): boolean => activeTemporaryManeuver !== null,
+    isTemporaryManeuverInvulnerable: (): boolean => activeTemporaryManeuver !== null,
+    getTemporaryManeuverCameraLockYaw: (): number | null =>
+      activeTemporaryManeuver?.cameraLockYaw ?? null
   };
 }
 
@@ -197,3 +342,22 @@ function moveTowards(current: number, target: number, maxDelta: number): number 
 
   return current + Math.sign(target - current) * maxDelta;
 }
+
+function easeInOutCubic(value: number): number {
+  const t = THREE.MathUtils.clamp(value, 0, 1);
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+function normalizeAngleRadians(angle: number): number {
+  return THREE.MathUtils.euclideanModulo(angle + Math.PI, Math.PI * 2) - Math.PI;
+}
+
+function smoothSegment(value: number, start: number, end: number): number {
+  if (end <= start) {
+    return value >= end ? 1 : 0;
+  }
+  const normalized = THREE.MathUtils.clamp((value - start) / (end - start), 0, 1);
+  return easeInOutCubic(normalized);
+}
+
+
