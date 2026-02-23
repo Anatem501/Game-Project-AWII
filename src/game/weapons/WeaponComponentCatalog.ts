@@ -1,3 +1,4 @@
+import * as THREE from "three";
 import type { LaserBoltFactoryOptions } from "../controllers/projectiles/LaserBoltFactory";
 
 export const CANNON_PRIMARY_COMPONENT_OPTIONS = [
@@ -63,11 +64,13 @@ export type MissileBayComponentDefinition = WeaponComponentPresentation & {
   missileDamage: number;
   missileLifetimeSeconds: number;
   missileSpeed: number;
+  homingTurnRateRadiansPerSecond?: number;
   missileModelAssetId?: MissileModelAssetId;
   flightMode?: MissileFlightMode;
   missilesPerShot?: number;
   randomizeCellSelection?: boolean;
   reloadMode?: MissileReloadMode;
+  allowLockTargetSwap?: boolean;
   fallbackAimMaxAngleDegrees?: number;
   fallbackAimDistance?: number;
   predictiveLeadFactor?: number;
@@ -171,8 +174,10 @@ const MISSILE_BAY_COMPONENTS: Record<MissileBayComponentId, MissileBayComponentD
     missileDamage: 26,
     missileLifetimeSeconds: 2.5,
     missileSpeed: 16,
+    homingTurnRateRadiansPerSecond: THREE.MathUtils.degToRad(132),
+    allowLockTargetSwap: true,
     targetLocking: {
-      acquireSeconds: 0.6,
+      acquireSeconds: 0.5,
       maxLocksPerTarget: 1,
       reticleRadiusPadding: 2.5,
       progressDecayDelaySeconds: 2,

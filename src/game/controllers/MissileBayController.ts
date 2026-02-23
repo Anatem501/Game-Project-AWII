@@ -53,8 +53,8 @@ const LOCK_OFFSCREEN_GRACE_SECONDS = 3;
 const MISSILE_DEBUG_SPEED_OVERRIDE: number | null = null;
 const FALLBACK_MISSILE_PAYLOAD = getMissileBayComponentDefinition(DEFAULT_MISSILE_BAY_COMPONENT_ID);
 const MISSILE_THRUSTER_SOCKET_PREFIX = "thruster";
-const MINI_THRUSTER_CORE_COLOR = 0xffd48a;
-const MINI_THRUSTER_GLOW_COLOR = 0xff8a2a;
+const MINI_THRUSTER_CORE_COLOR = 0xffefb8;
+const MINI_THRUSTER_GLOW_COLOR = 0xff7a14;
 const MINI_THRUSTER_SOCKET_BACK_OFFSET = 0.055;
 
 type MissileMiniThruster = {
@@ -379,6 +379,7 @@ export function createMissileBayController({
   let turnDirection = 0;
   let isLocking = false;
   let lockingProgress01 = 0;
+  let lockStackRoundRobinCursor = 0;
   let enabled = true;
 
   const maxAimClampRadians = THREE.MathUtils.clamp(maxAimAngleRadians, 0, Math.PI);
@@ -614,6 +615,7 @@ export function createMissileBayController({
     );
     return {
       acquireSeconds: Math.max(0.05, configuredLocking?.acquireSeconds ?? DEFAULT_LOCK_ACQUIRE_SECONDS),
+      allowLockTargetSwap: activePayloads.some((payloadDef) => Boolean(payloadDef.allowLockTargetSwap)),
       maxLocksPerTarget: Math.max(1, Math.min(configuredMaxLocksPerTarget, maxLockStacksTotal)),
       maxLockStacksTotal,
       useLockStacks,
@@ -810,7 +812,18 @@ export function createMissileBayController({
     clearLockedTargetIndicators();
     isLocking = false;
     lockingProgress01 = 0;
+    lockStackRoundRobinCursor = 0;
     activeVolleyTargetLockCounts.clear();
+  };
+
+  const clearOtherLockedTargets = (keepHurtboxId: string): void => {
+    for (const [hurtboxId, lockState] of targetLockStates) {
+      if (hurtboxId === keepHurtboxId || !lockState.locked) {
+        continue;
+      }
+      targetLockStates.delete(hurtboxId);
+      removeLockedTargetIndicator(hurtboxId);
+    }
   };
 
   const syncLockedTargetIndicators = (deltaTime: number, camera: THREE.Camera): void => {
@@ -1097,7 +1110,7 @@ export function createMissileBayController({
         };
       state.hurtbox = hurtbox;
       const otherLockedStacks = getOtherLockedStacks(hurtbox.id);
-      const maxLocksForState = Math.max(
+      let maxLocksForState = Math.max(
         0,
         Math.min(maxLocksPerTarget, maxLockStacksTotal - otherLockedStacks)
       );
@@ -1115,6 +1128,11 @@ export function createMissileBayController({
 
       const isHovering =
         Boolean(aimTargetWorldPosition) && onScreen && isReticleOverTarget(aimTargetWorldPosition, hurtbox);
+      const canAttemptSingleLockSwap =
+        !targetLocking.useLockStacks && Boolean(targetLocking.allowLockTargetSwap) && isHovering;
+      if (!state.locked && canAttemptSingleLockSwap && maxLocksForState <= 0) {
+        maxLocksForState = Math.max(1, Math.min(maxLocksPerTarget, maxLockStacksTotal));
+      }
 
       if (state.locked) {
         if (maxLocksForState <= 0) {
@@ -1170,6 +1188,9 @@ export function createMissileBayController({
           state.locked = true;
           state.lockStacks = 1;
           state.lockSeconds = 0;
+          if (canAttemptSingleLockSwap) {
+            clearOtherLockedTargets(hurtbox.id);
+          }
         } else {
           isLocking = true;
           lockingProgress01 = Math.max(
@@ -1235,6 +1256,7 @@ export function createMissileBayController({
   const consumeCurrentLocksIntoVolleyTargets = (): void => {
     activeVolleyTargetIds.clear();
     activeVolleyTargetLockCounts.clear();
+    lockStackRoundRobinCursor = 0;
     for (const [hurtboxId, state] of targetLockStates) {
       if (!state.locked || !state.hurtbox.canReceiveDamage()) {
         continue;
@@ -1306,6 +1328,49 @@ export function createMissileBayController({
     if (remainingLocks <= 0) {
       activeVolleyTargetLockCounts.delete(selectedId);
       activeVolleyTargetIds.delete(selectedId);
+    } else {
+      activeVolleyTargetLockCounts.set(selectedId, remainingLocks);
+    }
+    return selectedId;
+  };
+
+  const consumeRoundRobinLockStackTargetId = (): string | null => {
+    const availableTargetIds: string[] = [];
+    for (const [targetId, lockCount] of activeVolleyTargetLockCounts) {
+      if (lockCount <= 0 || !activeVolleyTargetIds.has(targetId)) {
+        continue;
+      }
+      const hurtbox = resolveTargetHurtboxById(targetId);
+      if (!hurtbox || !hurtbox.canReceiveDamage()) {
+        continue;
+      }
+      availableTargetIds.push(targetId);
+    }
+
+    if (availableTargetIds.length <= 0) {
+      return null;
+    }
+
+    const selectedIndex =
+      THREE.MathUtils.euclideanModulo(lockStackRoundRobinCursor, availableTargetIds.length);
+    lockStackRoundRobinCursor = selectedIndex + 1;
+    const selectedId = availableTargetIds[selectedIndex] ?? null;
+    if (!selectedId) {
+      return null;
+    }
+
+    const remainingLocks = Math.max(0, (activeVolleyTargetLockCounts.get(selectedId) ?? 0) - 1);
+    if (remainingLocks <= 0) {
+      activeVolleyTargetLockCounts.delete(selectedId);
+      activeVolleyTargetIds.delete(selectedId);
+      if (availableTargetIds.length - 1 > 0) {
+        lockStackRoundRobinCursor = THREE.MathUtils.euclideanModulo(
+          lockStackRoundRobinCursor,
+          availableTargetIds.length - 1
+        );
+      } else {
+        lockStackRoundRobinCursor = 0;
+      }
     } else {
       activeVolleyTargetLockCounts.set(selectedId, remainingLocks);
     }
@@ -1458,7 +1523,9 @@ export function createMissileBayController({
     }
 
     const launchTargetHurtboxId = launcherPayload.useLockStacks
-      ? consumeNearestLockStackTargetId(scratchExplosionCenter) ?? selectNearestVolleyTargetId(scratchExplosionCenter)
+      ? consumeRoundRobinLockStackTargetId() ??
+        consumeNearestLockStackTargetId(scratchExplosionCenter) ??
+        selectNearestVolleyTargetId(scratchExplosionCenter)
       : selectNearestVolleyTargetId(scratchExplosionCenter);
 
     let splinePath: ActiveMissile["splinePath"] = null;
@@ -1622,15 +1689,15 @@ export function createMissileBayController({
     const thrusterCoreMaterial = new THREE.MeshBasicMaterial({
       color: 0xfff0a6,
       transparent: true,
-      opacity: 0.9,
+      opacity: 0.96,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       toneMapped: false
     });
     const thrusterGlowMaterial = new THREE.MeshBasicMaterial({
-      color: 0xff9a3d,
+      color: 0xff8a1f,
       transparent: true,
-      opacity: 0.34,
+      opacity: 0.46,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       toneMapped: false
@@ -1657,7 +1724,7 @@ export function createMissileBayController({
         ? new THREE.MeshBasicMaterial({
             color: MINI_THRUSTER_CORE_COLOR,
             transparent: true,
-            opacity: 0.72,
+            opacity: 0.9,
             blending: THREE.AdditiveBlending,
             depthTest: false,
             depthWrite: false,
@@ -1669,7 +1736,7 @@ export function createMissileBayController({
         ? new THREE.MeshBasicMaterial({
             color: MINI_THRUSTER_GLOW_COLOR,
             transparent: true,
-            opacity: 0.32,
+            opacity: 0.48,
             blending: THREE.AdditiveBlending,
             depthTest: false,
             depthWrite: false,
@@ -1687,9 +1754,9 @@ export function createMissileBayController({
             glow.position.z -= MINI_THRUSTER_SOCKET_BACK_OFFSET * 1.05;
             core.renderOrder = 4;
             glow.renderOrder = 4;
-            const baseScale = Math.max(0.3, socket.sizeScale * 0.55);
+            const baseScale = Math.max(0.38, socket.sizeScale * 0.72);
             core.scale.setScalar(baseScale);
-            glow.scale.setScalar(baseScale * 2.25);
+            glow.scale.setScalar(baseScale * 2.6);
             missile.add(core);
             missile.add(glow);
             return {
@@ -1788,8 +1855,8 @@ export function createMissileBayController({
 
       const flamePulse = 0.9 + Math.sin((performance.now() * 0.001 + i) * 28) * 0.1;
       missile.thrusterCore.scale.setScalar(flamePulse);
-      missile.thrusterGlow.scale.setScalar(1.05 + flamePulse * 0.45);
-      missile.thrusterGlow.material.opacity = THREE.MathUtils.clamp(0.2 + flamePulse * 0.18, 0, 1);
+      missile.thrusterGlow.scale.setScalar(1.12 + flamePulse * 0.62);
+      missile.thrusterGlow.material.opacity = THREE.MathUtils.clamp(0.28 + flamePulse * 0.24, 0, 1);
       if (
         missile.miniThrusters.length > 0 &&
         missile.miniThrusterCoreMaterial &&
@@ -1797,11 +1864,11 @@ export function createMissileBayController({
       ) {
         for (const mini of missile.miniThrusters) {
           const miniPulse = 0.82 + Math.sin((performance.now() * 0.001) * 26 + mini.phaseOffset) * 0.18;
-          mini.core.scale.setScalar(mini.baseScale * (0.85 + miniPulse * 0.35));
-          mini.glow.scale.setScalar(mini.baseScale * (1.45 + miniPulse * 0.9));
+          mini.core.scale.setScalar(mini.baseScale * (0.95 + miniPulse * 0.42));
+          mini.glow.scale.setScalar(mini.baseScale * (1.7 + miniPulse * 1.05));
         }
-        missile.miniThrusterCoreMaterial.opacity = THREE.MathUtils.clamp(0.5 + flamePulse * 0.22, 0, 1);
-        missile.miniThrusterGlowMaterial.opacity = THREE.MathUtils.clamp(0.18 + flamePulse * 0.18, 0, 1);
+        missile.miniThrusterCoreMaterial.opacity = THREE.MathUtils.clamp(0.68 + flamePulse * 0.2, 0, 1);
+        missile.miniThrusterGlowMaterial.opacity = THREE.MathUtils.clamp(0.28 + flamePulse * 0.24, 0, 1);
       }
       missile.object.rotateZ(deltaTime * 5.4);
       const nosePulse = 0.72 + Math.sin((performance.now() * 0.001 + i * 0.7) * 18) * 0.22;
@@ -1885,7 +1952,9 @@ export function createMissileBayController({
     const dot = THREE.MathUtils.clamp(currentMissileDirection.dot(desiredMissileDirection), -1, 1);
     const angularDelta = Math.acos(dot);
     if (angularDelta > 0.000001) {
-      const maxTurnAngle = MISSILE_HOMING_TURN_RATE_RADIANS_PER_SECOND * deltaTime;
+    const homingTurnRateRadiansPerSecond =
+      missile.payload.homingTurnRateRadiansPerSecond ?? MISSILE_HOMING_TURN_RATE_RADIANS_PER_SECOND;
+    const maxTurnAngle = homingTurnRateRadiansPerSecond * deltaTime;
       const blend = THREE.MathUtils.clamp(maxTurnAngle / angularDelta, 0, 1);
       currentMissileDirection.lerp(desiredMissileDirection, blend).normalize();
     }
