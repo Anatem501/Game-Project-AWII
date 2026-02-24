@@ -5,7 +5,9 @@ export const CANNON_PRIMARY_COMPONENT_OPTIONS = [
   "repeating_laserbolt_fire",
   "repeating_plasmabolt_fire",
   "repeating_voidbolt_fire",
-  "repeating_ionbolt_fire"
+  "repeating_ionbolt_fire",
+  "burst_ion_arc_fire",
+  "cryowave_fire"
 ] as const;
 
 export type CannonPrimaryComponentId = (typeof CANNON_PRIMARY_COMPONENT_OPTIONS)[number];
@@ -40,6 +42,8 @@ type WeaponComponentPresentation = {
 export type CannonPrimaryComponentDefinition = WeaponComponentPresentation & {
   id: CannonPrimaryComponentId;
   fireIntervalSeconds?: number;
+  fireIntervalSequenceSeconds?: readonly number[];
+  fireIntervalMultiplierScope?: "all_steps" | "burst_gap_only";
   projectile: LaserBoltFactoryOptions;
 };
 
@@ -102,7 +106,7 @@ const CANNON_PRIMARY_COMPONENTS: Record<
       color: 0x72ff9a,
       emissive: 0x2dff55,
       emissiveIntensity: 2.25,
-      speed: 18,
+      speed: 16,
       lifetimeSeconds: 2,
       length: 0.44,
       thickness: 0.06,
@@ -140,6 +144,7 @@ const CANNON_PRIMARY_COMPONENTS: Record<
     damageType: "Void",
     heatCost: 0,
     energyCost: 0,
+    fireIntervalSeconds: 0.8,
     description:
       "Void-tuned bolt stream using the plasmabolt chassis with a dark core and pale violet shell glow. Does not consume heat or energy.",
     projectile: {
@@ -175,6 +180,53 @@ const CANNON_PRIMARY_COMPONENTS: Record<
       damage: 8,
       damageType: "Ion",
       collisionRadius: 0.08
+    }
+  },
+  burst_ion_arc_fire: {
+    id: "burst_ion_arc_fire",
+    name: "Burst Ion Arc Fire",
+    weaponType: "Cannons",
+    fireType: "Primary",
+    damageType: "Ion",
+    energyCost: 4,
+    fireIntervalSeconds: 0.5,
+    fireIntervalSequenceSeconds: [0.1, 0.1, 1.5],
+    fireIntervalMultiplierScope: "burst_gap_only",
+    description:
+      "Burst-fired ion arc emitter that launches widening ion arcs with piercing ion discharge.",
+    projectile: {
+      color: 0x73bcff,
+      emissive: 0xf0fbff,
+      emissiveIntensity: 3.15,
+      speed: 15,
+      lifetimeSeconds: 1,
+      length: 0.8,
+      thickness: 0.12,
+      damage: 8,
+      damageType: "Ion",
+      collisionRadius: 0.15
+    }
+  },
+  cryowave_fire: {
+    id: "cryowave_fire",
+    name: "Cryowave Fire",
+    weaponType: "Cannons",
+    fireType: "Primary",
+    damageType: "Frost",
+    fireIntervalSeconds: 0.75,
+    description:
+      "Cryogenic wave projector that launches frosted arc waves with icy socket trails.",
+    projectile: {
+      color: 0x8fd9ff,
+      emissive: 0xe9fbff,
+      emissiveIntensity: 2.7,
+      speed: 18,
+      lifetimeSeconds: 1.9,
+      length: 0.86,
+      thickness: 0.08,
+      damage: 8,
+      damageType: "Frost",
+      collisionRadius: 0.11
     }
   }
 };

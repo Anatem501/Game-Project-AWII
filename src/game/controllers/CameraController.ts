@@ -8,6 +8,8 @@ const CAMERA_ZOOM_MIN_DISTANCE = 4;
 const CAMERA_ZOOM_MAX_DISTANCE = 24;
 const CAMERA_ZOOM_SPEED_UNITS_PER_SECOND = 10;
 const CAMERA_ZOOM_RESPONSE_SHARPNESS = 10;
+const FREE_CAMERA_MOVE_SPEED_UNITS_PER_SECOND = 18;
+const FREE_CAMERA_LOOK_DISTANCE = 10;
 
 type CameraControllerParams = {
   camera: THREE.PerspectiveCamera;
@@ -30,6 +32,11 @@ export function createCameraController({
   arrowKeyZoomEnabled = true
 }: CameraControllerParams): CameraController {
   const cameraForward = new THREE.Vector3();
+  const cameraLookDirection = new THREE.Vector3();
+  const freeCameraHorizontalForward = new THREE.Vector3();
+  const freeCameraRight = new THREE.Vector3();
+  const freeCameraMoveDelta = new THREE.Vector3();
+  const freeCameraLookTarget = new THREE.Vector3();
   const desiredCameraOffset = new THREE.Vector3();
   const desiredCameraPosition = new THREE.Vector3();
   const baseDistance = GAME_CONFIG.cameraDistance;
@@ -40,14 +47,63 @@ export function createCameraController({
   let zoomInputEnabled = arrowKeyZoomEnabled;
   let zoomInHeld = false;
   let zoomOutHeld = false;
+  let freeMoveForwardHeld = false;
+  let freeMoveBackwardHeld = false;
+  let freeMoveLeftHeld = false;
+  let freeMoveRightHeld = false;
+  let freeCameraEnabled = false;
   let yawLock: number | null = null;
 
   const onKeyDown = (event: KeyboardEvent): void => {
+    const key = event.key.toLowerCase();
+    if (key === "p" && !event.repeat) {
+      freeCameraEnabled = !freeCameraEnabled;
+      if (freeCameraEnabled) {
+        camera.getWorldDirection(cameraLookDirection);
+        if (cameraLookDirection.lengthSq() <= 0.000001) {
+          cameraLookDirection.set(0, -0.2, -1).normalize();
+        }
+        freeCameraLookTarget.copy(camera.position).addScaledVector(
+          cameraLookDirection,
+          FREE_CAMERA_LOOK_DISTANCE
+        );
+      } else {
+        freeMoveForwardHeld = false;
+        freeMoveBackwardHeld = false;
+        freeMoveLeftHeld = false;
+        freeMoveRightHeld = false;
+      }
+      event.preventDefault();
+      return;
+    }
+
+    if (freeCameraEnabled) {
+      if (key === "arrowup") {
+        freeMoveForwardHeld = true;
+        event.preventDefault();
+        return;
+      }
+      if (key === "arrowdown") {
+        freeMoveBackwardHeld = true;
+        event.preventDefault();
+        return;
+      }
+      if (key === "arrowleft") {
+        freeMoveLeftHeld = true;
+        event.preventDefault();
+        return;
+      }
+      if (key === "arrowright") {
+        freeMoveRightHeld = true;
+        event.preventDefault();
+        return;
+      }
+    }
+
     if (!zoomInputEnabled) {
       return;
     }
 
-    const key = event.key.toLowerCase();
     if (key === "arrowup") {
       zoomInHeld = true;
       event.preventDefault();
@@ -61,14 +117,34 @@ export function createCameraController({
 
   const onKeyUp = (event: KeyboardEvent): void => {
     const key = event.key.toLowerCase();
+    if (key === "arrowleft") {
+      freeMoveLeftHeld = false;
+      if (freeCameraEnabled) {
+        event.preventDefault();
+      }
+      return;
+    }
+    if (key === "arrowright") {
+      freeMoveRightHeld = false;
+      if (freeCameraEnabled) {
+        event.preventDefault();
+      }
+      return;
+    }
     if (key === "arrowup") {
+      freeMoveForwardHeld = false;
       zoomInHeld = false;
-      event.preventDefault();
+      if (freeCameraEnabled || zoomInputEnabled) {
+        event.preventDefault();
+      }
       return;
     }
     if (key === "arrowdown") {
+      freeMoveBackwardHeld = false;
       zoomOutHeld = false;
-      event.preventDefault();
+      if (freeCameraEnabled || zoomInputEnabled) {
+        event.preventDefault();
+      }
     }
   };
 
@@ -91,6 +167,44 @@ export function createCameraController({
 
   const update = (deltaTime: number, targetPosition: THREE.Vector3, targetYaw: number): void => {
     if (deltaTime <= 0) {
+      return;
+    }
+
+    if (freeCameraEnabled) {
+      camera.getWorldDirection(cameraLookDirection);
+      if (cameraLookDirection.lengthSq() <= 0.000001) {
+        cameraLookDirection.set(0, -0.2, -1);
+      }
+      freeCameraHorizontalForward.copy(cameraLookDirection).setY(0);
+      if (freeCameraHorizontalForward.lengthSq() <= 0.000001) {
+        freeCameraHorizontalForward.set(0, 0, -1);
+      } else {
+        freeCameraHorizontalForward.normalize();
+      }
+      freeCameraRight.set(
+        -freeCameraHorizontalForward.z,
+        0,
+        freeCameraHorizontalForward.x
+      ).normalize();
+
+      const forwardIntent = (freeMoveForwardHeld ? 1 : 0) - (freeMoveBackwardHeld ? 1 : 0);
+      const lateralIntent = (freeMoveRightHeld ? 1 : 0) - (freeMoveLeftHeld ? 1 : 0);
+      freeCameraMoveDelta.set(0, 0, 0);
+      if (forwardIntent !== 0) {
+        freeCameraMoveDelta.addScaledVector(
+          freeCameraHorizontalForward,
+          forwardIntent * FREE_CAMERA_MOVE_SPEED_UNITS_PER_SECOND * deltaTime
+        );
+      }
+      if (lateralIntent !== 0) {
+        freeCameraMoveDelta.addScaledVector(
+          freeCameraRight,
+          lateralIntent * FREE_CAMERA_MOVE_SPEED_UNITS_PER_SECOND * deltaTime
+        );
+      }
+      camera.position.add(freeCameraMoveDelta);
+      freeCameraLookTarget.add(freeCameraMoveDelta);
+      camera.lookAt(freeCameraLookTarget);
       return;
     }
 

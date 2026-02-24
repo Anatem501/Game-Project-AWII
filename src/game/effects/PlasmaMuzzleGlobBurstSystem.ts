@@ -8,7 +8,7 @@ type GlobBurst = {
 };
 
 export type PlasmaMuzzleGlobBurstSystem = {
-  spawnBurst: (origin: THREE.Vector3, direction: THREE.Vector3) => void;
+  spawnBurst: (origin: THREE.Vector3, direction: THREE.Vector3, inheritedVelocity?: THREE.Vector3) => void;
   update: (deltaTime: number) => void;
   dispose: () => void;
 };
@@ -19,6 +19,8 @@ type PlasmaMuzzleGlobBurstSystemConfig = {
   speedMin?: number;
   speedMax?: number;
   spreadRadians?: number;
+  forwardVelocityBias?: number;
+  pointSizeScale?: number;
   deepColor?: number;
   coreColor?: number;
 };
@@ -36,6 +38,7 @@ attribute float aSeed;
 uniform float uAge;
 uniform float uLifetime;
 uniform float uViewportHeight;
+uniform float uPointSizeScale;
 
 varying float vLife;
 varying float vSeed;
@@ -49,7 +52,7 @@ void main() {
   gl_Position = projectionMatrix * mvPosition;
 
   float baseSize = mix(19.8, 9.0, t);
-  gl_PointSize = baseSize * (uViewportHeight / max(330.0, -mvPosition.z * 170.0));
+  gl_PointSize = baseSize * uPointSizeScale * (uViewportHeight / max(330.0, -mvPosition.z * 170.0));
 
   vLife = 1.0 - t;
   vSeed = aSeed;
@@ -95,6 +98,8 @@ export function createPlasmaMuzzleGlobBurstSystem(
     0,
     Math.PI
   );
+  const forwardVelocityBias = Math.max(0, config.forwardVelocityBias ?? 0);
+  const pointSizeScale = Math.max(0.1, config.pointSizeScale ?? 1);
   const deepColor = new THREE.Color(config.deepColor ?? 0xe0081f);
   const coreColor = new THREE.Color(config.coreColor ?? 0xff292b);
 
@@ -107,8 +112,13 @@ export function createPlasmaMuzzleGlobBurstSystem(
   const directionQuaternion = new THREE.Quaternion();
   const localDirection = new THREE.Vector3();
   const velocity = new THREE.Vector3();
+  const inheritedBurstVelocity = new THREE.Vector3();
 
-  const spawnBurst = (origin: THREE.Vector3, direction: THREE.Vector3): void => {
+  const spawnBurst = (
+    origin: THREE.Vector3,
+    direction: THREE.Vector3,
+    inheritedVelocity?: THREE.Vector3
+  ): void => {
     burstDirection.copy(direction);
     if (burstDirection.lengthSq() <= 0.000001) {
       burstDirection.copy(forwardAxis);
@@ -116,6 +126,10 @@ export function createPlasmaMuzzleGlobBurstSystem(
       burstDirection.normalize();
     }
     directionQuaternion.setFromUnitVectors(forwardAxis, burstDirection);
+    inheritedBurstVelocity.copy(inheritedVelocity ?? forwardAxis).multiplyScalar(0);
+    if (inheritedVelocity && inheritedVelocity.lengthSq() > 0.000001) {
+      inheritedBurstVelocity.copy(inheritedVelocity);
+    }
 
     const positions = new Float32Array(globCountPerBurst * 3);
     const velocities = new Float32Array(globCountPerBurst * 3);
@@ -135,6 +149,10 @@ export function createPlasmaMuzzleGlobBurstSystem(
 
       const speed = randomRange(speedMin, speedMax);
       velocity.copy(localDirection).multiplyScalar(speed);
+      if (forwardVelocityBias > 0) {
+        velocity.addScaledVector(burstDirection, forwardVelocityBias);
+      }
+      velocity.add(inheritedBurstVelocity);
       velocities[index] = velocity.x;
       velocities[index + 1] = velocity.y;
       velocities[index + 2] = velocity.z;
@@ -156,6 +174,7 @@ export function createPlasmaMuzzleGlobBurstSystem(
         uAge: { value: 0 },
         uLifetime: { value: burstLifetimeSeconds },
         uViewportHeight: { value: window.innerHeight || 1080 },
+        uPointSizeScale: { value: pointSizeScale },
         uDeepColor: { value: new THREE.Vector3(deepColor.r, deepColor.g, deepColor.b) },
         uCoreColor: { value: new THREE.Vector3(coreColor.r, coreColor.g, coreColor.b) }
       }

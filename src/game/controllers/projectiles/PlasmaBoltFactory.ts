@@ -73,6 +73,7 @@ export type PlasmaBoltShaderVariant = "plasma" | "void";
 
 export type PlasmaBoltFactoryOptions = LaserBoltFactoryOptions & {
   modelUrl?: string;
+  reverseModelForward?: boolean;
   shaderVariant?: PlasmaBoltShaderVariant;
   glowLayerStyle?: "shell" | "outline" | "none";
   coreColor?: number;
@@ -127,6 +128,7 @@ export function createPlasmaBoltFactory(
   const shellColor = new THREE.Color(options.shellColor ?? options.hotColor ?? 0xffc2cb);
   const glowColor = new THREE.Color(options.glowColor ?? 0xff2b2b);
   const shaderVariant = options.shaderVariant ?? "plasma";
+  const reverseModelForward = Boolean(options.reverseModelForward);
   const glowLayerStyle = options.glowLayerStyle ?? "shell";
   const hasGlowLayer = glowLayerStyle !== "none";
   const plasmaIntensity = Math.max(0.001, options.emissiveIntensity ?? 3.2);
@@ -242,6 +244,9 @@ export function createPlasmaBoltFactory(
     const coreVisual = modelTemplate
       ? modelTemplate.clone(true)
       : new THREE.Mesh(fallbackGeometry, plasmaMaterial);
+    if (reverseModelForward) {
+      coreVisual.rotateY(Math.PI);
+    }
     assignMaterialToMeshes(coreVisual, plasmaMaterial);
     projectileGroup.add(coreVisual);
 

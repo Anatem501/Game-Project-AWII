@@ -919,7 +919,7 @@ export function createMissileBayController({
     }
   };
 
-  const onPointerDown = (event: PointerEvent): void => {
+  const onMouseDown = (event: MouseEvent): void => {
     if (event.button !== 2) {
       return;
     }
@@ -952,7 +952,7 @@ export function createMissileBayController({
     event.preventDefault();
   };
 
-  canvas.addEventListener("pointerdown", onPointerDown);
+  canvas.addEventListener("mousedown", onMouseDown);
   canvas.addEventListener("contextmenu", onContextMenu);
 
   const setMissileBays = (nextBays: readonly MissileBayInstanceConfig[]): void => {
@@ -2180,7 +2180,7 @@ export function createMissileBayController({
   };
 
   const dispose = (): void => {
-    canvas.removeEventListener("pointerdown", onPointerDown);
+    canvas.removeEventListener("mousedown", onMouseDown);
     canvas.removeEventListener("contextmenu", onContextMenu);
 
     for (let i = activeMissiles.length - 1; i >= 0; i -= 1) {

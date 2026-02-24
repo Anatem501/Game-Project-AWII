@@ -100,6 +100,9 @@ export function createPlayerHealthHud(root: HTMLElement): PlayerHealthHud {
     minimapSnapshot?: HudMinimapSnapshot,
     boundarySnapshot?: HudBoundarySnapshot
   ): void => {
+    setLayerRowVisible(shield.row, snapshot.shield.max);
+    setLayerRowVisible(armor.row, snapshot.armor.max);
+    setLayerRowVisible(hull.row, snapshot.hull.max);
     updateLayer(shield.elements, snapshot.shield.current, snapshot.shield.max);
     updateLayer(armor.elements, snapshot.armor.current, snapshot.armor.max);
     updateLayer(hull.elements, snapshot.hull.current, snapshot.hull.max);
@@ -385,6 +388,10 @@ function updateLayer(elements: LayerElements, current: number, max: number): voi
 
   elements.fill.style.width = `${Math.round(ratio * 100)}%`;
   elements.value.textContent = `${Math.round(clampedCurrent)} / ${Math.round(clampedMax)}`;
+}
+
+function setLayerRowVisible(row: HTMLDivElement, max: number): void {
+  row.style.display = Math.max(0, max) > 0 ? "" : "none";
 }
 
 function updateVerticalHeat(

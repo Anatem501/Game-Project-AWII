@@ -143,9 +143,27 @@ export class MainMenu {
             <canvas class="ship-preview-canvas" data-role="ship-preview-canvas"></canvas>
           </div>
           <div class="ship-select-labels">
-            <span data-role="ship-prev-label"></span>
+            <button
+              class="ship-select-side-label-button"
+              type="button"
+              data-action="ship-prev-label"
+              data-focusable="true"
+              aria-label="Select Previous Ship"
+              title="Select Previous Ship"
+            >
+              <span data-role="ship-prev-label"></span>
+            </button>
             <strong data-role="ship-current-label"></strong>
-            <span data-role="ship-next-label"></span>
+            <button
+              class="ship-select-side-label-button"
+              type="button"
+              data-action="ship-next-label"
+              data-focusable="true"
+              aria-label="Select Next Ship"
+              title="Select Next Ship"
+            >
+              <span data-role="ship-next-label"></span>
+            </button>
           </div>
           <p class="ship-description" data-role="ship-description"></p>
         </section>
@@ -154,14 +172,23 @@ export class MainMenu {
           <div class="component-panel-content">
             <div data-role="ship-select-cannon-slots"></div>
             <div data-role="ship-select-missile-slots"></div>
+            <div data-role="ship-select-built-in-slots"></div>
             <p class="ship-description">Component changes are available in the Equipment panel after confirming the ship.</p>
           </div>
         </section>
       </div>
-      <div class="menu-action-row">
-        <button class="menu-button" data-action="ship-prev" data-focusable="true">Previous</button>
+      <div class="menu-action-row menu-action-row-ship-select">
+        <button class="menu-button menu-button-icon" data-action="ship-prev" data-focusable="true" aria-label="Previous Ship" title="Previous Ship">
+          <svg class="menu-button-icon-svg" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+            <path d="M12.5 4.5L7 10l5.5 5.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
         <button class="menu-button" data-action="ship-confirm" data-focusable="true">Confirm</button>
-        <button class="menu-button" data-action="ship-next" data-focusable="true">Next</button>
+        <button class="menu-button menu-button-icon" data-action="ship-next" data-focusable="true" aria-label="Next Ship" title="Next Ship">
+          <svg class="menu-button-icon-svg" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+            <path d="M7.5 4.5L13 10l-5.5 5.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
         <button class="menu-button menu-button-secondary" data-action="ship-select-back" data-focusable="true">Back</button>
       </div>
     `);
@@ -172,6 +199,12 @@ export class MainMenu {
     this.panel.querySelectorAll<HTMLButtonElement>('[data-action="ship-next"]').forEach((button) => {
       button.addEventListener("click", () => this.shiftShipSelection(1));
     });
+    this.panel
+      .querySelector<HTMLButtonElement>('[data-action="ship-prev-label"]')
+      ?.addEventListener("click", () => this.shiftShipSelection(-1));
+    this.panel
+      .querySelector<HTMLButtonElement>('[data-action="ship-next-label"]')
+      ?.addEventListener("click", () => this.shiftShipSelection(1));
     this.panel
       .querySelector<HTMLButtonElement>('[data-action="ship-confirm"]')
       ?.addEventListener("click", () => this.showShipConfirmMenu());
@@ -273,6 +306,17 @@ export class MainMenu {
     this.disposePreview();
     this.preview = new ShipCarouselPreview(canvas);
     this.preview.setDisplayMode(mode);
+    this.preview.setSlotClickHandler(
+      mode === "carousel"
+        ? (slotIndex) => {
+            if (slotIndex === 0) {
+              this.shiftShipSelection(-1);
+            } else if (slotIndex === 2) {
+              this.shiftShipSelection(1);
+            }
+          }
+        : null
+    );
     this.preview.start();
   }
 
@@ -360,6 +404,22 @@ export class MainMenu {
             `;
           })
           .join("");
+      }
+    }
+
+    const shipSelectBuiltInSlots = this.panel.querySelector<HTMLElement>(
+      '[data-role="ship-select-built-in-slots"]'
+    );
+    if (shipSelectBuiltInSlots) {
+      if (current.id === "test_fighter") {
+        shipSelectBuiltInSlots.innerHTML = `
+          <div class="menu-button menu-button-secondary component-slot-button component-slot-readonly">
+            <span class="component-slot-title">Ability</span>
+            <span class="component-slot-value">Built In: Areobatic Roll</span>
+          </div>
+        `;
+      } else {
+        shipSelectBuiltInSlots.innerHTML = "";
       }
     }
 

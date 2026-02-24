@@ -150,8 +150,8 @@ const TEST_FIGHTER: ShipDefinition = {
     strafeDeceleration: 16
   },
   health: {
-    maxShield: 20,
-    maxArmor: 40,
+    maxShield: 80,
+    maxArmor: 0,
     maxHull: 80,
     shieldChargeRate: 2,
     shieldRechargeDelaySeconds: 3,
@@ -258,9 +258,9 @@ const SWIFT_INTERCEPTOR: ShipDefinition = {
     strafeDeceleration: 18.5
   },
   health: {
-    maxShield: 24,
-    maxArmor: 30,
-    maxHull: 68,
+    maxShield: 20,
+    maxArmor: 0,
+    maxHull: 100,
     shieldChargeRate: 2.5,
     shieldRechargeDelaySeconds: 2.8,
     hullRepairRate: 0,
@@ -295,9 +295,9 @@ const BEARCLAW_MK2: ShipDefinition = {
     strafeDeceleration: 13.8
   },
   health: {
-    maxShield: 14,
-    maxArmor: 68,
-    maxHull: 118,
+    maxShield: 0,
+    maxArmor: 100,
+    maxHull: 150,
     shieldChargeRate: 1.6,
     shieldRechargeDelaySeconds: 3.6,
     hullRepairRate: 0,
@@ -331,9 +331,9 @@ const MX4_LANCER: ShipDefinition = {
     strafeDeceleration: 15.4
   },
   health: {
-    maxShield: 22,
-    maxArmor: 50,
-    maxHull: 96,
+    maxShield: 40,
+    maxArmor: 20,
+    maxHull: 100,
     shieldChargeRate: 2,
     shieldRechargeDelaySeconds: 3.1,
     hullRepairRate: 0,

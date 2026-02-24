@@ -1,4 +1,5 @@
 import { createIonBoltFactory } from "../controllers/projectiles/IonBoltFactory";
+import { createIonArcFactory } from "../controllers/projectiles/IonArcFactory";
 import { createLaserBoltFactory } from "../controllers/projectiles/LaserBoltFactory";
 import { createPlasmaBoltFactory } from "../controllers/projectiles/PlasmaBoltFactory";
 import type { ProjectileFactory } from "../controllers/projectiles/ProjectileTypes";
@@ -8,6 +9,9 @@ import {
 } from "./WeaponComponentCatalog";
 
 export type CannonProjectileFactoryAssets = {
+  arcModelUrl?: string;
+  arcV01ModelUrl?: string;
+  arcV02ModelUrl?: string;
   ionboltModelUrl?: string;
   plasmaboltModelUrl?: string;
 };
@@ -34,7 +38,8 @@ export function createCannonPrimaryProjectileFactory(
   if (componentId === "repeating_voidbolt_fire") {
     return createPlasmaBoltFactory({
       faction: config.faction,
-      modelUrl: config.assets?.plasmaboltModelUrl,
+      modelUrl: config.assets?.ionboltModelUrl,
+      reverseModelForward: true,
       shaderVariant: "void",
       coreColor: 0x24103a,
       hotColor: 0x341652,
@@ -51,6 +56,67 @@ export function createCannonPrimaryProjectileFactory(
       trailGlobOutlineScale: 1.22,
       trailGlobCount: 4,
       trailGlobLifetimeSeconds: 0.055,
+      ...component.projectile
+    });
+  }
+
+  if (componentId === "burst_ion_arc_fire") {
+    return createIonArcFactory({
+      faction: config.faction,
+      modelUrl: config.assets?.arcModelUrl,
+      coreColor: 0x3f7dff,
+      arcColor: 0x7cb8ff,
+      rimColor: 0x2e6dff,
+      shadowGlowColor: 0x4d7dff,
+      shadowGlowOpacity: 0.2,
+      surfaceOpacity: 0.58,
+      ...component.projectile
+    });
+  }
+
+  if (componentId === "cryowave_fire") {
+    return createIonArcFactory({
+      faction: config.faction,
+      modelUrl: config.assets?.arcV02ModelUrl ?? config.assets?.arcV01ModelUrl ?? config.assets?.arcModelUrl,
+      coreColor: 0x87d7ff,
+      arcColor: 0xbfeeff,
+      rimColor: 0xbfeeff,
+      surfaceOpacity: 0.5,
+      enableSpiralBridgeParticles: false,
+      surfacePulseStrength: 0,
+      outlineLayerColor: 0x143f8f,
+      outlineLayerOpacity: 0.85,
+      outlineLayerScale: 1.035,
+      glowLayerOpacity: 0,
+      pierceOnCollision: false,
+      maxPierceHits: 1,
+      baseForwardScale: 0.42,
+      baseHeightScale: 0.44,
+      baseWidthScale: 0.36,
+      widthGrowMax: 1.02,
+      heightGrowMax: 0.88,
+      lengthScaleEnd: 0.97,
+      socketTrailLengthMultiplier: 2.55,
+      socketTrailParticleSizeMultiplier: 5.8,
+      socketTrailParticlesPerSocket: 5,
+      socketTrailFlowSpeedMin: 1.4,
+      socketTrailFlowSpeedMax: 3.1,
+      socketTrailMirrorSeeds: true,
+      useIndexedParticleTrailSockets: true,
+      indexedParticleTrailSocketIds: [1, 2, 3],
+      indexedParticleTrailSocketLengthMultipliers: {
+        2: 0.58,
+        3: 0.58
+      },
+      indexedParticleTrailSocketSizeMultipliers: {
+        2: 0.55,
+        3: 0.55
+      },
+      includePrimaryMarkerTrails: false,
+      autoCenterByWidth: true,
+      startAtFullScale: true,
+      fadeStartT: 0.5,
+      fadeEndT: 0.98,
       ...component.projectile
     });
   }

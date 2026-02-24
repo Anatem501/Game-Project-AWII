@@ -93,6 +93,23 @@ canvas {
   box-shadow: 0 0 0 2px rgba(89, 196, 255, 0.55);
 }
 
+.menu-button-icon {
+  width: 2.4rem;
+  min-width: 2.4rem;
+  height: 2.4rem;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.menu-button-icon-svg {
+  width: 1rem;
+  height: 1rem;
+  display: block;
+}
+
 .ship-select-layout {
   display: grid;
   grid-template-columns: minmax(220px, 1fr) minmax(320px, 1.4fr) minmax(220px, 1fr);
@@ -190,6 +207,29 @@ canvas {
   color: #b0dcff;
 }
 
+.ship-select-side-label-button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0.1rem 0.2rem;
+  margin: 0;
+  cursor: pointer;
+  text-align: center;
+  justify-self: stretch;
+}
+
+.ship-select-side-label-button:hover {
+  color: #dff4ff;
+  text-decoration: underline;
+}
+
+.ship-select-side-label-button:focus-visible {
+  outline: 2px solid rgba(184, 234, 255, 0.95);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
 .ship-select-labels strong {
   color: #f2fbff;
   font-size: 0.95rem;
@@ -225,6 +265,11 @@ canvas {
 
 .menu-action-row-confirm {
   grid-template-columns: repeat(2, minmax(180px, 1fr));
+}
+
+.menu-action-row-ship-select {
+  grid-template-columns: 2.4rem minmax(150px, 1fr) 2.4rem minmax(120px, 1fr);
+  align-items: center;
 }
 
 .menu-action-row .menu-button {

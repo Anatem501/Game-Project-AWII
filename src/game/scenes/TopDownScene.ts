@@ -9,6 +9,9 @@ import {
 import enemyDualLaserTurretModelUrl from "../../assets/models/DualGunTurrretV1.glb?url";
 import plasmaboltModelUrl from "../../assets/models/Plasmabolt-v01.glb?url";
 import ionboltModelUrl from "../../assets/models/Ionbolt-v01.glb?url";
+import arcV03ModelUrl from "../../assets/models/Arc-v03.glb?url";
+import arcV01ModelUrl from "../../assets/models/Arc-v01.glb?url";
+import arcV02ModelUrl from "../../assets/models/Arc-v02.glb?url";
 import { createCameraController } from "../controllers/CameraController";
 import { createGunController } from "../controllers/GunController";
 import {
@@ -49,6 +52,7 @@ import {
   type HudBoundarySnapshot,
   type HudMinimapSnapshot
 } from "../ui/PlayerHealthHud";
+import { createBurstPhaseTimerHud } from "../ui/BurstPhaseTimerHud";
 import { createEnemyAiDebugPanel } from "../ui/EnemyAiDebugPanel";
 import { createEnvironment } from "./factories/EnvironmentFactory";
 import {
@@ -104,6 +108,7 @@ const REPEATING_LASERBOLT_COMPONENT_ID = "repeating_laserbolt_fire";
 const REPEATING_PLASMABOLT_COMPONENT_ID = "repeating_plasmabolt_fire";
 const REPEATING_VOIDBOLT_COMPONENT_ID = "repeating_voidbolt_fire";
 const REPEATING_IONBOLT_COMPONENT_ID = "repeating_ionbolt_fire";
+const CRYOWAVE_FIRE_COMPONENT_ID = "cryowave_fire";
 const CANNON_FIRE_INTERVAL_SECONDS = 0.5;
 const HUD_MINIMAP_RANGE_METERS = 80;
 const ENEMY_PLASMABOLT_EXTRA_HEAT_COST = 1;
@@ -390,6 +395,9 @@ export function setupTopDownScene(
   const primaryCannonProjectileFactoryResolver = createCachedCannonPrimaryProjectileFactoryResolver({
     faction: "player",
     assets: {
+      arcModelUrl: arcV03ModelUrl,
+      arcV01ModelUrl: arcV01ModelUrl,
+      arcV02ModelUrl: arcV02ModelUrl,
       ionboltModelUrl: ionboltModelUrl,
       plasmaboltModelUrl: plasmaboltModelUrl
     }
@@ -815,7 +823,30 @@ export function setupTopDownScene(
   const primaryComponent = getCannonPrimaryComponentDefinition(selectedCannonPrimaryComponentId);
   const primaryHeatCost = Math.max(0, primaryComponent.heatCost ?? 0);
   const primaryEnergyCost = Math.max(0, primaryComponent.energyCost ?? 0);
-  const primaryFireIntervalSeconds = CANNON_FIRE_INTERVAL_SECONDS;
+  const primaryFireIntervalSeconds = Math.max(
+    0.001,
+    primaryComponent.fireIntervalSeconds ?? CANNON_FIRE_INTERVAL_SECONDS
+  );
+  const primaryFireIntervalSequenceSeconds = (primaryComponent.fireIntervalSequenceSeconds ?? []).map(
+    (interval) => Math.max(0.001, interval)
+  );
+  const useAzureArrowBurstIonArcBurstAlternation =
+    selectedShip.id === "test_fighter" &&
+    selectedCannonPrimaryComponentId === "burst_ion_arc_fire" &&
+    gunHardpoints.length >= 4;
+  const azureArrowBurstIonArcSecondPhaseOffsetSeconds = useAzureArrowBurstIonArcBurstAlternation
+    ? (() => {
+        const sequence = primaryFireIntervalSequenceSeconds;
+        if (sequence.length <= 0) {
+          return Math.max(0, primaryFireIntervalSeconds * 0.5);
+        }
+        const burstGapInterval = sequence[sequence.length - 1] ?? primaryFireIntervalSeconds;
+        const burstShotsDuration = sequence
+          .slice(0, Math.max(0, sequence.length - 1))
+          .reduce((sum, step) => sum + step, 0);
+        return Math.max(0, burstShotsDuration + burstGapInterval * 0.5);
+      })()
+    : 0;
   const primaryPhaseOffsets = resolveCannonPrimaryPhaseOffsets(
     selectedShip.id,
     selectedCannonPrimaryComponentId,
@@ -826,7 +857,15 @@ export function setupTopDownScene(
     return {
       primary: {
         fireIntervalSeconds: primaryFireIntervalSeconds,
-        phaseOffsetSeconds: primaryPhaseOffsets[hardpointIndex] ?? 0,
+        fireIntervalSequenceSeconds: primaryFireIntervalSequenceSeconds,
+        fireIntervalMultiplierScope: primaryComponent.fireIntervalMultiplierScope ?? "all_steps",
+        burstPhaseGroupId: undefined,
+        burstPhaseGroupPattern: undefined,
+        phaseOffsetSeconds: useAzureArrowBurstIonArcBurstAlternation
+          ? hardpointIndex >= 2 && hardpointIndex < 4
+            ? azureArrowBurstIonArcSecondPhaseOffsetSeconds
+            : 0
+          : (primaryPhaseOffsets[hardpointIndex] ?? 0),
         projectileFactory: primaryCannonProjectileFactoryResolver.resolve(
           selectedCannonPrimaryComponentId
         ),
@@ -886,6 +925,9 @@ export function setupTopDownScene(
   const hudRoot = canvas.parentElement ?? document.body;
   const playerHealthHud = createPlayerHealthHud(hudRoot);
   const enemyAiDebugPanel = createEnemyAiDebugPanel(hudRoot);
+  const burstPhaseTimerHud = createBurstPhaseTimerHud(hudRoot);
+  let burstPhaseTimerCycleSeconds = 0;
+  let burstPhaseTimerWasActive = false;
   const missileWarningLabelStyle = {
     color: "#ffbf86",
     secondaryColor: "#fff0dd",
@@ -970,6 +1012,44 @@ export function setupTopDownScene(
       !playerIsDestroyed ? playerController.getTemporaryManeuverCameraLockYaw() : null
     );
     gunController.update(deltaTime, playerState);
+    const isAzureBurstIonArcPhaseTimerActive = useAzureArrowBurstIonArcBurstAlternation;
+    if (isAzureBurstIonArcPhaseTimerActive) {
+      const primaryFireActive = gunController.isPrimaryFireInputActive();
+      const burstSequence = primaryFireIntervalSequenceSeconds;
+      const baseBurstGapInterval =
+        burstSequence.length > 0
+          ? (burstSequence[burstSequence.length - 1] ?? primaryFireIntervalSeconds)
+          : primaryFireIntervalSeconds;
+      const burstShotsDuration = burstSequence
+        .slice(0, Math.max(0, burstSequence.length - 1))
+        .reduce((sum, step) => sum + step, 0);
+      const lowPowerMultiplier = Math.max(1, playerResources.getWeaponFireIntervalMultiplier());
+      const effectiveBurstGapInterval = baseBurstGapInterval * lowPowerMultiplier;
+      const currentCycleSeconds = Math.max(0.001, burstShotsDuration + effectiveBurstGapInterval);
+      if (primaryFireActive) {
+        if (!burstPhaseTimerWasActive) {
+          burstPhaseTimerCycleSeconds = 0;
+        } else {
+          burstPhaseTimerCycleSeconds = THREE.MathUtils.euclideanModulo(
+            burstPhaseTimerCycleSeconds + deltaTime,
+            currentCycleSeconds
+          );
+        }
+      }
+      burstPhaseTimerWasActive = primaryFireActive;
+      burstPhaseTimerHud.update({
+        cycleSeconds: currentCycleSeconds,
+        cycleTimeSeconds: burstPhaseTimerCycleSeconds,
+        phaseASeconds: 0,
+        phaseBSeconds: burstShotsDuration + effectiveBurstGapInterval * 0.5,
+        isFiringActive: primaryFireActive,
+        lowPowerMultiplier
+      });
+    } else {
+      burstPhaseTimerWasActive = false;
+      burstPhaseTimerCycleSeconds = 0;
+      burstPhaseTimerHud.update(null);
+    }
     rogueEnemyCannonShip?.setPlayerPrimaryFireActive(gunController.isPrimaryFireInputActive());
     for (const missileShip of rogueEnemyMissileShips) {
       missileShip?.setPlayerPrimaryFireActive(gunController.isPrimaryFireInputActive());
@@ -1407,6 +1487,7 @@ export function setupTopDownScene(
     playerNotificationLowEnergyLabel.dispose();
     environment.dispose();
     playerHealthHud.dispose();
+    burstPhaseTimerHud.dispose();
     enemyAiDebugPanel.dispose();
   };
 
@@ -1485,7 +1566,8 @@ function resolveCannonPrimaryPhaseOffsets(
     primaryComponentId !== REPEATING_LASERBOLT_COMPONENT_ID &&
     primaryComponentId !== REPEATING_PLASMABOLT_COMPONENT_ID &&
     primaryComponentId !== REPEATING_VOIDBOLT_COMPONENT_ID &&
-    primaryComponentId !== REPEATING_IONBOLT_COMPONENT_ID
+    primaryComponentId !== REPEATING_IONBOLT_COMPONENT_ID &&
+    primaryComponentId !== CRYOWAVE_FIRE_COMPONENT_ID
   ) {
     return new Array(cannonCount).fill(0);
   }
@@ -1502,12 +1584,7 @@ function resolveRepeatingLaserboltPhaseSlots(shipId: string, cannonCount: number
   }
 
   if (shipId === "swift_interceptor") {
-    if (cannonCount === 4) {
-      return [0, 0, 1, 1];
-    }
-    if (cannonCount === 2) {
-      return [0, 1];
-    }
+    return new Array(cannonCount).fill(0);
   }
 
   if (shipId === "test_fighter" || shipId === "vanguard_mk2" || shipId === "mx4_lancer") {
