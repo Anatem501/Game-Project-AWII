@@ -33,9 +33,15 @@ export type CannonOverheatSteamEffect = {
   dispose: () => void;
 };
 
+export type CannonOverheatSteamEffectOptions = {
+  alignToHardpointDirection?: boolean;
+  positionJitterScale?: number;
+};
+
 export function createCannonOverheatSteamEffect(
   scene: THREE.Scene,
-  cannonHardpoints: readonly THREE.Object3D[]
+  cannonHardpoints: readonly THREE.Object3D[],
+  options: CannonOverheatSteamEffectOptions = {}
 ): CannonOverheatSteamEffect {
   const root = new THREE.Group();
   scene.add(root);
@@ -45,6 +51,9 @@ export function createCannonOverheatSteamEffect(
   const spawnVelocity = new THREE.Vector3();
   const randomOffset = new THREE.Vector3();
   const backwardDirection = new THREE.Vector3();
+  const hardpointForward = new THREE.Vector3();
+  const alignToHardpointDirection = options.alignToHardpointDirection ?? false;
+  const positionJitterScale = Math.max(0, options.positionJitterScale ?? 1);
 
   const activeParticles: OverheatSteamParticle[] = [];
   let spawnAccumulator = 0;
@@ -56,13 +65,24 @@ export function createCannonOverheatSteamEffect(
 
     hardpoint.getWorldPosition(spawnPosition);
     randomOffset.set(
-      (Math.random() - 0.5) * 0.12,
-      (Math.random() - 0.5) * 0.08,
-      (Math.random() - 0.5) * 0.12
+      (Math.random() - 0.5) * 0.12 * positionJitterScale,
+      (Math.random() - 0.5) * 0.08 * positionJitterScale,
+      (Math.random() - 0.5) * 0.12 * positionJitterScale
     );
     spawnPosition.add(randomOffset);
 
-    backwardDirection.copy(shipForward).multiplyScalar(-PARTICLE_FORWARD_DRIFT);
+    if (alignToHardpointDirection) {
+      hardpoint.getWorldDirection(hardpointForward);
+      hardpointForward.setY(0);
+      if (hardpointForward.lengthSq() <= 0.000001) {
+        backwardDirection.copy(shipForward).multiplyScalar(-PARTICLE_FORWARD_DRIFT);
+      } else {
+        hardpointForward.normalize();
+        backwardDirection.copy(hardpointForward).multiplyScalar(-PARTICLE_FORWARD_DRIFT);
+      }
+    } else {
+      backwardDirection.copy(shipForward).multiplyScalar(-PARTICLE_FORWARD_DRIFT);
+    }
     spawnVelocity.set(
       backwardDirection.x + (Math.random() - 0.5) * PARTICLE_SIDE_SPREAD,
       randomRange(PARTICLE_UPWARD_SPEED_MIN, PARTICLE_UPWARD_SPEED_MAX),

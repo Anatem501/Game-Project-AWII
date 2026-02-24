@@ -57,7 +57,9 @@ import { createEnemyAiDebugPanel } from "../ui/EnemyAiDebugPanel";
 import { createEnvironment } from "./factories/EnvironmentFactory";
 import {
   createRoguePilotEnemyCannonShip,
-  ROGUE_PILOT_CANNON_SHIP_ARCHETYPE
+  createRoguePilotEnemyPlasmaCannonShip,
+  ROGUE_PILOT_CANNON_SHIP_ARCHETYPE,
+  ROGUE_PILOT_PLASMA_CANNON_SHIP_ARCHETYPE
 } from "./factories/EnemyCannonShipFactory";
 import {
   createRoguePilotEnemyMissileShip,
@@ -425,7 +427,9 @@ export function setupTopDownScene(
     null;
   let rogueEnemyCannonShip: EnemyCannonShipController | null = null;
   let rogueEnemyCannonShipRespawnSecondsRemaining = 0;
-  const ROGUE_MISSILE_SHIP_COUNT = 3;
+  let rogueEnemyPlasmaCannonShip: EnemyCannonShipController | null = null;
+  let rogueEnemyPlasmaCannonShipRespawnSecondsRemaining = 0;
+  const ROGUE_MISSILE_SHIP_COUNT = 2;
   const rogueEnemyMissileShips: Array<EnemyMissileShipController | null> = Array.from(
     { length: ROGUE_MISSILE_SHIP_COUNT },
     () => null
@@ -473,6 +477,9 @@ export function setupTopDownScene(
     }
     if (rogueEnemyCannonShip?.hurtbox.isEnabled()) {
       enemyTargetHurtboxes.push(rogueEnemyCannonShip.hurtbox);
+    }
+    if (rogueEnemyPlasmaCannonShip?.hurtbox.isEnabled()) {
+      enemyTargetHurtboxes.push(rogueEnemyPlasmaCannonShip.hurtbox);
     }
     for (const missileShip of rogueEnemyMissileShips) {
       if (missileShip?.hurtbox.isEnabled()) {
@@ -793,6 +800,31 @@ export function setupTopDownScene(
     updateEnemyTargetHurtboxes();
   };
 
+  const spawnRogueEnemyPlasmaCannonShip = (): void => {
+    if (mapId !== "rogue_pilot_map") {
+      return;
+    }
+    rogueEnemyPlasmaCannonShip = createRoguePilotEnemyPlasmaCannonShip(
+      scene,
+      playerRoot,
+      playerTargetHurtboxes,
+      {
+        arenaCenter: new THREE.Vector3(ROGUE_ARENA_CENTER_X, FLOOR_Y, ROGUE_ARENA_CENTER_Z),
+        arenaEdgeRadius: ROGUE_ARENA_HARD_RADIUS - 3,
+        playerManeuverSpeed: selectedShip.handling.topManeuveringSpeed
+      }
+    );
+
+    updateEnemyTargetHurtboxes();
+  };
+
+  const despawnRogueEnemyPlasmaCannonShip = (): void => {
+    rogueEnemyPlasmaCannonShip?.hurtbox.setEnabled(false);
+    rogueEnemyPlasmaCannonShip?.dispose();
+    rogueEnemyPlasmaCannonShip = null;
+    updateEnemyTargetHurtboxes();
+  };
+
   const spawnRogueEnemyMissileShip = (slotIndex: number): void => {
     if (mapId !== "rogue_pilot_map") {
       return;
@@ -816,6 +848,7 @@ export function setupTopDownScene(
   spawnEnemyDualLaserBoltTurret();
   spawnEnemyPlasmaboltTurret();
   spawnRogueEnemyCannonShip();
+  spawnRogueEnemyPlasmaCannonShip();
   for (let i = 0; i < ROGUE_MISSILE_SHIP_COUNT; i += 1) {
     spawnRogueEnemyMissileShip(i);
   }
@@ -1051,6 +1084,7 @@ export function setupTopDownScene(
       burstPhaseTimerHud.update(null);
     }
     rogueEnemyCannonShip?.setPlayerPrimaryFireActive(gunController.isPrimaryFireInputActive());
+    rogueEnemyPlasmaCannonShip?.setPlayerPrimaryFireActive(gunController.isPrimaryFireInputActive());
     for (const missileShip of rogueEnemyMissileShips) {
       missileShip?.setPlayerPrimaryFireActive(gunController.isPrimaryFireInputActive());
     }
@@ -1296,6 +1330,25 @@ export function setupTopDownScene(
         spawnRogueEnemyCannonShip();
       }
     }
+    if (rogueEnemyPlasmaCannonShip) {
+      rogueEnemyPlasmaCannonShip.update(deltaTime);
+      if (rogueEnemyPlasmaCannonShip.isDestroyed()) {
+        despawnRogueEnemyPlasmaCannonShip();
+        rogueEnemyPlasmaCannonShipRespawnSecondsRemaining =
+          ROGUE_PILOT_PLASMA_CANNON_SHIP_ARCHETYPE.respawnSeconds;
+      }
+    } else if (
+      mapId === "rogue_pilot_map" &&
+      rogueEnemyPlasmaCannonShipRespawnSecondsRemaining > 0
+    ) {
+      rogueEnemyPlasmaCannonShipRespawnSecondsRemaining = Math.max(
+        0,
+        rogueEnemyPlasmaCannonShipRespawnSecondsRemaining - deltaTime
+      );
+      if (rogueEnemyPlasmaCannonShipRespawnSecondsRemaining <= 0) {
+        spawnRogueEnemyPlasmaCannonShip();
+      }
+    }
     for (let i = 0; i < rogueEnemyMissileShips.length; i += 1) {
       const missileShip = rogueEnemyMissileShips[i];
       if (missileShip) {
@@ -1391,6 +1444,17 @@ export function setupTopDownScene(
           ROGUE_ARENA_RETURN_SPEED_UNITS_PER_SECOND * 0.75
         );
       }
+      if (rogueEnemyPlasmaCannonShip) {
+        applyCircularBoundary2D(
+          rogueEnemyPlasmaCannonShip.root.position,
+          deltaTime,
+          ROGUE_ARENA_CENTER_X,
+          ROGUE_ARENA_CENTER_Z,
+          ROGUE_ARENA_SOFT_RADIUS,
+          ROGUE_ARENA_HARD_RADIUS,
+          ROGUE_ARENA_RETURN_SPEED_UNITS_PER_SECOND * 0.75
+        );
+      }
       for (const missileShip of rogueEnemyMissileShips) {
         if (!missileShip) {
           continue;
@@ -1409,7 +1473,10 @@ export function setupTopDownScene(
 
     const playerHealthSnapshot = playerHealth.getSnapshot();
     playerShieldBubbleEffect?.update(deltaTime, playerHealthSnapshot);
-    const rogueEnemyDebugSnapshot = rogueEnemyCannonShip?.getDebugSnapshot() ?? null;
+    const rogueEnemyDebugSnapshot =
+      rogueEnemyCannonShip?.getDebugSnapshot() ??
+      rogueEnemyPlasmaCannonShip?.getDebugSnapshot() ??
+      null;
     enemyAiDebugPanel.update(
       rogueEnemyDebugSnapshot
         ? {
@@ -1474,6 +1541,7 @@ export function setupTopDownScene(
     despawnEnemyDualLaserBoltTurret();
     despawnEnemyPlasmaboltTurret();
     despawnRogueEnemyCannonShip();
+    despawnRogueEnemyPlasmaCannonShip();
     for (let i = 0; i < rogueEnemyMissileShips.length; i += 1) {
       despawnRogueEnemyMissileShip(i);
     }

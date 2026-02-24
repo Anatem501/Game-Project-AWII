@@ -1,16 +1,36 @@
 import * as THREE from "three";
 import basicEnemyCannonShipModelUrl from "../../../assets/models/Basic-Enemy-Cannon-Ship-v02.glb?url";
+import plasmaboltModelUrl from "../../../assets/models/Plasmabolt-v01.glb?url";
 import type { HurtboxComponent } from "../../components/combat/HurtboxComponent";
 import { EnemyCannonShip } from "../../entities/EnemyCannonShip";
 import { EnemyCannonShipController } from "../../enemies/EnemyCannonShipController";
-import { createBasicEnemyCannonShipArchetype } from "../../enemies/data/EnemyCannonShipStats";
+import {
+  createBasicEnemyCannonShipArchetype,
+  createPlasmaCannonEnemyShipArchetype,
+  type EnemyCannonShipArchetype
+} from "../../enemies/data/EnemyCannonShipStats";
+import { createCannonPrimaryProjectileFactory } from "../../weapons/CannonProjectileFactoryResolver";
 import { getCannonPrimaryComponentDefinition } from "../../weapons/WeaponComponentCatalog";
 
 const enemyLaserboltPrimaryComponent = getCannonPrimaryComponentDefinition("repeating_laserbolt_fire");
+const enemyPlasmaboltPrimaryComponent = getCannonPrimaryComponentDefinition("repeating_plasmabolt_fire");
 
 export const ROGUE_PILOT_CANNON_SHIP_ARCHETYPE = createBasicEnemyCannonShipArchetype(
   basicEnemyCannonShipModelUrl,
   enemyLaserboltPrimaryComponent.projectile
+);
+export const ROGUE_PILOT_PLASMA_CANNON_SHIP_ARCHETYPE = createPlasmaCannonEnemyShipArchetype(
+  basicEnemyCannonShipModelUrl,
+  enemyPlasmaboltPrimaryComponent.projectile
+);
+const enemyPlasmaCannonProjectileFactory = createCannonPrimaryProjectileFactory(
+  "repeating_plasmabolt_fire",
+  {
+    faction: "enemy",
+    assets: {
+      plasmaboltModelUrl
+    }
+  }
 );
 
 export function createRoguePilotEnemyCannonShip(
@@ -23,9 +43,48 @@ export function createRoguePilotEnemyCannonShip(
     playerManeuverSpeed: number;
   }
 ): EnemyCannonShipController {
-  const archetype = ROGUE_PILOT_CANNON_SHIP_ARCHETYPE;
+  return createRoguePilotEnemyCannonShipFromArchetype(
+    ROGUE_PILOT_CANNON_SHIP_ARCHETYPE,
+    scene,
+    playerTarget,
+    targetHurtboxes,
+    options
+  );
+}
+
+export function createRoguePilotEnemyPlasmaCannonShip(
+  scene: THREE.Scene,
+  playerTarget: THREE.Object3D,
+  targetHurtboxes: readonly HurtboxComponent[],
+  options: {
+    arenaCenter: THREE.Vector3;
+    arenaEdgeRadius: number;
+    playerManeuverSpeed: number;
+  }
+): EnemyCannonShipController {
+  return createRoguePilotEnemyCannonShipFromArchetype(
+    ROGUE_PILOT_PLASMA_CANNON_SHIP_ARCHETYPE,
+    scene,
+    playerTarget,
+    targetHurtboxes,
+    options
+  );
+}
+
+function createRoguePilotEnemyCannonShipFromArchetype(
+  archetype: EnemyCannonShipArchetype,
+  scene: THREE.Scene,
+  playerTarget: THREE.Object3D,
+  targetHurtboxes: readonly HurtboxComponent[],
+  options: {
+    arenaCenter: THREE.Vector3;
+    arenaEdgeRadius: number;
+    playerManeuverSpeed: number;
+  }
+): EnemyCannonShipController {
   const spawnPosition = resolveOppositeHalfEdgeSpawnPosition(playerTarget, options);
   const playerManeuverSpeed = Math.max(0.001, options.playerManeuverSpeed);
+  const isPlasmaVariant = archetype.id === ROGUE_PILOT_PLASMA_CANNON_SHIP_ARCHETYPE.id;
 
   const ship = new EnemyCannonShip(
     {
@@ -47,12 +106,24 @@ export function createRoguePilotEnemyCannonShip(
       burstTelegraphSeconds: archetype.combat.burstTelegraphSeconds,
       burstShotIntervalSeconds: archetype.combat.burstShotIntervalSeconds,
       burstCooldownSeconds: archetype.combat.burstCooldownSeconds,
+      primaryShotHeatCost: archetype.combat.primaryShotHeatCost,
+      primaryAttackHeatCost: archetype.combat.primaryAttackHeatCost,
       hurtboxRadius: archetype.collision.hurtboxRadius,
       hurtboxLocalOffset: archetype.collision.hurtboxLocalOffset,
       health: archetype.health,
+      resourceConfig: archetype.resource,
       playerTarget,
       targetHurtboxes,
+      projectileFactory: isPlasmaVariant ? enemyPlasmaCannonProjectileFactory : undefined,
       projectileOptions: archetype.combat.projectile,
+      muzzleTelegraphOuterColorHex: archetype.combat.projectile.color,
+      muzzleTelegraphInnerBaseColorHex:
+        archetype.combat.projectile.emissive ?? archetype.combat.projectile.color,
+      muzzleTelegraphInnerPeakColorHex: archetype.combat.projectile.color,
+      shieldBubbleEffectOptions:
+        archetype.id === ROGUE_PILOT_PLASMA_CANNON_SHIP_ARCHETYPE.id
+          ? { circularizeXZ: true }
+          : undefined,
       modelUrl: archetype.visual.modelUrl,
       modelYawOffset: archetype.visual.modelYawOffset,
       modelDesiredSize: archetype.visual.modelDesiredSize,

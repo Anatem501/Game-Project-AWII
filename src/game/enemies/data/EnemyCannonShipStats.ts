@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { HealthConfig } from "../../components/HealthComponent";
+import type { ShipResourceConfig } from "../../components/ShipResourceComponent";
 import type { LaserBoltFactoryOptions } from "../../controllers/projectiles/LaserBoltFactory";
 import type { EnemyShipAiConfig } from "../ai/EnemyShipAiTypes";
 
@@ -20,6 +21,8 @@ export type EnemyCannonShipCombatStats = {
   burstTelegraphSeconds: number;
   burstShotIntervalSeconds: number;
   burstCooldownSeconds: number;
+  primaryShotHeatCost: number;
+  primaryAttackHeatCost?: number;
   projectile: LaserBoltFactoryOptions;
 };
 
@@ -41,6 +44,7 @@ export type EnemyCannonShipArchetype = {
   spawnPosition: THREE.Vector3;
   respawnSeconds: number;
   health: HealthConfig;
+  resource?: ShipResourceConfig;
   ai: EnemyShipAiConfig;
   movement: EnemyCannonShipMovementStats;
   combat: EnemyCannonShipCombatStats;
@@ -49,6 +53,7 @@ export type EnemyCannonShipArchetype = {
 };
 
 export const BASIC_CANNON_SHIP_ARCHETYPE_ID = "basic_enemy_cannon_ship";
+export const PLASMA_CANNON_SHIP_ARCHETYPE_ID = "plasma_cannon_enemy_ship";
 
 export function createBasicEnemyCannonShipArchetype(
   modelUrl: string,
@@ -62,12 +67,19 @@ export function createBasicEnemyCannonShipArchetype(
     spawnPosition,
     respawnSeconds: 5,
     health: {
-      maxArmor: 40,
-      maxHull: 80,
+      maxArmor: 0,
+      maxHull: 150,
       maxShield: 0,
       shieldChargeRate: 0,
       armorRepairRate: 0,
       hullRepairRate: 0
+    },
+    resource: {
+      maxHeat: 14,
+      heatDissipationPerSecond: 3.1,
+      heatDissipationDelaySeconds: 0.5,
+      maxEnergy: 0,
+      energyRechargePerSecond: 0
     },
     ai: {
       spawnDurationSeconds: 0.45,
@@ -113,6 +125,7 @@ export function createBasicEnemyCannonShipArchetype(
       burstTelegraphSeconds: 0.45,
       burstShotIntervalSeconds: 0.14,
       burstCooldownSeconds: 1.85,
+      primaryShotHeatCost: 1.35,
       projectile: {
         ...projectile,
         faction: "enemy"
@@ -126,6 +139,55 @@ export function createBasicEnemyCannonShipArchetype(
     collision: {
       hurtboxRadius: 1.45,
       hurtboxLocalOffset: new THREE.Vector3(0, 1.05, 0)
+    }
+  };
+}
+
+export function createPlasmaCannonEnemyShipArchetype(
+  modelUrl: string,
+  projectile: LaserBoltFactoryOptions
+): EnemyCannonShipArchetype {
+  const base = createBasicEnemyCannonShipArchetype(modelUrl, projectile);
+  return {
+    ...base,
+    id: PLASMA_CANNON_SHIP_ARCHETYPE_ID,
+    displayName: "Plasma Cannon Enemy Ship",
+    respawnSeconds: 7,
+    health: {
+      ...base.health,
+      maxShield: 60,
+      shieldChargeRate: 2,
+      shieldRechargeDelaySeconds: 20,
+      maxHull: 80,
+      maxArmor: 0
+    },
+    resource: {
+      maxHeat: 20,
+      heatDissipationPerSecond: 1,
+      heatDissipationDelaySeconds: 12,
+      maxEnergy: 0,
+      energyRechargePerSecond: 0
+    },
+    ai: {
+      ...base.ai,
+      aimVisionRange: 30,
+      preferredAttackDistance: base.ai.preferredAttackDistance + 2
+    },
+    movement: {
+      ...base.movement,
+      fireArcRadians: THREE.MathUtils.degToRad(18)
+    },
+    combat: {
+      ...base.combat,
+      preferredAttackDistance: base.combat.preferredAttackDistance + 2,
+      burstTelegraphSeconds: 0.5,
+      burstCooldownSeconds: 2.2,
+      primaryShotHeatCost: 0,
+      primaryAttackHeatCost: 7,
+      projectile: {
+        ...projectile,
+        faction: "enemy"
+      }
     }
   };
 }

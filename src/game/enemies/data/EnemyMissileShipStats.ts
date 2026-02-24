@@ -69,8 +69,17 @@ export function createBasicEnemyMissileShipArchetype(
       homingAttackCooldownSeconds: 32,
       homingLockSeconds: 2.5,
       generalAttackCooldownSeconds: 2.5,
+      swarmAttackHeatCost: 1.6,
+      homingAttackHeatCost: 4.2,
       magazineCapacity: 16,
       reloadSeconds: 8,
+      resourceConfig: {
+        maxHeat: 12,
+        heatDissipationPerSecond: 1.9,
+        heatDissipationDelaySeconds: 0.6,
+        maxEnergy: 0,
+        energyRechargePerSecond: 0
+      },
       swarmMissileProjectile: {
         speed: 10,
         lifetimeSeconds: 4.5,

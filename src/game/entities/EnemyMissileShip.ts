@@ -1,9 +1,15 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { createHealthComponent, type HealthConfig } from "../components/HealthComponent";
+import {
+  createShipResourceComponent,
+  type ShipResourceConfig
+} from "../components/ShipResourceComponent";
 import { createHurtboxComponent, type HurtboxComponent } from "../components/combat/HurtboxComponent";
 import { createCannonOverheatGlowEffect } from "../effects/CannonOverheatGlowEffect";
+import { createCannonOverheatSteamEffect } from "../effects/CannonOverheatSteamEffect";
 import { createPlayerThrusterEffect } from "../effects/PlayerThrusterEffect";
+import { createShieldBubbleEffect } from "../effects/ShieldBubbleEffect";
 import type { EnemyShipAiStateId } from "../enemies/ai/EnemyShipAiTypes";
 import {
   EnemyCooldownCallbackAttackAction,
@@ -93,8 +99,11 @@ export type EnemyMissileShipConfig = {
   homingAttackCooldownSeconds?: number;
   homingLockSeconds?: number;
   generalAttackCooldownSeconds?: number;
+  swarmAttackHeatCost?: number;
+  homingAttackHeatCost?: number;
   magazineCapacity?: number;
   reloadSeconds?: number;
+  resourceConfig?: ShipResourceConfig;
   swarmMissileProjectile?: Partial<EnemyMissileProjectileFactoryOptions>;
   homingMissileProjectile?: Partial<EnemyMissileProjectileFactoryOptions>;
 };
@@ -114,6 +123,7 @@ export class EnemyMissileShip {
 
   private readonly scene: THREE.Scene;
   private readonly health: ReturnType<typeof createHealthComponent>;
+  private readonly resources: ReturnType<typeof createShipResourceComponent> | null;
   private readonly targetHurtboxes: readonly HurtboxComponent[];
   private readonly perception: EnemyShipPerceptionController;
   private readonly flightController: EnemyShipFlightController;
@@ -126,7 +136,11 @@ export class EnemyMissileShip {
   private readonly swarmProjectileFactory: ReturnType<typeof createEnemyMissileProjectileFactory>;
   private readonly homingProjectileFactory: ReturnType<typeof createEnemyMissileProjectileFactory>;
   private readonly lockTelegraphGlowEffect: ReturnType<typeof createCannonOverheatGlowEffect>;
+  private readonly swarmAttackHeatCost: number;
+  private readonly homingAttackHeatCost: number;
   private readonly thrusterEffectAnchor = new THREE.Group();
+  private shieldBubbleEffect: ReturnType<typeof createShieldBubbleEffect> | null = null;
+  private weaponOverheatSteamEffect: ReturnType<typeof createCannonOverheatSteamEffect> | null = null;
   private thrusterEffect: ReturnType<typeof createPlayerThrusterEffect> | null = null;
 
   private readonly patrolCenter: THREE.Vector3;
@@ -171,6 +185,7 @@ export class EnemyMissileShip {
   constructor(config: EnemyMissileShipConfig, scene: THREE.Scene) {
     this.scene = scene;
     this.health = createHealthComponent(config.health);
+    this.resources = config.resourceConfig ? createShipResourceComponent(config.resourceConfig) : null;
     this.targetHurtboxes = config.targetHurtboxes ?? [];
     this.playerTargetObject = config.playerTarget ?? null;
     this.perception = new EnemyShipPerceptionController({
@@ -194,6 +209,8 @@ export class EnemyMissileShip {
     this.aimLeadFactor = THREE.MathUtils.clamp(config.aimLeadFactor ?? 0.85, 0, 1.25);
     this.projectileSpeedForLead = Math.max(0.01, config.projectileSpeedForLead ?? 14);
     this.generalAttackCooldownSeconds = Math.max(0, config.generalAttackCooldownSeconds ?? 0.75);
+    this.swarmAttackHeatCost = Math.max(0, config.swarmAttackHeatCost ?? 0);
+    this.homingAttackHeatCost = Math.max(0, config.homingAttackHeatCost ?? 0);
     this.maxMoveSpeedForThrusters = Math.max(0.001, this.patrolSpeed, this.attackSpeed, this.fleeSpeed);
 
     this.centerPassPatrolPlanner = this.patrolPattern === "center_pass_edge"
@@ -241,6 +258,12 @@ export class EnemyMissileShip {
       this.root,
       this.launcherRig.muzzles
     );
+    if (this.resources) {
+      this.weaponOverheatSteamEffect = createCannonOverheatSteamEffect(this.scene, this.launcherRig.muzzles, {
+        alignToHardpointDirection: true,
+        positionJitterScale: 0.35
+      });
+    }
 
     if (config.modelUrl) {
       this.loadOptionalModel(
@@ -260,8 +283,17 @@ export class EnemyMissileShip {
       },
       faction: "enemy",
       health: this.health,
-      owner: this.root
+      owner: this.root,
+      onHit: (event) => {
+        this.resources?.applyIncomingDamageHeat(
+          event.damagePacket.damageType,
+          event.breakdown.incomingBaseDamage
+        );
+      }
     });
+    if (config.health.maxShield > 0) {
+      this.shieldBubbleEffect = createShieldBubbleEffect(this.root);
+    }
 
     this.magazine = new EnemyProjectileMagazine({
       capacity: Math.max(1, Math.floor(config.magazineCapacity ?? 16)),
@@ -324,7 +356,9 @@ export class EnemyMissileShip {
       id: "homing_missile",
       lockSeconds: Math.max(0, config.homingLockSeconds ?? 2.5),
       cooldownSeconds: Math.max(0, config.homingAttackCooldownSeconds ?? 7.5),
-      canStart: () => this.canStartAttackWithMagazineCost(1) && this.hasForwardHomingLockContact(),
+      canStart: () =>
+        this.canStartAttackWithMagazineCost(1, this.homingAttackHeatCost) &&
+        this.hasForwardHomingLockContact(),
       canMaintainLock: () => this.hasForwardHomingLockContact(),
       progressDecaySeconds: 1.25,
       progressDecayDelaySeconds: 0.5,
@@ -333,7 +367,11 @@ export class EnemyMissileShip {
     const swarmAction = new EnemyCooldownCallbackAttackAction({
       id: "swarm_missile",
       cooldownSeconds: Math.max(0, config.swarmAttackCooldownSeconds ?? 2.2),
-      canStart: () => this.canStartAttackWithMagazineCost(this.getSwarmVolleyLauncherCount()),
+      canStart: () =>
+        this.canStartAttackWithMagazineCost(
+          this.getSwarmVolleyLauncherCount(),
+          this.swarmAttackHeatCost
+        ),
       execute: () => this.executeSwarmAttack()
     });
     this.primaryAttackLoadout = new EnemyPrimaryAttackLoadout({
@@ -349,12 +387,33 @@ export class EnemyMissileShip {
     this.swarmProjectileRuntime.update(deltaTime);
     this.homingProjectileRuntime.update(deltaTime);
     this.health.update(deltaTime);
+    this.resources?.update(deltaTime);
     this.perception.update(deltaTime);
     this.primaryAttackLoadout.update(deltaTime);
     this.magazine.update(deltaTime);
     this.generalAttackCooldownRemaining = Math.max(0, this.generalAttackCooldownRemaining - deltaTime);
     this.incomingFireEvadeRollCooldownRemaining = Math.max(0, this.incomingFireEvadeRollCooldownRemaining - deltaTime);
     this.evadeCooldownRemaining = Math.max(0, this.evadeCooldownRemaining - deltaTime);
+    const healthSnapshot = this.health.getSnapshot();
+    this.shieldBubbleEffect?.update(deltaTime, healthSnapshot);
+    let weaponHeat01 = 0;
+    let overheated = false;
+    if (this.resources) {
+      const resourceSnapshot = this.resources.getSnapshot();
+      weaponHeat01 =
+        resourceSnapshot.heat.max > 0
+          ? THREE.MathUtils.clamp(resourceSnapshot.heat.current / resourceSnapshot.heat.max, 0, 1)
+          : 0;
+      overheated = resourceSnapshot.heat.overheated;
+      this.root.getWorldDirection(this.worldForward);
+      this.worldForward.setY(0);
+      if (this.worldForward.lengthSq() <= 0.000001) {
+        this.worldForward.copy(FORWARD_AXIS);
+      } else {
+        this.worldForward.normalize();
+      }
+      this.weaponOverheatSteamEffect?.update(deltaTime, overheated, this.worldForward);
+    }
 
     const telegraph = this.primaryAttackLoadout.getTelegraphVisualState();
     const lockTelegraphActive = telegraph.active && this.aiState === "Attack";
@@ -362,7 +421,7 @@ export class EnemyMissileShip {
     const telegraphHeat01 = lockTelegraphActive
       ? THREE.MathUtils.clamp(1 - telegraph.telegraphSecondsRemaining / telegraphDuration, 0, 1)
       : 0;
-    this.lockTelegraphGlowEffect.update(deltaTime, telegraphHeat01, false);
+    this.lockTelegraphGlowEffect.update(deltaTime, Math.max(telegraphHeat01, weaponHeat01), false);
     this.updateThrusterEffect(deltaTime);
   }
 
@@ -529,14 +588,22 @@ export class EnemyMissileShip {
   }
 
   canStartPrimaryAttack(): boolean {
-    if (this.generalAttackCooldownRemaining > 0 || this.magazine.isReloading()) {
+    if (
+      this.generalAttackCooldownRemaining > 0 ||
+      this.magazine.isReloading() ||
+      (this.resources !== null && !this.resources.canUseHeatEquipment())
+    ) {
       return false;
     }
     return this.primaryAttackLoadout.canStartPrimaryAttack();
   }
   isAttackActionActive(): boolean { return this.primaryAttackLoadout.isAttackActionActive(); }
   tryExecutePrimaryAttack(): void {
-    if (this.generalAttackCooldownRemaining > 0 || this.magazine.isReloading()) {
+    if (
+      this.generalAttackCooldownRemaining > 0 ||
+      this.magazine.isReloading() ||
+      (this.resources !== null && !this.resources.canUseHeatEquipment())
+    ) {
       return;
     }
     this.primaryAttackLoadout.tryExecutePrimaryAttack();
@@ -625,14 +692,29 @@ export class EnemyMissileShip {
     this.swarmProjectileFactory.dispose?.();
     this.homingProjectileFactory.dispose?.();
     this.lockTelegraphGlowEffect.dispose();
+    this.weaponOverheatSteamEffect?.dispose();
+    this.weaponOverheatSteamEffect = null;
+    this.shieldBubbleEffect?.dispose();
+    this.shieldBubbleEffect = null;
     this.thrusterEffect?.dispose();
     this.thrusterEffect = null;
     disposeObject3DMeshResources(this.root);
     this.root.removeFromParent();
   }
 
-  private canStartAttackWithMagazineCost(projectileCount: number): boolean {
-    return projectileCount > 0 && this.generalAttackCooldownRemaining <= 0 && !this.magazine.isReloading() && this.magazine.canConsume(projectileCount);
+  private canStartAttackWithMagazineCost(projectileCount: number, heatCost = 0): boolean {
+    if (
+      projectileCount <= 0 ||
+      this.generalAttackCooldownRemaining > 0 ||
+      this.magazine.isReloading() ||
+      !this.magazine.canConsume(projectileCount)
+    ) {
+      return false;
+    }
+    if (this.resources && heatCost > 0 && !this.resources.canUseHeatEquipment()) {
+      return false;
+    }
+    return true;
   }
 
   private getSwarmVolleyLauncherCount(): number {
@@ -650,7 +732,17 @@ export class EnemyMissileShip {
       return false;
     }
     const launchers = this.pickRandomCellsPerBay(SWARM_MISSILES_PER_BAY);
-    if (launchers.length <= 0 || !this.canStartAttackWithMagazineCost(launchers.length)) {
+    if (
+      launchers.length <= 0 ||
+      !this.canStartAttackWithMagazineCost(launchers.length, this.swarmAttackHeatCost)
+    ) {
+      return false;
+    }
+    if (
+      this.resources &&
+      this.swarmAttackHeatCost > 0 &&
+      !this.resources.tryConsumeWeaponCost({ heatCost: this.swarmAttackHeatCost })
+    ) {
       return false;
     }
     for (const launcher of launchers) {
@@ -676,7 +768,14 @@ export class EnemyMissileShip {
       return false;
     }
     const launcher = this.pickRandomLauncherCell();
-    if (!launcher || !this.canStartAttackWithMagazineCost(1)) {
+    if (!launcher || !this.canStartAttackWithMagazineCost(1, this.homingAttackHeatCost)) {
+      return false;
+    }
+    if (
+      this.resources &&
+      this.homingAttackHeatCost > 0 &&
+      !this.resources.tryConsumeWeaponCost({ heatCost: this.homingAttackHeatCost })
+    ) {
       return false;
     }
     launcher.object.getWorldPosition(this.shotOrigin);

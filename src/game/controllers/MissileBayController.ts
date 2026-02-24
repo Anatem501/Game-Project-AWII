@@ -1884,7 +1884,7 @@ export function createMissileBayController({
         missile.trailSpawnSeconds -= MISSILE_SMOKE_TRAIL_INTERVAL_SECONDS;
         missile.thrusterGlow.getWorldPosition(smokeSpawnPosition);
         smokeTrailDirection.copy(missile.velocity).normalize();
-        spawnTrailSmoke(smokeSpawnPosition, smokeTrailDirection);
+        spawnTrailSmoke(smokeSpawnPosition, smokeTrailDirection, missile.payload);
         trailSpawnsThisFrame += 1;
       }
 
@@ -2091,7 +2091,13 @@ export function createMissileBayController({
     }
   };
 
-  const spawnTrailSmoke = (origin: THREE.Vector3, direction: THREE.Vector3): void => {
+  const spawnTrailSmoke = (
+    origin: THREE.Vector3,
+    direction: THREE.Vector3,
+    launcherPayload?: MissileBayComponentDefinition
+  ): void => {
+    const isMicroConcussive = launcherPayload?.missileModelAssetId === "micro_concussive";
+    const trailLengthScale = isMicroConcussive ? 0.68 : 1;
     smokeDriftVelocity
       .copy(direction)
       .multiplyScalar(-0.45 - Math.random() * 0.45)
@@ -2100,9 +2106,9 @@ export function createMissileBayController({
     spawnSmokeParticle({
       origin,
       velocity: smokeDriftVelocity,
-      lifetime: THREE.MathUtils.randFloat(0.34, 0.58),
-      startScale: THREE.MathUtils.randFloat(0.032, 0.048),
-      endScale: THREE.MathUtils.randFloat(0.12, 0.19),
+      lifetime: THREE.MathUtils.randFloat(0.34, 0.58) * trailLengthScale,
+      startScale: THREE.MathUtils.randFloat(0.032, 0.048) * THREE.MathUtils.lerp(0.9, 1, trailLengthScale),
+      endScale: THREE.MathUtils.randFloat(0.12, 0.19) * trailLengthScale,
       startOpacity: THREE.MathUtils.randFloat(0.18, 0.28)
     });
   };

@@ -5,12 +5,19 @@ import {
   type HealthConfig,
   type HealthSnapshot
 } from "../components/HealthComponent";
+import {
+  createShipResourceComponent,
+  type ShipResourceConfig
+} from "../components/ShipResourceComponent";
 import { createHurtboxComponent, type HurtboxComponent } from "../components/combat/HurtboxComponent";
 import {
   createLaserBoltFactory,
   type LaserBoltFactoryOptions
 } from "../controllers/projectiles/LaserBoltFactory";
+import { createCannonOverheatGlowEffect } from "../effects/CannonOverheatGlowEffect";
+import { createCannonOverheatSteamEffect } from "../effects/CannonOverheatSteamEffect";
 import { createPlayerThrusterEffect } from "../effects/PlayerThrusterEffect";
+import { createShieldBubbleEffect, type ShieldBubbleEffectOptions } from "../effects/ShieldBubbleEffect";
 import { createShipGunSparkBurstSystem } from "../effects/ShipGunSparkBurstSystem";
 import type {
   ProjectileFactory
@@ -76,6 +83,8 @@ export type EnemyCannonShipConfig = {
   burstTelegraphSeconds?: number;
   burstShotIntervalSeconds?: number;
   burstCooldownSeconds?: number;
+  primaryShotHeatCost?: number;
+  primaryAttackHeatCost?: number;
   hurtboxRadius?: number;
   hurtboxLocalOffset?: THREE.Vector3;
   playerTarget?: THREE.Object3D | null;
@@ -87,6 +96,11 @@ export type EnemyCannonShipConfig = {
   modelDesiredSize?: number;
   modelHeightOffset?: number;
   muzzleLocalOffsets?: readonly THREE.Vector3[];
+  muzzleTelegraphOuterColorHex?: number;
+  muzzleTelegraphInnerBaseColorHex?: number;
+  muzzleTelegraphInnerPeakColorHex?: number;
+  shieldBubbleEffectOptions?: ShieldBubbleEffectOptions;
+  resourceConfig?: ShipResourceConfig;
 };
 
 export type EnemyCannonShipDebugSnapshot = {
@@ -102,6 +116,7 @@ export class EnemyCannonShip {
 
   private readonly scene: THREE.Scene;
   private readonly health: ReturnType<typeof createHealthComponent>;
+  private readonly resources: ReturnType<typeof createShipResourceComponent> | null;
   private readonly targetHurtboxes: readonly HurtboxComponent[];
   private readonly projectileFactory: ProjectileFactory;
   private readonly ownedProjectileFactory: ProjectileFactory | null;
@@ -112,7 +127,12 @@ export class EnemyCannonShip {
   private readonly primaryAttackLoadout: EnemyPrimaryAttackLoadout;
   private readonly perception: EnemyShipPerceptionController;
   private readonly muzzleRig: EnemyShipMuzzleRig;
+  private readonly primaryShotHeatCost: number;
+  private readonly primaryAttackHeatCost: number;
   private readonly thrusterEffectAnchor = new THREE.Group();
+  private shieldBubbleEffect: ReturnType<typeof createShieldBubbleEffect> | null = null;
+  private cannonOverheatGlowEffect: ReturnType<typeof createCannonOverheatGlowEffect> | null = null;
+  private cannonOverheatSteamEffect: ReturnType<typeof createCannonOverheatSteamEffect> | null = null;
   private thrusterEffect: ReturnType<typeof createPlayerThrusterEffect> | null = null;
   private readonly centerPassPatrolPlanner: CenterPassEdgePatrolPlanner | null;
 
@@ -156,6 +176,7 @@ export class EnemyCannonShip {
   constructor(config: EnemyCannonShipConfig, scene: THREE.Scene) {
     this.scene = scene;
     this.health = createHealthComponent(config.health);
+    this.resources = config.resourceConfig ? createShipResourceComponent(config.resourceConfig) : null;
     this.targetHurtboxes = config.targetHurtboxes ?? [];
     this.perception = new EnemyShipPerceptionController({
       initialTarget: config.playerTarget ?? null,
@@ -190,6 +211,8 @@ export class EnemyCannonShip {
       0,
       config.shotInaccuracyRadians ?? THREE.MathUtils.degToRad(5)
     );
+    this.primaryShotHeatCost = Math.max(0, config.primaryShotHeatCost ?? 0);
+    this.primaryAttackHeatCost = Math.max(0, config.primaryAttackHeatCost ?? 0);
     this.maxMoveSpeedForThrusters = Math.max(
       0.001,
       this.patrolSpeed,
@@ -277,10 +300,16 @@ export class EnemyCannonShip {
 
     this.muzzleRig = new EnemyShipMuzzleRig(this.root, {
       localOffsets: config.muzzleLocalOffsets ?? DEFAULT_MUZZLE_LOCAL_OFFSETS,
-      outerColorHex: ENEMY_LASERBOLT_BODY_COLOR_HEX,
-      innerBaseColorHex: ENEMY_LASERBOLT_EMISSIVE_COLOR_HEX,
-      innerPeakColorHex: ENEMY_LASERBOLT_BODY_COLOR_HEX
+      outerColorHex: config.muzzleTelegraphOuterColorHex ?? ENEMY_LASERBOLT_BODY_COLOR_HEX,
+      innerBaseColorHex:
+        config.muzzleTelegraphInnerBaseColorHex ?? ENEMY_LASERBOLT_EMISSIVE_COLOR_HEX,
+      innerPeakColorHex:
+        config.muzzleTelegraphInnerPeakColorHex ?? ENEMY_LASERBOLT_BODY_COLOR_HEX
     });
+    if (this.resources) {
+      this.cannonOverheatGlowEffect = createCannonOverheatGlowEffect(this.root, this.muzzleRig.muzzles);
+      this.cannonOverheatSteamEffect = createCannonOverheatSteamEffect(this.scene, this.muzzleRig.muzzles);
+    }
     if (config.modelUrl) {
       this.loadOptionalModel(
         config.modelUrl,
@@ -299,8 +328,20 @@ export class EnemyCannonShip {
       },
       faction: "enemy",
       health: this.health,
-      owner: this.root
+      owner: this.root,
+      onHit: (event) => {
+        this.resources?.applyIncomingDamageHeat(
+          event.damagePacket.damageType,
+          event.breakdown.incomingBaseDamage
+        );
+      }
     });
+    if (config.health.maxShield > 0) {
+      this.shieldBubbleEffect = createShieldBubbleEffect(
+        this.root,
+        config.shieldBubbleEffectOptions
+      );
+    }
   }
 
   update(deltaTime: number): void {
@@ -311,8 +352,31 @@ export class EnemyCannonShip {
     this.projectileRuntime.update(deltaTime);
     this.muzzleSparkBursts.update(deltaTime);
     this.health.update(deltaTime);
+    this.resources?.update(deltaTime);
     this.perception.update(deltaTime);
     this.updateAttackTimers(deltaTime);
+    const healthSnapshot = this.health.getSnapshot();
+    this.shieldBubbleEffect?.update(deltaTime, healthSnapshot);
+    if (this.resources) {
+      const resourceSnapshot = this.resources.getSnapshot();
+      const heat01 =
+        resourceSnapshot.heat.max > 0
+          ? THREE.MathUtils.clamp(resourceSnapshot.heat.current / resourceSnapshot.heat.max, 0, 1)
+          : 0;
+      this.cannonOverheatGlowEffect?.update(deltaTime, heat01, false);
+      this.root.getWorldDirection(this.worldForward);
+      this.worldForward.setY(0);
+      if (this.worldForward.lengthSq() <= 0.000001) {
+        this.worldForward.copy(FORWARD_AXIS);
+      } else {
+        this.worldForward.normalize();
+      }
+      this.cannonOverheatSteamEffect?.update(
+        deltaTime,
+        resourceSnapshot.heat.overheated,
+        this.worldForward
+      );
+    }
     const telegraphVisual = this.primaryAttackLoadout.getTelegraphVisualState();
     this.muzzleRig.updateChargeEffect({
       ...telegraphVisual,
@@ -551,6 +615,9 @@ export class EnemyCannonShip {
   }
 
   canStartPrimaryAttack(): boolean {
+    if (this.resources && !this.resources.canFireCannons()) {
+      return false;
+    }
     return this.primaryAttackLoadout.canStartPrimaryAttack();
   }
 
@@ -559,7 +626,18 @@ export class EnemyCannonShip {
   }
 
   tryExecutePrimaryAttack(): void {
+    const wasActive = this.primaryAttackLoadout.isAttackActionActive();
     this.primaryAttackLoadout.tryExecutePrimaryAttack();
+    const isActive = this.primaryAttackLoadout.isAttackActionActive();
+    if (
+      !wasActive &&
+      isActive &&
+      this.resources &&
+      this.primaryAttackHeatCost > 0 &&
+      !this.resources.tryConsumeWeaponCost({ heatCost: this.primaryAttackHeatCost })
+    ) {
+      this.primaryAttackLoadout.cancelActivePrimaryAttack();
+    }
   }
 
   consumePrimaryAttackFinishedEvent(): boolean {
@@ -637,6 +715,12 @@ export class EnemyCannonShip {
 
     this.projectileRuntime.dispose();
     this.muzzleSparkBursts.dispose();
+    this.shieldBubbleEffect?.dispose();
+    this.shieldBubbleEffect = null;
+    this.cannonOverheatGlowEffect?.dispose();
+    this.cannonOverheatGlowEffect = null;
+    this.cannonOverheatSteamEffect?.dispose();
+    this.cannonOverheatSteamEffect = null;
     this.thrusterEffect?.dispose();
     this.thrusterEffect = null;
 
@@ -654,6 +738,13 @@ export class EnemyCannonShip {
 
     const muzzle = muzzles[this.nextBurstMuzzleIndex % muzzles.length];
     this.nextBurstMuzzleIndex = (this.nextBurstMuzzleIndex + 1) % muzzles.length;
+    if (
+      this.resources &&
+      this.primaryShotHeatCost > 0 &&
+      !this.resources.tryConsumeWeaponCost({ heatCost: this.primaryShotHeatCost })
+    ) {
+      return false;
+    }
 
     muzzle.getWorldPosition(this.muzzleWorldPosition);
     // Fire straight out of the cannon orientation instead of snapping toward the target.

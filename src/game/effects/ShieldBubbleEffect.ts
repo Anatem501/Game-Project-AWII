@@ -74,7 +74,14 @@ export type ShieldBubbleEffect = {
   dispose: () => void;
 };
 
-export function createShieldBubbleEffect(shipRoot: THREE.Object3D): ShieldBubbleEffect {
+export type ShieldBubbleEffectOptions = {
+  circularizeXZ?: boolean;
+};
+
+export function createShieldBubbleEffect(
+  shipRoot: THREE.Object3D,
+  options: ShieldBubbleEffectOptions = {}
+): ShieldBubbleEffect {
   const geometry = new THREE.SphereGeometry(1, SHIELD_SEGMENTS_WIDTH, SHIELD_SEGMENTS_HEIGHT);
   const material = new THREE.ShaderMaterial({
     vertexShader: SHIELD_VERTEX_SHADER,
@@ -164,6 +171,11 @@ export function createShieldBubbleEffect(shipRoot: THREE.Object3D): ShieldBubble
       Math.max(SHIELD_MIN_RADIUS_Y, scratchSize.y * 0.5 + SHIELD_PADDING_Y),
       Math.max(SHIELD_MIN_RADIUS_XZ, scratchSize.z * 0.5 + SHIELD_PADDING_XZ)
     );
+    if (options.circularizeXZ) {
+      const planarRadius = Math.max(targetScale.x, targetScale.z);
+      targetScale.x = planarRadius;
+      targetScale.z = planarRadius;
+    }
   };
 
   const update = (deltaTime: number, healthSnapshot: HealthSnapshot): void => {
