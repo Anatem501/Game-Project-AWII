@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { createHitboxComponent } from "../../components/combat/HitboxComponent";
 import { LASER_DAMAGE_TYPE, type DamageType } from "../../components/combat/DamageTypes";
+import type { DamagePacketSegment } from "../../components/combat/CombatTypes";
 import type {
   ProjectileFactory,
   ProjectileInstance,
@@ -21,6 +22,7 @@ export type LaserBoltFactoryOptions = {
   thickness?: number;
   damage?: number;
   damageType?: DamageType;
+  additionalDamageSegments?: readonly DamagePacketSegment[];
   collisionRadius?: number;
   faction?: string | null;
 };
@@ -67,6 +69,7 @@ export function createLaserBoltFactory(options: LaserBoltFactoryOptions = {}): P
       collisionArea: { radius: collisionRadius },
       damageAmount: damage,
       damageType,
+      additionalDamageSegments: options.additionalDamageSegments,
       sourceFaction: faction
     });
     let lifeRemaining = lifetimeSeconds;

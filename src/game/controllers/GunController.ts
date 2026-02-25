@@ -277,7 +277,7 @@ export function createGunController({
       plasmaMuzzleGlobs.spawnBurst(muzzleWorld, aimDirection);
     } else if (damageType === "Void") {
       voidMuzzleGlobs.spawnBurst(muzzleWorld, aimDirection);
-    } else if (damageType === "Frost") {
+    } else if (damageType === "Frost" || damageType === "Cryo") {
       frostMuzzleGlobs.spawnBurst(muzzleWorld, aimDirection, estimatedShipVelocity);
     } else if (damageType === "Ion") {
       ionMuzzleBursts.spawnBurst(muzzleWorld, aimDirection, effectScale);
@@ -404,7 +404,7 @@ export function createGunController({
           projectile.object.getWorldDirection(fallbackForward);
           if (damageType === "Ion") {
             ionHitBursts.spawnBurst(projectile.object.position, fallbackForward, effectScale);
-          } else if (damageType === "Frost") {
+          } else if (damageType === "Frost" || damageType === "Cryo") {
             frostHitBursts.spawnBurst(projectile.object.position, fallbackForward, effectScale);
           } else if (damageType === "Void") {
             voidHitVortices.spawnVortex(

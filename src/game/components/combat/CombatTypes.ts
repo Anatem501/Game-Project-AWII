@@ -9,6 +9,12 @@ export type CollisionArea = {
 export type DamagePacket = {
   amount: number;
   damageType: DamageType;
+  segments?: readonly DamagePacketSegment[];
   sourceId?: string;
   sourceFaction?: string | null;
+};
+
+export type DamagePacketSegment = {
+  amount: number;
+  damageType: DamageType;
 };

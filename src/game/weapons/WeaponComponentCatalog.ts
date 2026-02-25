@@ -6,6 +6,8 @@ export const CANNON_PRIMARY_COMPONENT_OPTIONS = [
   "repeating_plasmabolt_fire",
   "repeating_voidbolt_fire",
   "repeating_ionbolt_fire",
+  "repeating_cryoshard_fire",
+  "plasma_arc_shots",
   "burst_ion_arc_fire",
   "cryowave_fire"
 ] as const;
@@ -182,6 +184,54 @@ const CANNON_PRIMARY_COMPONENTS: Record<
       collisionRadius: 0.08
     }
   },
+  repeating_cryoshard_fire: {
+    id: "repeating_cryoshard_fire",
+    name: "Repeating Cryoshard Fire",
+    weaponType: "Cannons",
+    fireType: "Primary",
+    damageType: "Cryo / Kinetic",
+    heatCost: 0,
+    energyCost: 0,
+    fireIntervalSeconds: 0.6,
+    description:
+      "Repeating cryoshard stream with cold glassy frost shards. Deals split cryogenic and kinetic impact damage.",
+    projectile: {
+      color: 0x8edbff,
+      emissive: 0xd8f4ff,
+      emissiveIntensity: 1.95,
+      speed: 16,
+      lifetimeSeconds: 2,
+      length: 0.48,
+      thickness: 0.065,
+      damage: 4,
+      damageType: "Cryo",
+      additionalDamageSegments: [{ amount: 4, damageType: "Kinetic" }],
+      collisionRadius: 0.08
+    }
+  },
+  plasma_arc_shots: {
+    id: "plasma_arc_shots",
+    name: "Plasma Arc Shots",
+    weaponType: "Cannons",
+    fireType: "Primary",
+    damageType: "Plasma",
+    heatCost: 4,
+    fireIntervalSeconds: 1,
+    description:
+      "Long-range plasma arc shots that pierce through multiple enemies with wide arcing plasma particle trails.",
+    projectile: {
+      color: 0xff8d63,
+      emissive: 0xffc8a6,
+      emissiveIntensity: 2.5,
+      speed: 18,
+      lifetimeSeconds: 1.8,
+      length: 0.82,
+      thickness: 0.12,
+      damage: 8,
+      damageType: "Plasma",
+      collisionRadius: 0.14
+    }
+  },
   burst_ion_arc_fire: {
     id: "burst_ion_arc_fire",
     name: "Burst Ion Arc Fire",
@@ -212,7 +262,7 @@ const CANNON_PRIMARY_COMPONENTS: Record<
     name: "Cryowave Fire",
     weaponType: "Cannons",
     fireType: "Primary",
-    damageType: "Frost",
+    damageType: "Cryo",
     fireIntervalSeconds: 0.75,
     description:
       "Cryogenic wave projector that launches frosted arc waves with icy socket trails.",
@@ -225,7 +275,7 @@ const CANNON_PRIMARY_COMPONENTS: Record<
       length: 0.86,
       thickness: 0.08,
       damage: 8,
-      damageType: "Frost",
+      damageType: "Cryo",
       collisionRadius: 0.11
     }
   }

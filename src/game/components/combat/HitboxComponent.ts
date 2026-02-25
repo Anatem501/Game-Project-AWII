@@ -1,12 +1,13 @@
 import * as THREE from "three";
 import { DEFAULT_DAMAGE_TYPE, type DamageType } from "./DamageTypes";
-import type { CollisionArea, DamagePacket } from "./CombatTypes";
+import type { CollisionArea, DamagePacket, DamagePacketSegment } from "./CombatTypes";
 
 export type HitboxConfig = {
   owner: THREE.Object3D;
   collisionArea: CollisionArea;
   damageAmount: number;
   damageType?: DamageType;
+  additionalDamageSegments?: readonly DamagePacketSegment[];
   sourceId?: string;
   sourceFaction?: string | null;
   maxHits?: number;
@@ -43,6 +44,13 @@ export function createHitboxComponent(config: HitboxConfig): HitboxComponent {
   const damageAmount = Math.max(0, config.damageAmount);
   const damageType = config.damageType ?? DEFAULT_DAMAGE_TYPE;
   const hitTargets = new Set<string>();
+  const additionalDamageSegments =
+    config.additionalDamageSegments
+      ?.map((segment) => ({
+        amount: Math.max(0, segment.amount),
+        damageType: segment.damageType
+      }))
+      .filter((segment) => segment.amount > 0) ?? [];
 
   let enabled = config.enabled ?? true;
   let hitCount = 0;
@@ -79,6 +87,7 @@ export function createHitboxComponent(config: HitboxConfig): HitboxComponent {
     getDamagePacket: () => ({
       amount: damageAmount,
       damageType,
+      segments: additionalDamageSegments.length > 0 ? additionalDamageSegments : undefined,
       sourceId: config.sourceId,
       sourceFaction
     })

@@ -12,6 +12,7 @@ export type CannonProjectileFactoryAssets = {
   arcModelUrl?: string;
   arcV01ModelUrl?: string;
   arcV02ModelUrl?: string;
+  cryoshardModelUrl?: string;
   ionboltModelUrl?: string;
   plasmaboltModelUrl?: string;
 };
@@ -60,6 +61,30 @@ export function createCannonPrimaryProjectileFactory(
     });
   }
 
+  if (componentId === "repeating_cryoshard_fire") {
+    return createPlasmaBoltFactory({
+      faction: config.faction,
+      modelUrl: config.assets?.cryoshardModelUrl,
+      coreColor: 0xa7e8ff,
+      hotColor: 0xddf8ff,
+      rimColor: 0x1f4f9d,
+      shellColor: 0xf3fdff,
+      glowColor: 0x255fb8,
+      glowLayerStyle: "outline",
+      glowOpacity: 0.16,
+      glowScale: 1.045,
+      trailGlobColor: 0x9ce7ff,
+      trailGlobOpacity: 0.34,
+      trailGlobOutlineColor: 0xf4feff,
+      trailGlobOutlineOpacity: 0.24,
+      trailGlobOutlineScale: 1.14,
+      trailGlobCount: 4,
+      trailGlobSpawnIntervalSeconds: 0.02,
+      trailGlobLifetimeSeconds: 0.055,
+      ...component.projectile
+    });
+  }
+
   if (componentId === "burst_ion_arc_fire") {
     return createIonArcFactory({
       faction: config.faction,
@@ -70,6 +95,37 @@ export function createCannonPrimaryProjectileFactory(
       shadowGlowColor: 0x4d7dff,
       shadowGlowOpacity: 0.2,
       surfaceOpacity: 0.58,
+      ...component.projectile
+    });
+  }
+
+  if (componentId === "plasma_arc_shots") {
+    return createPlasmaBoltFactory({
+      faction: config.faction,
+      modelUrl: config.assets?.arcModelUrl,
+      modelYawRadians: -Math.PI * 0.5,
+      coreColor: 0xff5a42,
+      hotColor: 0xff9369,
+      rimColor: 0x8d1f14,
+      shellColor: 0xffc99c,
+      surfacePatternScale: 0.52,
+      surfaceStripeStrength: 0.38,
+      glowColor: 0xff8a4a,
+      glowLayerStyle: "outline",
+      glowOpacity: 0.14,
+      glowScale: 1.06,
+      trailGlobColor: 0xff8c61,
+      trailGlobOpacity: 0.4,
+      trailGlobOutlineColor: 0xffddb8,
+      trailGlobOutlineOpacity: 0.16,
+      trailGlobOutlineScale: 1.14,
+      trailGlobCount: 6,
+      trailGlobSpawnIntervalSeconds: 0.02,
+      trailGlobLifetimeSeconds: 0.07,
+      trailGlobUseParticleSockets: true,
+      pierceOnCollision: true,
+      maxPierceHits: 12,
+      bridgeParticleCount: 0,
       ...component.projectile
     });
   }

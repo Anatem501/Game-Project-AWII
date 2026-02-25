@@ -91,6 +91,9 @@ export type IonArcFactoryOptions = LaserBoltFactoryOptions & {
   socketTrailFlowSpeedMax?: number;
   socketTrailMirrorSeeds?: boolean;
   enableSpiralBridgeParticles?: boolean;
+  spiralBridgeSpreadMultiplier?: number;
+  spiralBridgeParticleSizeMultiplier?: number;
+  spiralBridgeOpacity?: number;
   surfacePulseStrength?: number;
   outlineLayerColor?: number;
   outlineLayerOpacity?: number;
@@ -157,6 +160,12 @@ export function createIonArcFactory(options: IonArcFactoryOptions = {}): Project
   );
   const socketTrailMirrorSeeds = options.socketTrailMirrorSeeds ?? false;
   const enableSpiralBridgeParticles = options.enableSpiralBridgeParticles ?? true;
+  const spiralBridgeSpreadMultiplier = Math.max(0.1, options.spiralBridgeSpreadMultiplier ?? 1);
+  const spiralBridgeParticleSizeMultiplier = Math.max(
+    0.1,
+    options.spiralBridgeParticleSizeMultiplier ?? 1
+  );
+  const spiralBridgeOpacity = THREE.MathUtils.clamp(options.spiralBridgeOpacity ?? 0.48, 0.01, 1);
   const surfacePulseStrength = THREE.MathUtils.clamp(options.surfacePulseStrength ?? 0.2, 0, 1);
   const outlineLayerColor = new THREE.Color(options.outlineLayerColor ?? 0x1f4fa0);
   const outlineLayerOpacity = THREE.MathUtils.clamp(options.outlineLayerOpacity ?? 0, 0, 1);
@@ -191,9 +200,9 @@ export function createIonArcFactory(options: IonArcFactoryOptions = {}): Project
   spiralGeometry.setAttribute("position", new THREE.Float32BufferAttribute(spiralPositions, 3));
   const spiralMaterialTemplate = new THREE.PointsMaterial({
     color: arcColor,
-    size: Math.max(0.02, thickness * 0.28),
+    size: Math.max(0.02, thickness * 0.28) * spiralBridgeParticleSizeMultiplier,
     transparent: true,
-    opacity: 0.48,
+    opacity: spiralBridgeOpacity,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
     toneMapped: false,
@@ -536,7 +545,8 @@ export function createIonArcFactory(options: IonArcFactoryOptions = {}): Project
             ageSeconds,
             sizeScale * travelScale,
             widthGrow,
-            helixSpinDirection
+            helixSpinDirection,
+            spiralBridgeSpreadMultiplier
           );
         }
         updateSocketTrails(
@@ -609,7 +619,8 @@ function updateSpiralParticles(
   ageSeconds: number,
   sizeScale: number,
   widthGrow: number,
-  spinDirection: number
+  spinDirection: number,
+  spreadMultiplier = 1
 ): void {
   const positions = geometry.getAttribute("position");
   if (!(positions instanceof THREE.BufferAttribute)) {
@@ -632,7 +643,11 @@ function updateSpiralParticles(
     center.lerpVectors(socketA, socketB, u);
     const angle = ageSeconds * (14 + sizeScale * 1.6) * spinDirection + u * Math.PI * 10.5;
     const radius =
-      (0.02 + u * 0.085) * sizeScale * widthGrow * (0.8 + 0.2 * Math.sin(ageSeconds * 9 + i * 0.7));
+      (0.02 + u * 0.085) *
+      sizeScale *
+      widthGrow *
+      spreadMultiplier *
+      (0.8 + 0.2 * Math.sin(ageSeconds * 9 + i * 0.7));
     center
       .addScaledVector(basisU, Math.cos(angle) * radius)
       .addScaledVector(basisV, Math.sin(angle) * radius);

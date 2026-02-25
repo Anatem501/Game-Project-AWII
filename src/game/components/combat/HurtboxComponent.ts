@@ -60,11 +60,38 @@ export function createHurtboxComponent(config: HurtboxConfig): HurtboxComponent 
   };
 
   const receiveDamage = (damagePacket: DamagePacket): HurtboxHitResult | null => {
-    if (!enabled || damagePacket.amount <= 0) {
+    if (!enabled) {
+      return null;
+    }
+    const validSegments = (damagePacket.segments ?? []).filter((segment) => segment.amount > 0);
+    const totalIncomingRequested =
+      Math.max(0, damagePacket.amount) +
+      validSegments.reduce((sum, segment) => sum + Math.max(0, segment.amount), 0);
+    if (totalIncomingRequested <= 0) {
       return null;
     }
 
-    const breakdown = config.health.applyDamage(damagePacket.amount, damagePacket.damageType);
+    const firstBreakdown = config.health.applyDamage(
+      Math.max(0, damagePacket.amount),
+      damagePacket.damageType
+    );
+    const breakdown = {
+      ...firstBreakdown,
+      incomingBaseDamage: firstBreakdown.incomingBaseDamage,
+      toShield: firstBreakdown.toShield,
+      toArmor: firstBreakdown.toArmor,
+      toHull: firstBreakdown.toHull,
+      unabsorbedBaseDamage: firstBreakdown.unabsorbedBaseDamage
+    };
+    for (const segment of validSegments) {
+      const segmentBreakdown = config.health.applyDamage(segment.amount, segment.damageType);
+      breakdown.incomingBaseDamage += segmentBreakdown.incomingBaseDamage;
+      breakdown.toShield += segmentBreakdown.toShield;
+      breakdown.toArmor += segmentBreakdown.toArmor;
+      breakdown.toHull += segmentBreakdown.toHull;
+      breakdown.unabsorbedBaseDamage += segmentBreakdown.unabsorbedBaseDamage;
+      breakdown.destroyed = segmentBreakdown.destroyed;
+    }
     const snapshot = config.health.getSnapshot();
     const event: HurtboxHitEvent = { breakdown, damagePacket, snapshot, hurtboxId: id };
     config.onHit?.(event);

@@ -12,6 +12,7 @@ import ionboltModelUrl from "../../assets/models/Ionbolt-v01.glb?url";
 import arcV03ModelUrl from "../../assets/models/Arc-v03.glb?url";
 import arcV01ModelUrl from "../../assets/models/Arc-v01.glb?url";
 import arcV02ModelUrl from "../../assets/models/Arc-v02.glb?url";
+import cryoshardModelUrl from "../../assets/models/Cryoshard-v01.glb?url";
 import { createCameraController } from "../controllers/CameraController";
 import { createGunController } from "../controllers/GunController";
 import {
@@ -110,6 +111,8 @@ const REPEATING_LASERBOLT_COMPONENT_ID = "repeating_laserbolt_fire";
 const REPEATING_PLASMABOLT_COMPONENT_ID = "repeating_plasmabolt_fire";
 const REPEATING_VOIDBOLT_COMPONENT_ID = "repeating_voidbolt_fire";
 const REPEATING_IONBOLT_COMPONENT_ID = "repeating_ionbolt_fire";
+const REPEATING_CRYOSHARD_COMPONENT_ID = "repeating_cryoshard_fire";
+const PLASMA_ARC_SHOTS_COMPONENT_ID = "plasma_arc_shots";
 const CRYOWAVE_FIRE_COMPONENT_ID = "cryowave_fire";
 const CANNON_FIRE_INTERVAL_SECONDS = 0.5;
 const HUD_MINIMAP_RANGE_METERS = 80;
@@ -400,6 +403,7 @@ export function setupTopDownScene(
       arcModelUrl: arcV03ModelUrl,
       arcV01ModelUrl: arcV01ModelUrl,
       arcV02ModelUrl: arcV02ModelUrl,
+      cryoshardModelUrl: cryoshardModelUrl,
       ionboltModelUrl: ionboltModelUrl,
       plasmaboltModelUrl: plasmaboltModelUrl
     }
@@ -1635,6 +1639,8 @@ function resolveCannonPrimaryPhaseOffsets(
     primaryComponentId !== REPEATING_PLASMABOLT_COMPONENT_ID &&
     primaryComponentId !== REPEATING_VOIDBOLT_COMPONENT_ID &&
     primaryComponentId !== REPEATING_IONBOLT_COMPONENT_ID &&
+    primaryComponentId !== REPEATING_CRYOSHARD_COMPONENT_ID &&
+    primaryComponentId !== PLASMA_ARC_SHOTS_COMPONENT_ID &&
     primaryComponentId !== CRYOWAVE_FIRE_COMPONENT_ID
   ) {
     return new Array(cannonCount).fill(0);

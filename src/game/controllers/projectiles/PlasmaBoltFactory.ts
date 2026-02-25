@@ -33,6 +33,8 @@ uniform vec3 uRimColor;
 uniform vec3 uShellColor;
 uniform float uIntensity;
 uniform float uVoidVariant;
+uniform float uPatternScale;
+uniform float uStripeStrength;
 
 varying vec3 vWorldPos;
 varying vec3 vWorldNormal;
@@ -43,10 +45,13 @@ void main() {
   float fresnel = pow(1.0 - max(dot(normalize(vWorldNormal), viewDir), 0.0), 2.1);
 
   // Subtle procedural plasma movement without transparency flicker.
-  float longitudinal = 0.5 + 0.5 * sin(vLocalPos.z * 18.0 - uTime * 4.2);
-  float transverse = 0.5 + 0.5 * sin((vLocalPos.x + vLocalPos.y) * 8.0 + uTime * 1.8);
+  float longitudinal = 0.5 + 0.5 * sin(vLocalPos.z * (18.0 * uPatternScale) - uTime * 4.2);
+  float transverse = 0.5 + 0.5 * sin((vLocalPos.x + vLocalPos.y) * (8.0 * uPatternScale) + uTime * 1.8);
   float plasma = mix(longitudinal, transverse, 0.22);
-  plasma = smoothstep(0.2, 0.94, plasma);
+  plasma = mix(0.7, plasma, uStripeStrength);
+  float lowEdge = mix(0.42, 0.2, uStripeStrength);
+  float highEdge = mix(0.82, 0.94, uStripeStrength);
+  plasma = smoothstep(lowEdge, highEdge, plasma);
 
   vec3 emissive;
   if (uVoidVariant > 0.5) {
@@ -74,7 +79,12 @@ export type PlasmaBoltShaderVariant = "plasma" | "void";
 export type PlasmaBoltFactoryOptions = LaserBoltFactoryOptions & {
   modelUrl?: string;
   reverseModelForward?: boolean;
+  modelYawRadians?: number;
+  pierceOnCollision?: boolean;
+  maxPierceHits?: number;
   shaderVariant?: PlasmaBoltShaderVariant;
+  surfacePatternScale?: number;
+  surfaceStripeStrength?: number;
   glowLayerStyle?: "shell" | "outline" | "none";
   coreColor?: number;
   hotColor?: number;
@@ -91,6 +101,12 @@ export type PlasmaBoltFactoryOptions = LaserBoltFactoryOptions & {
   trailGlobCount?: number;
   trailGlobSpawnIntervalSeconds?: number;
   trailGlobLifetimeSeconds?: number;
+  trailGlobUseParticleSockets?: boolean;
+  bridgeParticleCount?: number;
+  bridgeParticleColor?: number;
+  bridgeParticleOpacity?: number;
+  bridgeParticleSizeMultiplier?: number;
+  bridgeParticleSpreadMultiplier?: number;
 };
 
 type TrailGlob = {
@@ -121,6 +137,8 @@ export function createPlasmaBoltFactory(
     options.collisionRadius ?? Math.max(0.08, thickness * 0.9)
   );
   const faction = options.faction ?? null;
+  const pierceOnCollision = options.pierceOnCollision ?? false;
+  const maxPierceHits = Math.max(1, Math.floor(options.maxPierceHits ?? (pierceOnCollision ? 12 : 1)));
 
   const coreColor = new THREE.Color(options.coreColor ?? options.color ?? 0xff2b3d);
   const hotColor = new THREE.Color(options.hotColor ?? 0xff4f58);
@@ -128,7 +146,10 @@ export function createPlasmaBoltFactory(
   const shellColor = new THREE.Color(options.shellColor ?? options.hotColor ?? 0xffc2cb);
   const glowColor = new THREE.Color(options.glowColor ?? 0xff2b2b);
   const shaderVariant = options.shaderVariant ?? "plasma";
+  const surfacePatternScale = Math.max(0.1, options.surfacePatternScale ?? 1);
+  const surfaceStripeStrength = THREE.MathUtils.clamp(options.surfaceStripeStrength ?? 1, 0, 1);
   const reverseModelForward = Boolean(options.reverseModelForward);
+  const modelYawRadians = options.modelYawRadians ?? 0;
   const glowLayerStyle = options.glowLayerStyle ?? "shell";
   const hasGlowLayer = glowLayerStyle !== "none";
   const plasmaIntensity = Math.max(0.001, options.emissiveIntensity ?? 3.2);
@@ -155,9 +176,18 @@ export function createPlasmaBoltFactory(
     options.trailGlobSpawnIntervalSeconds ?? 0.01
   );
   const trailGlobLifetimeSeconds = Math.max(0.001, options.trailGlobLifetimeSeconds ?? 0.04);
+  const trailGlobUseParticleSockets = options.trailGlobUseParticleSockets ?? false;
+  const bridgeParticleCount = Math.max(0, Math.floor(options.bridgeParticleCount ?? 0));
+  const bridgeParticleColor = new THREE.Color(options.bridgeParticleColor ?? options.shellColor ?? options.hotColor ?? 0xffc2cb);
+  const bridgeParticleOpacity = THREE.MathUtils.clamp(options.bridgeParticleOpacity ?? 0.55, 0.01, 1);
+  const bridgeParticleSizeMultiplier = Math.max(0.1, options.bridgeParticleSizeMultiplier ?? 1);
+  const bridgeParticleSpreadMultiplier = Math.max(0.1, options.bridgeParticleSpreadMultiplier ?? 1);
 
   const fallbackGeometry = new THREE.BoxGeometry(thickness, thickness, length);
   const trailGlobGeometry = new THREE.SphereGeometry(1, 14, 12);
+  const bridgeParticleGeometry = new THREE.BufferGeometry();
+  const bridgeParticlePositions = new Float32Array(Math.max(1, bridgeParticleCount) * 3);
+  bridgeParticleGeometry.setAttribute("position", new THREE.Float32BufferAttribute(bridgeParticlePositions, 3));
   const plasmaMaterial = new THREE.ShaderMaterial({
     vertexShader: PLASMA_VERTEX_SHADER,
     fragmentShader: PLASMA_FRAGMENT_SHADER,
@@ -168,7 +198,9 @@ export function createPlasmaBoltFactory(
       uRimColor: { value: new THREE.Vector3(rimColor.r, rimColor.g, rimColor.b) },
       uShellColor: { value: new THREE.Vector3(shellColor.r, shellColor.g, shellColor.b) },
       uIntensity: { value: plasmaIntensity },
-      uVoidVariant: { value: shaderVariant === "void" ? 1 : 0 }
+      uVoidVariant: { value: shaderVariant === "void" ? 1 : 0 },
+      uPatternScale: { value: surfacePatternScale },
+      uStripeStrength: { value: surfaceStripeStrength }
     },
     transparent: false,
     depthWrite: true,
@@ -204,9 +236,23 @@ export function createPlasmaBoltFactory(
         toneMapped: false
       })
     : null;
+  const bridgeParticleMaterial = new THREE.PointsMaterial({
+    color: bridgeParticleColor,
+    size: Math.max(0.02, thickness * 0.34) * bridgeParticleSizeMultiplier,
+    transparent: true,
+    opacity: bridgeParticleOpacity,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    depthTest: false,
+    toneMapped: false,
+    sizeAttenuation: true
+  });
 
   const loader = new GLTFLoader();
   const shotQuaternion = new THREE.Quaternion();
+  const socketA = new THREE.Vector3();
+  const socketB = new THREE.Vector3();
+  const tmpWorld = new THREE.Vector3();
   let modelTemplate: THREE.Object3D | null = null;
   let disposed = false;
 
@@ -246,6 +292,9 @@ export function createPlasmaBoltFactory(
       : new THREE.Mesh(fallbackGeometry, plasmaMaterial);
     if (reverseModelForward) {
       coreVisual.rotateY(Math.PI);
+    }
+    if (Math.abs(modelYawRadians) > 0.000001) {
+      coreVisual.rotateY(modelYawRadians);
     }
     assignMaterialToMeshes(coreVisual, plasmaMaterial);
     projectileGroup.add(coreVisual);
@@ -293,23 +342,63 @@ export function createPlasmaBoltFactory(
     let trailSpawnCursor = 0;
     let trailSpawnAccumulator = Math.random() * trailGlobSpawnIntervalSeconds;
 
+    let bridgePoints: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial> | null = null;
+    let bridgePointsGeometry: THREE.BufferGeometry | null = null;
+    let bridgePointsMaterial: THREE.PointsMaterial | null = null;
+    const trailSocketAnchorsLocal: THREE.Vector3[] = [];
+    if (bridgeParticleCount > 0 || trailGlobUseParticleSockets) {
+      projectileGroup.updateMatrixWorld(true);
+      resolveBridgeParticleSocketsLocal(
+        coreVisual,
+        projectileGroup,
+        socketA,
+        socketB,
+        length,
+        thickness,
+        tmpWorld
+      );
+      if (trailGlobUseParticleSockets) {
+        trailSocketAnchorsLocal.push(socketA.clone(), socketB.clone());
+      }
+    }
+    if (bridgeParticleCount > 0) {
+      bridgePointsGeometry = bridgeParticleGeometry.clone();
+      bridgePointsMaterial = bridgeParticleMaterial.clone();
+      bridgePoints = new THREE.Points(bridgePointsGeometry, bridgePointsMaterial);
+      bridgePoints.renderOrder = 2;
+      projectileGroup.add(bridgePoints);
+    }
+
     const velocity = projectileDirection.multiplyScalar(speed);
     const hitbox = createHitboxComponent({
       owner: projectileGroup,
       collisionArea: { radius: collisionRadius },
       damageAmount: damage,
       damageType,
-      sourceFaction: faction
+      additionalDamageSegments: options.additionalDamageSegments,
+      sourceFaction: faction,
+      maxHits: maxPierceHits
     });
     let lifeRemaining = lifetimeSeconds;
 
     return {
       object: projectileGroup,
       hitbox,
+      beginDestroy: (reason) => (reason === "collision" ? !pierceOnCollision : true),
       update: (deltaTime: number): boolean => {
         lifeRemaining -= deltaTime;
         projectileGroup.position.addScaledVector(velocity, deltaTime);
         plasmaMaterial.uniforms.uTime.value = performance.now() * 0.001;
+        if (bridgePointsGeometry && bridgeParticleCount > 0) {
+          updateBridgeParticles(
+            bridgePointsGeometry,
+            socketA,
+            socketB,
+            performance.now() * 0.001,
+            thickness,
+            bridgeParticleSpreadMultiplier
+          );
+        }
         const nextTrailState = updateTrailGlobs(
           trailGlobs,
           deltaTime,
@@ -320,7 +409,8 @@ export function createPlasmaBoltFactory(
           trailGlobLifetimeSeconds,
           trailGlobSpawnIntervalSeconds,
           trailSpawnAccumulator,
-          trailSpawnCursor
+          trailSpawnCursor,
+          trailSocketAnchorsLocal.length >= 2 ? trailSocketAnchorsLocal : null
         );
         trailSpawnAccumulator = nextTrailState.spawnAccumulator;
         trailSpawnCursor = nextTrailState.spawnCursor;
@@ -331,6 +421,8 @@ export function createPlasmaBoltFactory(
           glob.material.dispose();
           glob.outlineMaterial?.dispose();
         }
+        bridgePointsGeometry?.dispose();
+        bridgePointsMaterial?.dispose();
       }
     };
   };
@@ -348,6 +440,8 @@ export function createPlasmaBoltFactory(
       glowMaterial.dispose();
       trailGlobMaterial.dispose();
       trailGlobOutlineMaterial?.dispose();
+      bridgeParticleGeometry.dispose();
+      bridgeParticleMaterial.dispose();
     }
   };
 }
@@ -440,7 +534,8 @@ function updateTrailGlobs(
   lifetimeSeconds: number,
   spawnIntervalSeconds: number,
   spawnAccumulator: number,
-  spawnCursor: number
+  spawnCursor: number,
+  socketAnchorsLocal: readonly THREE.Vector3[] | null
 ): { spawnAccumulator: number; spawnCursor: number } {
   if (globs.length <= 0) {
     return {
@@ -454,7 +549,8 @@ function updateTrailGlobs(
 
   while (localSpawnAccumulator >= spawnIntervalSeconds) {
     localSpawnAccumulator -= spawnIntervalSeconds;
-    const glob = globs[localSpawnCursor];
+    const spawnIndex = localSpawnCursor;
+    const glob = globs[spawnIndex];
     localSpawnCursor = (localSpawnCursor + 1) % globs.length;
 
     glob.active = true;
@@ -463,11 +559,20 @@ function updateTrailGlobs(
     glob.startScale = randomRange(thickness * 0.63, thickness * 1.008);
     glob.endScale = Math.max(0.001, glob.startScale * randomRange(0.42, 0.7));
     glob.mesh.visible = true;
-    glob.mesh.position.set(
-      randomRange(-thickness * 0.2, thickness * 0.2),
-      randomRange(-thickness * 0.2, thickness * 0.2),
-      randomRange(-length * 0.06, length * 0.06)
-    );
+    if (socketAnchorsLocal && socketAnchorsLocal.length > 0) {
+      const anchor = socketAnchorsLocal[spawnIndex % socketAnchorsLocal.length];
+      glob.mesh.position.copy(anchor);
+      // Keep socket-anchored trails visually locked to the marker positions.
+      glob.mesh.position.x += randomRange(-thickness * 0.025, thickness * 0.025);
+      glob.mesh.position.y += randomRange(-thickness * 0.025, thickness * 0.025);
+      glob.mesh.position.z += randomRange(-length * 0.01, length * 0.01);
+    } else {
+      glob.mesh.position.set(
+        randomRange(-thickness * 0.2, thickness * 0.2),
+        randomRange(-thickness * 0.2, thickness * 0.2),
+        randomRange(-length * 0.06, length * 0.06)
+      );
+    }
     glob.mesh.scale.setScalar(glob.startScale);
     glob.material.opacity = maxOpacity;
     if (glob.outlineMaterial) {
@@ -476,11 +581,19 @@ function updateTrailGlobs(
     if (glob.outlineMesh) {
       glob.outlineMesh.visible = true;
     }
-    glob.velocity.set(
-      randomRange(-0.18, 0.18),
-      randomRange(-0.18, 0.18),
-      -randomRange(projectileSpeed * 0.28, projectileSpeed * 0.55)
-    );
+    if (socketAnchorsLocal && socketAnchorsLocal.length > 0) {
+      glob.velocity.set(
+        randomRange(-0.05, 0.05),
+        randomRange(-0.05, 0.05),
+        -randomRange(projectileSpeed * 0.3, projectileSpeed * 0.52)
+      );
+    } else {
+      glob.velocity.set(
+        randomRange(-0.18, 0.18),
+        randomRange(-0.18, 0.18),
+        -randomRange(projectileSpeed * 0.28, projectileSpeed * 0.55)
+      );
+    }
   }
 
   for (const glob of globs) {
@@ -522,4 +635,102 @@ function randomRange(min: number, max: number): number {
     return min;
   }
   return min + Math.random() * (max - min);
+}
+
+function updateBridgeParticles(
+  geometry: THREE.BufferGeometry,
+  socketA: THREE.Vector3,
+  socketB: THREE.Vector3,
+  timeSeconds: number,
+  thickness: number,
+  spreadMultiplier: number
+): void {
+  const positions = geometry.getAttribute("position");
+  if (!(positions instanceof THREE.BufferAttribute)) {
+    return;
+  }
+
+  const center = new THREE.Vector3();
+  const dir = new THREE.Vector3().subVectors(socketB, socketA);
+  if (dir.lengthSq() <= 0.000001) {
+    dir.set(0, 0, 1);
+  } else {
+    dir.normalize();
+  }
+  const helper = Math.abs(dir.y) < 0.92 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+  const basisU = helper.clone().cross(dir).normalize();
+  const basisV = dir.clone().cross(basisU).normalize();
+  const count = positions.count;
+  for (let i = 0; i < count; i += 1) {
+    const u = count <= 1 ? 0 : i / (count - 1);
+    center.lerpVectors(socketA, socketB, u);
+    const angle = timeSeconds * 10.5 + u * Math.PI * 8 + i * 0.24;
+    const radius =
+      (thickness * (0.18 + u * 0.95) * spreadMultiplier) *
+      (0.82 + 0.18 * Math.sin(timeSeconds * 7 + i * 0.65));
+    center
+      .addScaledVector(basisU, Math.cos(angle) * radius)
+      .addScaledVector(basisV, Math.sin(angle) * radius);
+    positions.setXYZ(i, center.x, center.y, center.z);
+  }
+  positions.needsUpdate = true;
+}
+
+function resolveBridgeParticleSocketsLocal(
+  coreVisual: THREE.Object3D,
+  projectileGroup: THREE.Group,
+  outA: THREE.Vector3,
+  outB: THREE.Vector3,
+  length: number,
+  thickness: number,
+  tmpWorld: THREE.Vector3
+): void {
+  let particleA: THREE.Object3D | null = null;
+  let particleB: THREE.Object3D | null = null;
+  coreVisual.traverse((node) => {
+    const rawName = `${node.name ?? ""}`;
+    if (!rawName) {
+      return;
+    }
+    const name = normalizeHelperNodeName(rawName);
+    if (
+      name === "particle-marker-a" ||
+      name.startsWith("particle-marker-a-") ||
+      name === "particle-a" ||
+      name.startsWith("particle-a-")
+    ) {
+      particleA = node;
+      return;
+    }
+    if (
+      name === "particle-marker-b" ||
+      name.startsWith("particle-marker-b-") ||
+      name === "particle-b" ||
+      name.startsWith("particle-b-")
+    ) {
+      particleB = node;
+    }
+  });
+
+  projectileGroup.updateMatrixWorld(true);
+  if (particleA && particleB) {
+    particleA.getWorldPosition(tmpWorld);
+    projectileGroup.worldToLocal(tmpWorld);
+    outA.copy(tmpWorld);
+    particleB.getWorldPosition(tmpWorld);
+    projectileGroup.worldToLocal(tmpWorld);
+    outB.copy(tmpWorld);
+    return;
+  }
+
+  outA.set(-thickness * 0.16, 0, -length * 0.18);
+  outB.set(thickness * 0.16, 0, length * 0.18);
+}
+
+function normalizeHelperNodeName(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/\.\d+$/g, "")
+    .replace(/[_\s]+/g, "-");
 }
