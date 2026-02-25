@@ -18,6 +18,11 @@ type LaserHitSparkExplosionConfig = {
   lifetimeSeconds?: number;
   speedMin?: number;
   speedMax?: number;
+  color?: number;
+  coreColor?: number;
+  glowColor?: number;
+  spreadRadians?: number;
+  pointSizeScale?: number;
 };
 
 const DEFAULT_SPARK_COUNT = 48;
@@ -33,6 +38,7 @@ attribute float aSeed;
 uniform float uAge;
 uniform float uLifetime;
 uniform float uViewportHeight;
+uniform float uPointSizeScale;
 
 varying float vLife;
 varying float vSeed;
@@ -45,7 +51,7 @@ void main() {
   vec4 mvPosition = modelViewMatrix * vec4(displaced, 1.0);
   gl_Position = projectionMatrix * mvPosition;
 
-  float size = mix(22.0, 2.4, t);
+  float size = mix(22.0, 2.4, t) * uPointSizeScale;
   gl_PointSize = size * (uViewportHeight / max(360.0, -mvPosition.z * 210.0));
 
   vLife = 1.0 - t;
@@ -56,6 +62,8 @@ void main() {
 const FRAGMENT_SHADER = `
 varying float vLife;
 varying float vSeed;
+uniform vec3 uCoreColor;
+uniform vec3 uGlowColor;
 
 void main() {
   vec2 p = gl_PointCoord - vec2(0.5);
@@ -65,7 +73,8 @@ void main() {
   float flicker = 0.7 + 0.3 * sin((1.0 - vLife) * 28.0 + vSeed * 17.0);
   float alpha = (core * 1.2 + glow * 0.5) * vLife * flicker;
 
-  vec3 color = vec3(0.25, 1.0, 0.42) * (0.75 + flicker * 0.7);
+  vec3 paletteColor = mix(uGlowColor, uCoreColor, clamp(core * 1.15, 0.0, 1.0));
+  vec3 color = paletteColor * (0.75 + flicker * 0.7);
   if (alpha <= 0.001) {
     discard;
   }
@@ -81,6 +90,15 @@ export function createLaserHitSparkExplosionSystem(
   const lifetimeSeconds = Math.max(0.01, config.lifetimeSeconds ?? DEFAULT_LIFETIME_SECONDS);
   const speedMin = Math.max(0, config.speedMin ?? DEFAULT_SPEED_MIN);
   const speedMax = Math.max(speedMin, config.speedMax ?? DEFAULT_SPEED_MAX);
+  const spreadRadians = THREE.MathUtils.clamp(
+    config.spreadRadians ?? DEFAULT_DIRECTIONAL_SPREAD_RADIANS,
+    0,
+    Math.PI
+  );
+  const pointSizeScale = Math.max(0.1, config.pointSizeScale ?? 1);
+  const fallbackColor = config.color ?? 0x40ff6b;
+  const sparkCoreColor = new THREE.Color(config.coreColor ?? 0xf6fffb);
+  const sparkGlowColor = new THREE.Color(config.glowColor ?? fallbackColor);
 
   const root = new THREE.Group();
   scene.add(root);
@@ -91,7 +109,7 @@ export function createLaserHitSparkExplosionSystem(
   const baseQuat = new THREE.Quaternion();
   const localDir = new THREE.Vector3();
   const velocity = new THREE.Vector3();
-  const coneSpreadCos = Math.cos(DEFAULT_DIRECTIONAL_SPREAD_RADIANS);
+  const coneSpreadCos = Math.cos(spreadRadians);
 
   const spawnExplosion = (origin: THREE.Vector3, forwardHint?: THREE.Vector3): void => {
     spawnDirection.copy(forwardHint ?? forward);
@@ -141,7 +159,10 @@ export function createLaserHitSparkExplosionSystem(
       uniforms: {
         uAge: { value: 0 },
         uLifetime: { value: lifetimeSeconds },
-        uViewportHeight: { value: window.innerHeight || 1080 }
+        uViewportHeight: { value: window.innerHeight || 1080 },
+        uPointSizeScale: { value: pointSizeScale },
+        uCoreColor: { value: new THREE.Vector3(sparkCoreColor.r, sparkCoreColor.g, sparkCoreColor.b) },
+        uGlowColor: { value: new THREE.Vector3(sparkGlowColor.r, sparkGlowColor.g, sparkGlowColor.b) }
       },
       transparent: true,
       depthWrite: false,

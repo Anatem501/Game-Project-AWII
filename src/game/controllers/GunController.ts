@@ -120,7 +120,19 @@ export function createGunController({
     speedMax: PLAYER_CANNON_MUZZLE_SPEED_MAX,
     spreadRadians: PLAYER_CANNON_MUZZLE_SPREAD_RADIANS
   });
-  const hitSparkExplosions = createLaserHitSparkExplosionSystem(scene);
+  const hitSparkExplosions = createLaserHitSparkExplosionSystem(scene, {
+    sparkCount: 68
+  });
+  const plasmaArcHitSparkExplosions = createLaserHitSparkExplosionSystem(scene, {
+    lifetimeSeconds: 0.38,
+    sparkCount: 56,
+    speedMin: 2.2,
+    speedMax: 8.2,
+    spreadRadians: THREE.MathUtils.degToRad(24),
+    pointSizeScale: 1.45,
+    coreColor: 0xffb06c,
+    glowColor: 0xe13a26
+  });
   const ionMuzzleBursts = createIonHitElectricBurstSystem(scene, {
     burstCount: ION_MUZZLE_BURST_COUNT,
     lifetimeSeconds: ION_MUZZLE_BURST_LIFETIME_SECONDS,
@@ -394,12 +406,18 @@ export function createGunController({
           break;
         }
         const damageType = projectile.hitbox?.damageType;
+        const hitEffectId = projectile.hitEffectId;
         const effectScale = Math.max(0.1, projectile.effectScale ?? 1);
         if (damageType === "Plasma") {
-          plasmaHitImplosions.spawnImplosion(
-            projectile.object.position,
-            projectile.hitbox?.collisionArea.radius
-          );
+          if (hitEffectId === "plasma_arc_red_spark") {
+            projectile.object.getWorldDirection(fallbackForward);
+            plasmaArcHitSparkExplosions.spawnExplosion(projectile.object.position, fallbackForward);
+          } else {
+            plasmaHitImplosions.spawnImplosion(
+              projectile.object.position,
+              projectile.hitbox?.collisionArea.radius
+            );
+          }
         } else {
           projectile.object.getWorldDirection(fallbackForward);
           if (damageType === "Ion") {
@@ -446,6 +464,7 @@ export function createGunController({
     voidMuzzleGlobs.update(deltaTime);
     frostMuzzleGlobs.update(deltaTime);
     hitSparkExplosions.update(deltaTime);
+    plasmaArcHitSparkExplosions.update(deltaTime);
     ionHitBursts.update(deltaTime);
     frostHitBursts.update(deltaTime);
     plasmaHitImplosions.update(deltaTime);
@@ -466,6 +485,7 @@ export function createGunController({
     voidMuzzleGlobs.dispose();
     frostMuzzleGlobs.dispose();
     hitSparkExplosions.dispose();
+    plasmaArcHitSparkExplosions.dispose();
     ionHitBursts.dispose();
     frostHitBursts.dispose();
     plasmaHitImplosions.dispose();

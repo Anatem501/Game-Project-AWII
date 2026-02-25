@@ -35,6 +35,7 @@ uniform float uIntensity;
 uniform float uVoidVariant;
 uniform float uPatternScale;
 uniform float uStripeStrength;
+uniform float uAlpha;
 
 varying vec3 vWorldPos;
 varying vec3 vWorldNormal;
@@ -70,7 +71,7 @@ void main() {
     emissive += uRimColor * fresnel * (uIntensity * 0.9);
   }
 
-  gl_FragColor = vec4(emissive, 1.0);
+  gl_FragColor = vec4(emissive, uAlpha);
 }
 `;
 
@@ -85,6 +86,13 @@ export type PlasmaBoltFactoryOptions = LaserBoltFactoryOptions & {
   shaderVariant?: PlasmaBoltShaderVariant;
   surfacePatternScale?: number;
   surfaceStripeStrength?: number;
+  fadeStartSeconds?: number;
+  fadeDurationSeconds?: number;
+  trailingModelCount?: number;
+  trailingModelSpacing?: number;
+  trailingModelScaleStep?: number;
+  trailingModelOpacity?: number;
+  hitEffectId?: string;
   glowLayerStyle?: "shell" | "outline" | "none";
   coreColor?: number;
   hotColor?: number;
@@ -123,6 +131,11 @@ type TrailGlob = {
   velocity: THREE.Vector3;
 };
 
+type GhostTrailSample = {
+  ageSeconds: number;
+  worldPosition: THREE.Vector3;
+};
+
 export function createPlasmaBoltFactory(
   options: PlasmaBoltFactoryOptions = {}
 ): ProjectileFactory {
@@ -148,6 +161,13 @@ export function createPlasmaBoltFactory(
   const shaderVariant = options.shaderVariant ?? "plasma";
   const surfacePatternScale = Math.max(0.1, options.surfacePatternScale ?? 1);
   const surfaceStripeStrength = THREE.MathUtils.clamp(options.surfaceStripeStrength ?? 1, 0, 1);
+  const fadeStartSeconds = Math.max(0, options.fadeStartSeconds ?? lifetimeSeconds);
+  const fadeDurationSeconds = Math.max(0.01, options.fadeDurationSeconds ?? 0.25);
+  const usesVisualFade = fadeStartSeconds < lifetimeSeconds;
+  const trailingModelCount = Math.max(0, Math.floor(options.trailingModelCount ?? 0));
+  const trailingModelSpacing = Math.max(0.001, options.trailingModelSpacing ?? (length * 0.28));
+  const trailingModelScaleStep = Math.max(0.01, options.trailingModelScaleStep ?? 0.12);
+  const trailingModelOpacity = THREE.MathUtils.clamp(options.trailingModelOpacity ?? 0.12, 0.01, 1);
   const reverseModelForward = Boolean(options.reverseModelForward);
   const modelYawRadians = options.modelYawRadians ?? 0;
   const glowLayerStyle = options.glowLayerStyle ?? "shell";
@@ -200,10 +220,11 @@ export function createPlasmaBoltFactory(
       uIntensity: { value: plasmaIntensity },
       uVoidVariant: { value: shaderVariant === "void" ? 1 : 0 },
       uPatternScale: { value: surfacePatternScale },
-      uStripeStrength: { value: surfaceStripeStrength }
+      uStripeStrength: { value: surfaceStripeStrength },
+      uAlpha: { value: 1 }
     },
-    transparent: false,
-    depthWrite: true,
+    transparent: usesVisualFade,
+    depthWrite: !usesVisualFade,
     blending: THREE.NormalBlending,
     toneMapped: false
   });
@@ -287,24 +308,62 @@ export function createPlasmaBoltFactory(
     shotQuaternion.setFromUnitVectors(PROJECTILE_FORWARD, projectileDirection);
     projectileGroup.quaternion.copy(shotQuaternion);
 
+    const corePlasmaMaterial = plasmaMaterial.clone();
     const coreVisual = modelTemplate
       ? modelTemplate.clone(true)
-      : new THREE.Mesh(fallbackGeometry, plasmaMaterial);
+      : new THREE.Mesh(fallbackGeometry, corePlasmaMaterial);
     if (reverseModelForward) {
       coreVisual.rotateY(Math.PI);
     }
     if (Math.abs(modelYawRadians) > 0.000001) {
       coreVisual.rotateY(modelYawRadians);
     }
-    assignMaterialToMeshes(coreVisual, plasmaMaterial);
+    assignMaterialToMeshes(coreVisual, corePlasmaMaterial);
     projectileGroup.add(coreVisual);
 
+    let glowVisualMaterial: THREE.MeshBasicMaterial | null = null;
     if (hasGlowLayer) {
+      glowVisualMaterial = glowMaterial.clone();
       const glowVisual = coreVisual.clone(true);
-      assignMaterialToMeshes(glowVisual, glowMaterial);
+      assignMaterialToMeshes(glowVisual, glowVisualMaterial);
       glowVisual.scale.multiplyScalar(glowScale);
       projectileGroup.add(glowVisual);
     }
+
+    const trailingModelMaterials: Array<{
+      material: THREE.MeshBasicMaterial;
+      baseOpacity: number;
+      mesh: THREE.Object3D;
+      baseScale: THREE.Vector3;
+      targetDelaySeconds: number;
+    }> = [];
+    if (trailingModelCount > 0) {
+      for (let i = 0; i < trailingModelCount; i += 1) {
+        const t = trailingModelCount <= 1 ? 0 : i / (trailingModelCount - 1);
+        const scaleFactor = Math.max(0.03, Math.pow(Math.max(0.05, 1 - trailingModelScaleStep), i + 1));
+        const opacityFactor = THREE.MathUtils.lerp(1, 0.35, t);
+        const trailMaterial = glowMaterial.clone();
+        trailMaterial.opacity = trailingModelOpacity * opacityFactor;
+        trailMaterial.depthTest = false;
+        const trailVisual = coreVisual.clone(true);
+        assignMaterialToMeshes(trailVisual, trailMaterial);
+        trailVisual.scale.multiplyScalar(scaleFactor);
+        trailVisual.visible = false;
+        setRenderOrderRecursive(trailVisual, -1);
+        projectileGroup.add(trailVisual);
+        trailingModelMaterials.push({
+          material: trailMaterial,
+          baseOpacity: trailingModelOpacity * opacityFactor,
+          mesh: trailVisual,
+          baseScale: trailVisual.scale.clone(),
+          targetDelaySeconds: (trailingModelSpacing * (i + 1)) / Math.max(0.001, speed)
+        });
+      }
+    }
+    const ghostTrailSamples: GhostTrailSample[] = [];
+    const ghostSampleWorld = new THREE.Vector3();
+    const ghostLocalPosition = new THREE.Vector3();
+    const ghostInterpWorld = new THREE.Vector3();
 
     const trailRoot = new THREE.Group();
     projectileGroup.add(trailRoot);
@@ -384,17 +443,67 @@ export function createPlasmaBoltFactory(
     return {
       object: projectileGroup,
       hitbox,
+      hitEffectId: options.hitEffectId,
       beginDestroy: (reason) => (reason === "collision" ? !pierceOnCollision : true),
       update: (deltaTime: number): boolean => {
         lifeRemaining -= deltaTime;
         projectileGroup.position.addScaledVector(velocity, deltaTime);
-        plasmaMaterial.uniforms.uTime.value = performance.now() * 0.001;
+        const nowSeconds = performance.now() * 0.001;
+        const ageSeconds = Math.max(0, lifetimeSeconds - lifeRemaining);
+        let visualAlpha = 1;
+        if (usesVisualFade && ageSeconds > fadeStartSeconds) {
+          const fadeT = THREE.MathUtils.clamp(
+            (ageSeconds - fadeStartSeconds) / fadeDurationSeconds,
+            0,
+            1
+          );
+          visualAlpha = 1 - fadeT;
+        }
+        corePlasmaMaterial.uniforms.uTime.value = nowSeconds;
+        corePlasmaMaterial.uniforms.uAlpha.value = visualAlpha;
+        if (glowVisualMaterial) {
+          glowVisualMaterial.opacity = glowOpacity * visualAlpha;
+        }
+        if (trailingModelMaterials.length > 0) {
+          projectileGroup.getWorldPosition(ghostSampleWorld);
+          ghostTrailSamples.push({
+            ageSeconds,
+            worldPosition: ghostSampleWorld.clone()
+          });
+          const maxDelaySeconds =
+            trailingModelMaterials[trailingModelMaterials.length - 1]?.targetDelaySeconds ?? 0;
+          const minSampleAge = ageSeconds - Math.max(0.05, maxDelaySeconds + 0.2);
+          while (ghostTrailSamples.length > 2 && ghostTrailSamples[1].ageSeconds < minSampleAge) {
+            ghostTrailSamples.shift();
+          }
+        }
+        for (const trailing of trailingModelMaterials) {
+          const sampleAge = ageSeconds - trailing.targetDelaySeconds;
+          const hasSample = sampleAge >= 0 && sampleGhostTrailWorldPosition(
+            ghostTrailSamples,
+            sampleAge,
+            ghostInterpWorld
+          );
+          trailing.mesh.visible = hasSample && visualAlpha > 0.001;
+          if (!trailing.mesh.visible) {
+            continue;
+          }
+          ghostLocalPosition.copy(ghostInterpWorld);
+          projectileGroup.worldToLocal(ghostLocalPosition);
+          trailing.mesh.position.copy(ghostLocalPosition);
+          trailing.material.opacity = trailing.baseOpacity * visualAlpha;
+          const shrinkAlpha = Math.max(0.001, visualAlpha);
+          trailing.mesh.scale.copy(trailing.baseScale).multiplyScalar(shrinkAlpha);
+        }
         if (bridgePointsGeometry && bridgeParticleCount > 0) {
+          if (bridgePointsMaterial) {
+            bridgePointsMaterial.opacity = bridgeParticleOpacity * visualAlpha;
+          }
           updateBridgeParticles(
             bridgePointsGeometry,
             socketA,
             socketB,
-            performance.now() * 0.001,
+            nowSeconds,
             thickness,
             bridgeParticleSpreadMultiplier
           );
@@ -410,13 +519,19 @@ export function createPlasmaBoltFactory(
           trailGlobSpawnIntervalSeconds,
           trailSpawnAccumulator,
           trailSpawnCursor,
-          trailSocketAnchorsLocal.length >= 2 ? trailSocketAnchorsLocal : null
+          trailSocketAnchorsLocal.length >= 2 ? trailSocketAnchorsLocal : null,
+          visualAlpha
         );
         trailSpawnAccumulator = nextTrailState.spawnAccumulator;
         trailSpawnCursor = nextTrailState.spawnCursor;
-        return lifeRemaining > 0;
+        return lifeRemaining > 0 && visualAlpha > 0.001;
       },
       dispose: () => {
+        corePlasmaMaterial.dispose();
+        glowVisualMaterial?.dispose();
+        for (const trailing of trailingModelMaterials) {
+          trailing.material.dispose();
+        }
         for (const glob of trailGlobs) {
           glob.material.dispose();
           glob.outlineMaterial?.dispose();
@@ -535,7 +650,8 @@ function updateTrailGlobs(
   spawnIntervalSeconds: number,
   spawnAccumulator: number,
   spawnCursor: number,
-  socketAnchorsLocal: readonly THREE.Vector3[] | null
+  socketAnchorsLocal: readonly THREE.Vector3[] | null,
+  opacityMultiplier = 1
 ): { spawnAccumulator: number; spawnCursor: number } {
   if (globs.length <= 0) {
     return {
@@ -574,9 +690,9 @@ function updateTrailGlobs(
       );
     }
     glob.mesh.scale.setScalar(glob.startScale);
-    glob.material.opacity = maxOpacity;
+    glob.material.opacity = maxOpacity * opacityMultiplier;
     if (glob.outlineMaterial) {
-      glob.outlineMaterial.opacity = glob.outlineMaxOpacity;
+      glob.outlineMaterial.opacity = glob.outlineMaxOpacity * opacityMultiplier;
     }
     if (glob.outlineMesh) {
       glob.outlineMesh.visible = true;
@@ -618,9 +734,9 @@ function updateTrailGlobs(
     glob.mesh.position.addScaledVector(glob.velocity, deltaTime);
     const scale = THREE.MathUtils.lerp(glob.startScale, glob.endScale, t);
     glob.mesh.scale.setScalar(scale);
-    glob.material.opacity = maxOpacity;
+    glob.material.opacity = maxOpacity * opacityMultiplier;
     if (glob.outlineMaterial) {
-      glob.outlineMaterial.opacity = glob.outlineMaxOpacity;
+      glob.outlineMaterial.opacity = glob.outlineMaxOpacity * opacityMultiplier;
     }
   }
 
@@ -733,4 +849,39 @@ function normalizeHelperNodeName(name: string): string {
     .toLowerCase()
     .replace(/\.\d+$/g, "")
     .replace(/[_\s]+/g, "-");
+}
+
+function setRenderOrderRecursive(object: THREE.Object3D, renderOrder: number): void {
+  object.traverse((node) => {
+    if (node instanceof THREE.Mesh || node instanceof THREE.Points || node instanceof THREE.Line) {
+      node.renderOrder = renderOrder;
+    }
+  });
+}
+
+function sampleGhostTrailWorldPosition(
+  samples: readonly GhostTrailSample[],
+  targetAgeSeconds: number,
+  outWorldPosition: THREE.Vector3
+): boolean {
+  if (samples.length <= 0) {
+    return false;
+  }
+  if (targetAgeSeconds <= samples[0].ageSeconds) {
+    outWorldPosition.copy(samples[0].worldPosition);
+    return true;
+  }
+  for (let i = 1; i < samples.length; i += 1) {
+    const prev = samples[i - 1];
+    const next = samples[i];
+    if (targetAgeSeconds > next.ageSeconds) {
+      continue;
+    }
+    const dt = Math.max(0.0001, next.ageSeconds - prev.ageSeconds);
+    const t = THREE.MathUtils.clamp((targetAgeSeconds - prev.ageSeconds) / dt, 0, 1);
+    outWorldPosition.lerpVectors(prev.worldPosition, next.worldPosition, t);
+    return true;
+  }
+  outWorldPosition.copy(samples[samples.length - 1].worldPosition);
+  return true;
 }

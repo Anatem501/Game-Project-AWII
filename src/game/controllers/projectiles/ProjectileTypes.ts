@@ -11,6 +11,7 @@ export type ProjectileInstance = {
   object: THREE.Object3D;
   hitbox?: HitboxComponent;
   effectScale?: number;
+  hitEffectId?: string;
   update: (deltaTime: number) => boolean;
   beginDestroy?: (reason: "collision" | "expired") => boolean;
   dispose?: () => void;
