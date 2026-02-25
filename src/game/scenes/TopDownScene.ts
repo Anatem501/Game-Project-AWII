@@ -13,6 +13,7 @@ import arcV03ModelUrl from "../../assets/models/Arc-v03.glb?url";
 import arcV01ModelUrl from "../../assets/models/Arc-v01.glb?url";
 import arcV02ModelUrl from "../../assets/models/Arc-v02.glb?url";
 import cryoshardModelUrl from "../../assets/models/Cryoshard-v01.glb?url";
+import orbModelUrl from "../../assets/models/Orb-v01.glb?url";
 import { createCameraController } from "../controllers/CameraController";
 import { createGunController } from "../controllers/GunController";
 import {
@@ -108,10 +109,12 @@ const MAURADER_DEFAULT_MISSILE_CELL_LOCAL_OFFSETS: readonly THREE.Vector3[] = [
   new THREE.Vector3(0.38, 0.92, -0.34)
 ];
 const REPEATING_LASERBOLT_COMPONENT_ID = "repeating_laserbolt_fire";
+const LASERBEAM_PULSE_COMPONENT_ID = "laserbeam_pulse_fire";
 const REPEATING_PLASMABOLT_COMPONENT_ID = "repeating_plasmabolt_fire";
 const REPEATING_VOIDBOLT_COMPONENT_ID = "repeating_voidbolt_fire";
 const REPEATING_IONBOLT_COMPONENT_ID = "repeating_ionbolt_fire";
 const REPEATING_CRYOSHARD_COMPONENT_ID = "repeating_cryoshard_fire";
+const SOLAR_SEEKER_SHOTS_COMPONENT_ID = "solar_seeker_shots";
 const PLASMA_ARC_SHOTS_COMPONENT_ID = "plasma_arc_shots";
 const CRYOWAVE_FIRE_COMPONENT_ID = "cryowave_fire";
 const CANNON_FIRE_INTERVAL_SECONDS = 0.5;
@@ -405,6 +408,7 @@ export function setupTopDownScene(
       arcV02ModelUrl: arcV02ModelUrl,
       cryoshardModelUrl: cryoshardModelUrl,
       ionboltModelUrl: ionboltModelUrl,
+      orbModelUrl: orbModelUrl,
       plasmaboltModelUrl: plasmaboltModelUrl
     }
   });
@@ -890,6 +894,19 @@ export function setupTopDownScene(
     gunHardpoints.length,
     primaryFireIntervalSeconds
   );
+  const primaryHitscanPulseConfig = primaryComponent.hitscanPulse
+    ? {
+        maxDistance: primaryComponent.hitscanPulse.maxDistance,
+        pulseDurationSeconds: primaryComponent.hitscanPulse.pulseDurationSeconds,
+        beamThickness: primaryComponent.hitscanPulse.beamThickness,
+        damageAmount: primaryComponent.hitscanPulse.damage,
+        damageType: "Laser" as const,
+        sourceFaction: "player",
+        hitSparkIntervalSeconds: primaryComponent.hitscanPulse.hitSparkIntervalSeconds,
+        beamColor: 0x40ff6b,
+        beamCoreColor: 0xeefff4
+      }
+    : null;
   const guns = gunHardpoints.map((hardpoint, hardpointIndex) => {
     return {
       primary: {
@@ -903,9 +920,10 @@ export function setupTopDownScene(
             ? azureArrowBurstIonArcSecondPhaseOffsetSeconds
             : 0
           : (primaryPhaseOffsets[hardpointIndex] ?? 0),
-        projectileFactory: primaryCannonProjectileFactoryResolver.resolve(
-          selectedCannonPrimaryComponentId
-        ),
+        projectileFactory: primaryHitscanPulseConfig
+          ? undefined
+          : primaryCannonProjectileFactoryResolver.resolve(selectedCannonPrimaryComponentId),
+        hitscanPulse: primaryHitscanPulseConfig ?? undefined,
         heatCost: primaryHeatCost,
         energyCost: primaryEnergyCost
       },
@@ -920,6 +938,7 @@ export function setupTopDownScene(
     minAimDistanceFromShip: GUN_MIN_AIM_DISTANCE_FROM_SHIP,
     playerRoot,
     scene,
+    reticleHomingTargetPadding: RETICLE_ENEMY_HOVER_PADDING,
     consumePrimaryFireCost: (cost) => {
       if (!playerResources.canFireCannons()) {
         return false;
@@ -1636,10 +1655,12 @@ function resolveCannonPrimaryPhaseOffsets(
   }
   if (
     primaryComponentId !== REPEATING_LASERBOLT_COMPONENT_ID &&
+    primaryComponentId !== LASERBEAM_PULSE_COMPONENT_ID &&
     primaryComponentId !== REPEATING_PLASMABOLT_COMPONENT_ID &&
     primaryComponentId !== REPEATING_VOIDBOLT_COMPONENT_ID &&
     primaryComponentId !== REPEATING_IONBOLT_COMPONENT_ID &&
     primaryComponentId !== REPEATING_CRYOSHARD_COMPONENT_ID &&
+    primaryComponentId !== SOLAR_SEEKER_SHOTS_COMPONENT_ID &&
     primaryComponentId !== PLASMA_ARC_SHOTS_COMPONENT_ID &&
     primaryComponentId !== CRYOWAVE_FIRE_COMPONENT_ID
   ) {
@@ -1657,11 +1678,7 @@ function resolveRepeatingLaserboltPhaseSlots(shipId: string, cannonCount: number
     return [0, 0, 1, 1];
   }
 
-  if (shipId === "swift_interceptor") {
-    return new Array(cannonCount).fill(0);
-  }
-
-  if (shipId === "test_fighter" || shipId === "vanguard_mk2" || shipId === "mx4_lancer") {
+  if (shipId === "test_fighter") {
     return Array.from({ length: cannonCount }, (_, index) => index % 2);
   }
 

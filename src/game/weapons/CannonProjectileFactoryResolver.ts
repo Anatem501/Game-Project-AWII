@@ -2,6 +2,7 @@ import { createIonBoltFactory } from "../controllers/projectiles/IonBoltFactory"
 import { createIonArcFactory } from "../controllers/projectiles/IonArcFactory";
 import { createLaserBoltFactory } from "../controllers/projectiles/LaserBoltFactory";
 import { createPlasmaBoltFactory } from "../controllers/projectiles/PlasmaBoltFactory";
+import { createSolarSeekerFactory } from "../controllers/projectiles/SolarSeekerFactory";
 import type { ProjectileFactory } from "../controllers/projectiles/ProjectileTypes";
 import {
   getCannonPrimaryComponentDefinition,
@@ -14,6 +15,7 @@ export type CannonProjectileFactoryAssets = {
   arcV02ModelUrl?: string;
   cryoshardModelUrl?: string;
   ionboltModelUrl?: string;
+  orbModelUrl?: string;
   plasmaboltModelUrl?: string;
 };
 
@@ -27,6 +29,14 @@ export function createCannonPrimaryProjectileFactory(
   config: CannonProjectileFactoryResolverConfig
 ): ProjectileFactory {
   const component = getCannonPrimaryComponentDefinition(componentId);
+
+  if (componentId === "solar_seeker_shots") {
+    return createSolarSeekerFactory({
+      faction: config.faction,
+      modelUrl: config.assets?.orbModelUrl,
+      ...component.projectile
+    });
+  }
 
   if (componentId === "repeating_plasmabolt_fire") {
     return createPlasmaBoltFactory({

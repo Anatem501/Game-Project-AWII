@@ -1,10 +1,12 @@
 import * as THREE from "three";
 import type { HitboxComponent } from "../../components/combat/HitboxComponent";
+import type { HurtboxComponent } from "../../components/combat/HurtboxComponent";
 
 export type ProjectileSpawnParams = {
   direction: THREE.Vector3;
   origin: THREE.Vector3;
   patternStepIndex?: number;
+  homingTargetHurtbox?: HurtboxComponent | null;
 };
 
 export type ProjectileInstance = {

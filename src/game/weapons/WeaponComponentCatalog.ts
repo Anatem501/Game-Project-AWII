@@ -3,6 +3,8 @@ import type { LaserBoltFactoryOptions } from "../controllers/projectiles/LaserBo
 
 export const CANNON_PRIMARY_COMPONENT_OPTIONS = [
   "repeating_laserbolt_fire",
+  "laserbeam_pulse_fire",
+  "solar_seeker_shots",
   "repeating_plasmabolt_fire",
   "repeating_voidbolt_fire",
   "repeating_ionbolt_fire",
@@ -46,6 +48,13 @@ export type CannonPrimaryComponentDefinition = WeaponComponentPresentation & {
   fireIntervalSeconds?: number;
   fireIntervalSequenceSeconds?: readonly number[];
   fireIntervalMultiplierScope?: "all_steps" | "burst_gap_only";
+  hitscanPulse?: {
+    pulseDurationSeconds: number;
+    maxDistance: number;
+    beamThickness: number;
+    damage: number;
+    hitSparkIntervalSeconds?: number;
+  };
   projectile: LaserBoltFactoryOptions;
 };
 
@@ -114,6 +123,59 @@ const CANNON_PRIMARY_COMPONENTS: Record<
       thickness: 0.06,
       damage: 8,
       collisionRadius: 0.08
+    }
+  },
+  laserbeam_pulse_fire: {
+    id: "laserbeam_pulse_fire",
+    name: "Laserbeam Pulse",
+    weaponType: "Cannons",
+    fireType: "Primary",
+    damageType: "Laser",
+    energyCost: 6,
+    fireIntervalSeconds: 1.2,
+    description:
+      "Hitscan laser pulse emitter. Fires a sustained green beam pulse that lances forward, sparks on contact, and fades before the next charge cycle.",
+    hitscanPulse: {
+      pulseDurationSeconds: 0.6,
+      maxDistance: 260,
+      beamThickness: 0.08,
+      damage: 10,
+      hitSparkIntervalSeconds: 0.08
+    },
+    projectile: {
+      color: 0x72ff9a,
+      emissive: 0x2dff55,
+      emissiveIntensity: 2.25,
+      speed: 16,
+      lifetimeSeconds: 2,
+      length: 0.44,
+      thickness: 0.06,
+      damage: 10,
+      collisionRadius: 0.08
+    }
+  },
+  solar_seeker_shots: {
+    id: "solar_seeker_shots",
+    name: "Solar Seeker Shots",
+    weaponType: "Cannons",
+    fireType: "Primary",
+    damageType: "Solar",
+    heatCost: 1,
+    energyCost: 1,
+    fireIntervalSeconds: 1.2,
+    description:
+      "Golden solar seekers with a bright star core and guided trail. Gains moderate homing when fired over an enemy target.",
+    projectile: {
+      color: 0xffcc55,
+      emissive: 0xfff1b0,
+      emissiveIntensity: 3.4,
+      speed: 14,
+      lifetimeSeconds: 2.8,
+      length: 0.52,
+      thickness: 0.12,
+      damage: 14,
+      damageType: "Solar",
+      collisionRadius: 0.12
     }
   },
   repeating_plasmabolt_fire: {
