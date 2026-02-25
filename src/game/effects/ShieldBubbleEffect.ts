@@ -139,6 +139,9 @@ export function createShieldBubbleEffect(
       if (node === bubbleMesh || node.userData.isShieldBubbleEffect) {
         return;
       }
+      if (hasExcludedShieldFitAncestor(node, shipRoot)) {
+        return;
+      }
       if (!node.geometry) {
         return;
       }
@@ -268,4 +271,15 @@ export function createShieldBubbleEffect(
     }),
     dispose
   };
+}
+
+function hasExcludedShieldFitAncestor(node: THREE.Object3D, stopNode: THREE.Object3D): boolean {
+  let current: THREE.Object3D | null = node;
+  while (current && current !== stopNode) {
+    if (current.userData.excludeFromShieldBubbleFit) {
+      return true;
+    }
+    current = current.parent;
+  }
+  return false;
 }

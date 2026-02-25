@@ -115,6 +115,12 @@ export type PlasmaBoltFactoryOptions = LaserBoltFactoryOptions & {
   bridgeParticleOpacity?: number;
   bridgeParticleSizeMultiplier?: number;
   bridgeParticleSpreadMultiplier?: number;
+  orbitShardCount?: number;
+  orbitShardColor?: number;
+  orbitShardOpacity?: number;
+  orbitShardRadius?: number;
+  orbitShardSpeed?: number;
+  orbitShardTrailLengthMultiplier?: number;
 };
 
 type TrailGlob = {
@@ -134,6 +140,28 @@ type TrailGlob = {
 type GhostTrailSample = {
   ageSeconds: number;
   worldPosition: THREE.Vector3;
+};
+
+type OrbitShard = {
+  axialAmplitude: number;
+  axialPhase: number;
+  axialSpeed: number;
+  baseRadiusScale: number;
+  baseLengthScale: number;
+  flickerOpacityScale: number;
+  flickerTimer: number;
+  material: THREE.MeshBasicMaterial;
+  mesh: THREE.Mesh<THREE.ConeGeometry, THREE.MeshBasicMaterial>;
+  orbitAxis: THREE.Vector3;
+  orbitBasisU: THREE.Vector3;
+  orbitBasisV: THREE.Vector3;
+  orbitAngle: number;
+  orbitRadius: number;
+  orbitSpeed: number;
+  pulsePhase: number;
+  spinSpeed: number;
+  trailPhaseOffset: number;
+  trailStrength: number;
 };
 
 export function createPlasmaBoltFactory(
@@ -202,9 +230,27 @@ export function createPlasmaBoltFactory(
   const bridgeParticleOpacity = THREE.MathUtils.clamp(options.bridgeParticleOpacity ?? 0.55, 0.01, 1);
   const bridgeParticleSizeMultiplier = Math.max(0.1, options.bridgeParticleSizeMultiplier ?? 1);
   const bridgeParticleSpreadMultiplier = Math.max(0.1, options.bridgeParticleSpreadMultiplier ?? 1);
+  const orbitShardCount = Math.max(0, Math.floor(options.orbitShardCount ?? 0));
+  const orbitShardColor = new THREE.Color(options.orbitShardColor ?? glowColor);
+  const orbitShardOpacity = THREE.MathUtils.clamp(options.orbitShardOpacity ?? 0.82, 0.01, 1);
+  const orbitShardRadius = Math.max(0.004, options.orbitShardRadius ?? thickness * 1.45);
+  const orbitShardSpeed = Math.max(0.1, options.orbitShardSpeed ?? 8.2);
+  const orbitShardTrailLengthMultiplier = Math.max(
+    0,
+    options.orbitShardTrailLengthMultiplier ?? 1
+  );
+  const orbitStartLengthOffset = length * 0.3;
+  const orbitShardSizeMultiplier = 1.14;
+  const orbitShardThicknessMultiplier = 1.2;
 
   const fallbackGeometry = new THREE.BoxGeometry(thickness, thickness, length);
   const trailGlobGeometry = new THREE.SphereGeometry(1, 14, 12);
+  const orbitShardGeometry = new THREE.ConeGeometry(
+    Math.max(0.003, thickness * 0.18),
+    Math.max(0.01, length * 0.13),
+    5,
+    1
+  );
   const bridgeParticleGeometry = new THREE.BufferGeometry();
   const bridgeParticlePositions = new Float32Array(Math.max(1, bridgeParticleCount) * 3);
   bridgeParticleGeometry.setAttribute("position", new THREE.Float32BufferAttribute(bridgeParticlePositions, 3));
@@ -268,12 +314,29 @@ export function createPlasmaBoltFactory(
     toneMapped: false,
     sizeAttenuation: true
   });
+  const orbitShardMaterialTemplate = new THREE.MeshBasicMaterial({
+    color: orbitShardColor,
+    transparent: true,
+    opacity: orbitShardOpacity,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    depthTest: false,
+    toneMapped: false
+  });
 
   const loader = new GLTFLoader();
   const shotQuaternion = new THREE.Quaternion();
   const socketA = new THREE.Vector3();
   const socketB = new THREE.Vector3();
   const tmpWorld = new THREE.Vector3();
+  const shardOutwardDirection = new THREE.Vector3();
+  const shardBaseAxis = new THREE.Vector3(0, 1, 0);
+  const shardFallbackDirection = new THREE.Vector3(1, 0, 0);
+  const shardQuaternion = new THREE.Quaternion();
+  const shardHelperAxisA = new THREE.Vector3(0, 1, 0);
+  const shardHelperAxisB = new THREE.Vector3(1, 0, 0);
+  const shardOrbitPlanar = new THREE.Vector3();
+  const shardOrbitPosition = new THREE.Vector3();
   let modelTemplate: THREE.Object3D | null = null;
   let disposed = false;
 
@@ -401,6 +464,43 @@ export function createPlasmaBoltFactory(
     let trailSpawnCursor = 0;
     let trailSpawnAccumulator = Math.random() * trailGlobSpawnIntervalSeconds;
 
+    const orbitShardRoot = new THREE.Group();
+    projectileGroup.add(orbitShardRoot);
+    const orbitShards: OrbitShard[] = [];
+    if (orbitShardCount > 0) {
+      for (let i = 0; i < orbitShardCount; i += 1) {
+        const orbitShardMaterial = orbitShardMaterialTemplate.clone();
+        const shard = new THREE.Mesh(orbitShardGeometry, orbitShardMaterial);
+        shard.renderOrder = 3;
+        orbitShardRoot.add(shard);
+        const orbitAxis = randomUnitVector();
+        const helperAxis = Math.abs(orbitAxis.y) < 0.92 ? shardHelperAxisA : shardHelperAxisB;
+        const orbitBasisU = helperAxis.clone().cross(orbitAxis).normalize();
+        const orbitBasisV = orbitAxis.clone().cross(orbitBasisU).normalize();
+        orbitShards.push({
+          axialAmplitude: randomRange(thickness * 0.06, thickness * 0.18),
+          axialPhase: Math.random() * Math.PI * 2,
+          axialSpeed: randomRange(7.5, 13.5),
+          baseRadiusScale: randomRange(1.0, 1.7),
+          baseLengthScale: randomRange(0.42, 0.86),
+          flickerOpacityScale: randomRange(0.65, 1),
+          flickerTimer: randomRange(0.015, 0.085),
+          material: orbitShardMaterial,
+          mesh: shard,
+          orbitAxis,
+          orbitBasisU,
+          orbitBasisV,
+          orbitAngle: Math.random() * Math.PI * 2,
+          orbitRadius: orbitShardRadius * randomRange(1.15, 1.95),
+          orbitSpeed: orbitShardSpeed * randomRange(0.75, 1.3),
+          pulsePhase: Math.random() * Math.PI * 2,
+          spinSpeed: randomRange(5, 12),
+          trailPhaseOffset: Math.random(),
+          trailStrength: randomRange(1.0, 1.55)
+        });
+      }
+    }
+
     let bridgePoints: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial> | null = null;
     let bridgePointsGeometry: THREE.BufferGeometry | null = null;
     let bridgePointsMaterial: THREE.PointsMaterial | null = null;
@@ -463,6 +563,66 @@ export function createPlasmaBoltFactory(
         corePlasmaMaterial.uniforms.uAlpha.value = visualAlpha;
         if (glowVisualMaterial) {
           glowVisualMaterial.opacity = glowOpacity * visualAlpha;
+        }
+        if (orbitShards.length > 0) {
+          const projectileSpeed = velocity.length();
+          const velocityTrailBase =
+            length *
+            (0.56 + 1.95 * THREE.MathUtils.clamp(projectileSpeed / 18, 0, 2)) *
+            orbitShardTrailLengthMultiplier;
+          for (const orbitShard of orbitShards) {
+            orbitShard.orbitAngle += orbitShard.orbitSpeed * deltaTime;
+            const radialCos = Math.cos(orbitShard.orbitAngle) * orbitShard.orbitRadius;
+            const radialSin = Math.sin(orbitShard.orbitAngle) * orbitShard.orbitRadius;
+            const axial =
+              Math.sin(nowSeconds * orbitShard.axialSpeed + orbitShard.axialPhase) *
+              orbitShard.axialAmplitude;
+
+            shardOrbitPlanar
+              .copy(orbitShard.orbitBasisU)
+              .multiplyScalar(radialCos)
+              .addScaledVector(orbitShard.orbitBasisV, radialSin);
+            shardOrbitPosition.copy(shardOrbitPlanar).addScaledVector(orbitShard.orbitAxis, axial);
+            shardOrbitPosition.z += orbitStartLengthOffset;
+            const spiral01 = THREE.MathUtils.euclideanModulo(
+              orbitShard.orbitAngle / (Math.PI * 2) + orbitShard.trailPhaseOffset,
+              1
+            );
+            shardOrbitPosition.z -= velocityTrailBase * spiral01 * orbitShard.trailStrength;
+            orbitShard.mesh.position.copy(shardOrbitPosition);
+
+            shardOutwardDirection.copy(shardOrbitPosition);
+            if (shardOutwardDirection.lengthSq() <= 0.000001) {
+              shardOutwardDirection.copy(shardFallbackDirection);
+            } else {
+              shardOutwardDirection.normalize();
+            }
+            shardQuaternion.setFromUnitVectors(shardBaseAxis, shardOutwardDirection);
+            orbitShard.mesh.quaternion.copy(shardQuaternion);
+            orbitShard.mesh.rotateY(nowSeconds * orbitShard.spinSpeed + orbitShard.pulsePhase);
+
+            orbitShard.flickerTimer -= deltaTime;
+            if (orbitShard.flickerTimer <= 0) {
+              orbitShard.flickerTimer = randomRange(0.015, 0.085);
+              orbitShard.flickerOpacityScale =
+                Math.random() > 0.35 ? randomRange(0.62, 1.0) : randomRange(0.08, 0.3);
+            }
+
+            const shardPulse =
+              0.55 + 0.45 * Math.abs(Math.sin(nowSeconds * 15.5 + orbitShard.pulsePhase));
+            const radialScale =
+              orbitShard.baseRadiusScale *
+              (1.02 + shardPulse * 0.78) *
+              orbitShardSizeMultiplier *
+              (orbitShardThicknessMultiplier * 1.18);
+            const lengthScale =
+              orbitShard.baseLengthScale *
+              (0.58 + shardPulse * 0.38) *
+              (orbitShardSizeMultiplier * 0.92);
+            orbitShard.mesh.scale.set(radialScale, lengthScale, radialScale);
+            orbitShard.material.opacity =
+              orbitShardOpacity * orbitShard.flickerOpacityScale * visualAlpha;
+          }
         }
         if (trailingModelMaterials.length > 0) {
           projectileGroup.getWorldPosition(ghostSampleWorld);
@@ -536,6 +696,9 @@ export function createPlasmaBoltFactory(
           glob.material.dispose();
           glob.outlineMaterial?.dispose();
         }
+        for (const orbitShard of orbitShards) {
+          orbitShard.material.dispose();
+        }
         bridgePointsGeometry?.dispose();
         bridgePointsMaterial?.dispose();
       }
@@ -551,12 +714,14 @@ export function createPlasmaBoltFactory(
       }
       fallbackGeometry.dispose();
       trailGlobGeometry.dispose();
+      orbitShardGeometry.dispose();
       plasmaMaterial.dispose();
       glowMaterial.dispose();
       trailGlobMaterial.dispose();
       trailGlobOutlineMaterial?.dispose();
       bridgeParticleGeometry.dispose();
       bridgeParticleMaterial.dispose();
+      orbitShardMaterialTemplate.dispose();
     }
   };
 }
@@ -751,6 +916,13 @@ function randomRange(min: number, max: number): number {
     return min;
   }
   return min + Math.random() * (max - min);
+}
+
+function randomUnitVector(): THREE.Vector3 {
+  const z = randomRange(-1, 1);
+  const theta = randomRange(0, Math.PI * 2);
+  const radial = Math.sqrt(Math.max(0, 1 - z * z));
+  return new THREE.Vector3(radial * Math.cos(theta), radial * Math.sin(theta), z);
 }
 
 function updateBridgeParticles(

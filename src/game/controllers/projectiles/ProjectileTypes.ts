@@ -14,6 +14,9 @@ export type ProjectileInstance = {
   hitbox?: HitboxComponent;
   effectScale?: number;
   hitEffectId?: string;
+  muzzleEffectId?: string;
+  suppressMuzzleFx?: boolean;
+  suppressHitFx?: boolean;
   update: (deltaTime: number) => boolean;
   beginDestroy?: (reason: "collision" | "expired") => boolean;
   dispose?: () => void;

@@ -20,6 +20,7 @@ type PlasmaMuzzleGlobBurstSystemConfig = {
   speedMax?: number;
   spreadRadians?: number;
   forwardVelocityBias?: number;
+  motionHoldSeconds?: number;
   pointSizeScale?: number;
   deepColor?: number;
   coreColor?: number;
@@ -37,6 +38,7 @@ attribute float aSeed;
 
 uniform float uAge;
 uniform float uLifetime;
+uniform float uMotionHold;
 uniform float uViewportHeight;
 uniform float uPointSizeScale;
 
@@ -45,7 +47,8 @@ varying float vSeed;
 
 void main() {
   float t = clamp(uAge / max(uLifetime, 0.0001), 0.0, 1.0);
-  vec3 displaced = position + aVelocity * uAge;
+  float motionAge = max(0.0, uAge - max(uMotionHold, 0.0));
+  vec3 displaced = position + aVelocity * motionAge;
   displaced.y += (1.0 - t) * 0.03;
 
   vec4 mvPosition = modelViewMatrix * vec4(displaced, 1.0);
@@ -99,6 +102,7 @@ export function createPlasmaMuzzleGlobBurstSystem(
     Math.PI
   );
   const forwardVelocityBias = Math.max(0, config.forwardVelocityBias ?? 0);
+  const motionHoldSeconds = Math.max(0, config.motionHoldSeconds ?? 0);
   const pointSizeScale = Math.max(0.1, config.pointSizeScale ?? 1);
   const deepColor = new THREE.Color(config.deepColor ?? 0xe0081f);
   const coreColor = new THREE.Color(config.coreColor ?? 0xff292b);
@@ -173,6 +177,7 @@ export function createPlasmaMuzzleGlobBurstSystem(
       uniforms: {
         uAge: { value: 0 },
         uLifetime: { value: burstLifetimeSeconds },
+        uMotionHold: { value: motionHoldSeconds },
         uViewportHeight: { value: window.innerHeight || 1080 },
         uPointSizeScale: { value: pointSizeScale },
         uDeepColor: { value: new THREE.Vector3(deepColor.r, deepColor.g, deepColor.b) },

@@ -3,6 +3,7 @@ import { createIonArcFactory } from "../controllers/projectiles/IonArcFactory";
 import { createLaserBoltFactory } from "../controllers/projectiles/LaserBoltFactory";
 import { createPlasmaBoltFactory } from "../controllers/projectiles/PlasmaBoltFactory";
 import { createSolarSeekerFactory } from "../controllers/projectiles/SolarSeekerFactory";
+import { createVoidSeekerFactory } from "../controllers/projectiles/VoidSeekerFactory";
 import type { ProjectileFactory } from "../controllers/projectiles/ProjectileTypes";
 import {
   getCannonPrimaryComponentDefinition,
@@ -38,6 +39,14 @@ export function createCannonPrimaryProjectileFactory(
     });
   }
 
+  if (componentId === "void_seeker_fire") {
+    return createVoidSeekerFactory({
+      faction: config.faction,
+      modelUrl: config.assets?.orbModelUrl,
+      ...component.projectile
+    });
+  }
+
   if (componentId === "repeating_plasmabolt_fire") {
     return createPlasmaBoltFactory({
       faction: config.faction,
@@ -56,17 +65,32 @@ export function createCannonPrimaryProjectileFactory(
       hotColor: 0x341652,
       rimColor: 0x4a2d73,
       shellColor: 0xf4edff,
-      glowColor: 0xe3d1ff,
-      glowOpacity: 0.26,
-      glowScale: 1.24,
+      glowColor: 0x8ca2ff,
+      glowOpacity: 0.3,
+      glowScale: 1.28,
       glowLayerStyle: "outline",
+      surfacePatternScale: 0.86,
+      surfaceStripeStrength: 0.62,
+      trailingModelCount: 2,
+      trailingModelSpacing: 0.14,
+      trailingModelScaleStep: 0.2,
+      trailingModelOpacity: 0.16,
       trailGlobColor: 0x160a26,
       trailGlobOpacity: 0.58,
-      trailGlobOutlineColor: 0x5d3a93,
-      trailGlobOutlineOpacity: 0.2,
-      trailGlobOutlineScale: 1.22,
+      trailGlobOutlineColor: 0x7f7cff,
+      trailGlobOutlineOpacity: 0.24,
+      trailGlobOutlineScale: 1.24,
       trailGlobCount: 4,
+      trailGlobSpawnIntervalSeconds: 0.012,
       trailGlobLifetimeSeconds: 0.055,
+      trailGlobUseParticleSockets: true,
+      bridgeParticleCount: 0,
+      orbitShardCount: 16,
+      orbitShardColor: 0x98a4ff,
+      orbitShardOpacity: 0.82,
+      orbitShardRadius: 0.085,
+      orbitShardSpeed: 10.2,
+      orbitShardTrailLengthMultiplier: 0.5,
       ...component.projectile
     });
   }

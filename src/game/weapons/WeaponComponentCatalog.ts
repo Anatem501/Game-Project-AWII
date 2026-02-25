@@ -5,6 +5,7 @@ export const CANNON_PRIMARY_COMPONENT_OPTIONS = [
   "repeating_laserbolt_fire",
   "laserbeam_pulse_fire",
   "solar_seeker_shots",
+  "void_seeker_fire",
   "repeating_plasmabolt_fire",
   "repeating_voidbolt_fire",
   "repeating_ionbolt_fire",
@@ -156,7 +157,7 @@ const CANNON_PRIMARY_COMPONENTS: Record<
   },
   solar_seeker_shots: {
     id: "solar_seeker_shots",
-    name: "Solar Seeker Shots",
+    name: "Solarseeker Shots",
     weaponType: "Cannons",
     fireType: "Primary",
     damageType: "Solar",
@@ -175,6 +176,30 @@ const CANNON_PRIMARY_COMPONENTS: Record<
       thickness: 0.12,
       damage: 14,
       damageType: "Solar",
+      collisionRadius: 0.12
+    }
+  },
+  void_seeker_fire: {
+    id: "void_seeker_fire",
+    name: "Voidseeker Fire",
+    weaponType: "Cannons",
+    fireType: "Primary",
+    damageType: "Void",
+    heatCost: 1,
+    energyCost: 1,
+    fireIntervalSeconds: 1.2,
+    description:
+      "Void seekers with a dark orb core, vortex halo, orbiting void shards, and guided violet trail. Gains moderate homing when fired over an enemy target.",
+    projectile: {
+      color: 0x6f63ff,
+      emissive: 0xb0b7ff,
+      emissiveIntensity: 3.1,
+      speed: 14,
+      lifetimeSeconds: 2.8,
+      length: 0.52,
+      thickness: 0.12,
+      damage: 14,
+      damageType: "Void",
       collisionRadius: 0.12
     }
   },
@@ -207,10 +232,10 @@ const CANNON_PRIMARY_COMPONENTS: Record<
     fireType: "Primary",
     damageType: "Void",
     heatCost: 0,
-    energyCost: 0,
+    energyCost: 2,
     fireIntervalSeconds: 0.8,
     description:
-      "Void-tuned bolt stream using the plasmabolt chassis with a dark core and pale violet shell glow. Does not consume heat or energy.",
+      "Void-tuned bolt stream using the plasmabolt chassis with a dark core and pale violet shell glow. Uses a small energy draw with no heat cost.",
     projectile: {
       color: 0x06060a,
       emissive: 0x140a26,

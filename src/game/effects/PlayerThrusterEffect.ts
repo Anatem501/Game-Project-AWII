@@ -50,6 +50,8 @@ export function createPlayerThrusterEffect(
   config: PlayerThrusterEffectConfig
 ): PlayerThrusterEffect {
   const root = new THREE.Group();
+  root.name = "PlayerThrusterEffectRoot";
+  root.userData.excludeFromShieldBubbleFit = true;
   shipRoot.add(root);
   const visualPreset = config.visualPreset ?? "default";
   const effectScale = Math.max(0.05, config.effectScale ?? DEFAULT_EFFECT_SCALE);

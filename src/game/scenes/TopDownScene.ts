@@ -115,6 +115,7 @@ const REPEATING_VOIDBOLT_COMPONENT_ID = "repeating_voidbolt_fire";
 const REPEATING_IONBOLT_COMPONENT_ID = "repeating_ionbolt_fire";
 const REPEATING_CRYOSHARD_COMPONENT_ID = "repeating_cryoshard_fire";
 const SOLAR_SEEKER_SHOTS_COMPONENT_ID = "solar_seeker_shots";
+const VOID_SEEKER_FIRE_COMPONENT_ID = "void_seeker_fire";
 const PLASMA_ARC_SHOTS_COMPONENT_ID = "plasma_arc_shots";
 const CRYOWAVE_FIRE_COMPONENT_ID = "cryowave_fire";
 const CANNON_FIRE_INTERVAL_SECONDS = 0.5;
@@ -1661,6 +1662,7 @@ function resolveCannonPrimaryPhaseOffsets(
     primaryComponentId !== REPEATING_IONBOLT_COMPONENT_ID &&
     primaryComponentId !== REPEATING_CRYOSHARD_COMPONENT_ID &&
     primaryComponentId !== SOLAR_SEEKER_SHOTS_COMPONENT_ID &&
+    primaryComponentId !== VOID_SEEKER_FIRE_COMPONENT_ID &&
     primaryComponentId !== PLASMA_ARC_SHOTS_COMPONENT_ID &&
     primaryComponentId !== CRYOWAVE_FIRE_COMPONENT_ID
   ) {
