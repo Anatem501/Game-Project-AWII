@@ -12,6 +12,8 @@ import { createShipGunSparkBurstSystem } from "../effects/ShipGunSparkBurstSyste
 import { createFrostHitCrystalBurstSystem } from "../effects/FrostHitCrystalBurstSystem";
 import { createVoidHitVortexSystem } from "../effects/VoidHitVortexSystem";
 import { createVoidSeekerHitBurstSystem } from "../effects/VoidSeekerHitBurstSystem";
+import { createConcussiveBlastRingSystem } from "../effects/ConcussiveBlastRingSystem";
+import { createMissileExplosionFlashSmokeSystem } from "../effects/MissileExplosionFlashSmokeSystem";
 import type { PlayerControllerState } from "./PlayerController";
 import type { ProjectileFactory, ProjectileInstance } from "./projectiles/ProjectileTypes";
 
@@ -45,7 +47,7 @@ type WeaponResourceCost = {
   heatCost: number;
 };
 
-type HitscanPulseEffectStyle = "default" | "electromagnetic_railgun";
+type HitscanPulseEffectStyle = "default" | "electromagnetic_railgun" | "explosive_shell_fire";
 
 type HitscanPulseFireModeDefinition = {
   maxDistance?: number;
@@ -59,6 +61,8 @@ type HitscanPulseFireModeDefinition = {
   beamColor?: number;
   beamCoreColor?: number;
   effectStyle?: HitscanPulseEffectStyle;
+  explosionRadius?: number;
+  explosionDamageAmount?: number;
 };
 
 type NormalizedHitscanPulseFireModeDefinition = {
@@ -73,6 +77,8 @@ type NormalizedHitscanPulseFireModeDefinition = {
   beamColor: number;
   beamCoreColor: number;
   effectStyle: HitscanPulseEffectStyle;
+  explosionRadius: number;
+  explosionDamageAmount: number;
 };
 
 type ActiveHitscanBeamPulse = {
@@ -231,6 +237,27 @@ export function createGunController({
     coreColor: 0xdbf2ff,
     glowColor: 0x3a9dff
   });
+  const explosiveShellMuzzleOrangeSparks = createLaserHitSparkExplosionSystem(scene, {
+    sparkCount: 30,
+    lifetimeSeconds: 0.12,
+    speedMin: 3.4,
+    speedMax: 10.8,
+    spreadRadians: THREE.MathUtils.degToRad(30),
+    pointSizeScale: 0.9,
+    coreColor: 0xffcf9a,
+    glowColor: 0xff5a1f
+  });
+  const explosiveShellHitExplosionSparks = createLaserHitSparkExplosionSystem(scene, {
+    sparkCount: 28,
+    lifetimeSeconds: 0.2,
+    speedMin: 1.1,
+    speedMax: 4.2,
+    spreadRadians: THREE.MathUtils.degToRad(32),
+    pointSizeScale: 1.28,
+    opacityScale: 0.82,
+    coreColor: 0xffc287,
+    glowColor: 0xff5b1a
+  });
   const chaingunHitYellowSparks = createLaserHitSparkExplosionSystem(scene, {
     sparkCount: 20,
     lifetimeSeconds: 0.16,
@@ -260,6 +287,21 @@ export function createGunController({
   const ionHitBursts = createIonHitElectricBurstSystem(scene);
   const frostHitBursts = createFrostHitCrystalBurstSystem(scene);
   const plasmaHitImplosions = createPlasmaHitImplosionSystem(scene);
+  const explosiveShellHitImplosions = createPlasmaHitImplosionSystem(scene, {
+    opacityScale: 0.16,
+    globCount: 8,
+    lifetimeSeconds: 0.2
+  });
+  const explosiveShellMissileExplosionBursts = createMissileExplosionFlashSmokeSystem(scene, {
+    opacityScale: 0.62,
+    smokeColor: 0xff8a52,
+    smokeCountMin: 16,
+    smokeCountMax: 28,
+    smokeSpeedMultiplier: 1.9,
+    smokeVerticalBiasMin: 0.0,
+    smokeVerticalBiasMax: 0.12,
+    smokeDragPerSecond: 1.45
+  });
   const plasmaMuzzleGlobs = createPlasmaMuzzleGlobBurstSystem(scene);
   const voidMuzzleGlobs = createPlasmaMuzzleGlobBurstSystem(scene, {
     globCountPerBurst: 14,
@@ -294,6 +336,51 @@ export function createGunController({
     deepColor: 0x050505,
     coreColor: 0x303030,
     blending: THREE.NormalBlending
+  });
+  const explosiveShellBeamSmokeBursts = createPlasmaMuzzleGlobBurstSystem(scene, {
+    globCountPerBurst: 16,
+    burstLifetimeSeconds: 0.28,
+    speedMin: 0.01,
+    speedMax: 0.14,
+    spreadRadians: THREE.MathUtils.degToRad(28),
+    forwardVelocityBias: 0.04,
+    motionHoldSeconds: 0.014,
+    pointSizeScale: 2.6,
+    deepColor: 0x1a1a1a,
+    coreColor: 0xb4b8be,
+    blending: THREE.NormalBlending
+  });
+  const explosiveShellHitSmokeBursts = createPlasmaMuzzleGlobBurstSystem(scene, {
+    globCountPerBurst: 18,
+    burstLifetimeSeconds: 0.52,
+    speedMin: 0.01,
+    speedMax: 0.16,
+    spreadRadians: THREE.MathUtils.degToRad(22),
+    forwardVelocityBias: 0.03,
+    motionHoldSeconds: 0.04,
+    pointSizeScale: 5.1,
+    opacityScale: 0.3,
+    deepColor: 0x1a1a1a,
+    coreColor: 0xcfd4da,
+    blending: THREE.NormalBlending
+  });
+  const explosiveShellMuzzleSmokeBursts = createPlasmaMuzzleGlobBurstSystem(scene, {
+    globCountPerBurst: 24,
+    burstLifetimeSeconds: 0.28,
+    speedMin: 0.02,
+    speedMax: 0.2,
+    spreadRadians: THREE.MathUtils.degToRad(30),
+    forwardVelocityBias: 0.08,
+    motionHoldSeconds: 0.02,
+    pointSizeScale: 3.4,
+    deepColor: 0x171717,
+    coreColor: 0xc2c6cc,
+    blending: THREE.NormalBlending
+  });
+  const concussiveBlastRings = createConcussiveBlastRingSystem(scene, {
+    color: 0xffaa4d,
+    opacity: 0.3,
+    lifetimeSeconds: 0.32
   });
   const frostMuzzleGlobs = createPlasmaMuzzleGlobBurstSystem(scene, {
     globCountPerBurst: 18,
@@ -437,16 +524,109 @@ export function createGunController({
     return bestTarget;
   };
 
+  const applyHitscanExplosionDamage = (
+    hitscanPulse: NormalizedHitscanPulseFireModeDefinition,
+    explosionCenter: THREE.Vector3
+  ): boolean => {
+    const blastRadius = Math.max(0, hitscanPulse.explosionRadius);
+    const damageAmount = Math.max(0, hitscanPulse.explosionDamageAmount);
+    if (blastRadius <= 0 || damageAmount <= 0) {
+      return false;
+    }
+
+    let appliedAnyDamage = false;
+    for (const hurtbox of targetHurtboxes) {
+      if (!hurtbox.canReceiveDamage()) {
+        continue;
+      }
+      if (
+        hurtbox.faction &&
+        hitscanPulse.sourceFaction &&
+        hurtbox.faction === hitscanPulse.sourceFaction
+      ) {
+        continue;
+      }
+      const targetRadius = Math.max(0, hurtbox.collisionArea.radius);
+      hurtbox.getWorldCenter(hurtboxCenter);
+      const combinedRadius = blastRadius + targetRadius;
+      if (explosionCenter.distanceToSquared(hurtboxCenter) > combinedRadius * combinedRadius) {
+        continue;
+      }
+
+      const hitResult = hurtbox.receiveDamage({
+        amount: damageAmount,
+        damageType: hitscanPulse.damageType,
+        segments:
+          hitscanPulse.additionalDamageSegments.length > 0
+            ? hitscanPulse.additionalDamageSegments
+            : undefined,
+        sourceFaction: hitscanPulse.sourceFaction
+      });
+      if (hitResult) {
+        appliedAnyDamage = true;
+      }
+    }
+
+    return appliedAnyDamage;
+  };
+
+  const applyProjectileExplosionDamage = (
+    projectile: ProjectileInstance,
+    explosionCenter: THREE.Vector3,
+    excludeHurtboxId?: string
+  ): boolean => {
+    const blastRadius = Math.max(0, projectile.explosionRadius ?? 0);
+    const damageAmount = Math.max(0, projectile.explosionDamageAmount ?? 0);
+    const hitbox = projectile.hitbox;
+    if (!hitbox || blastRadius <= 0 || damageAmount <= 0) {
+      return false;
+    }
+
+    let appliedAnyDamage = false;
+    for (const hurtbox of targetHurtboxes) {
+      if (excludeHurtboxId && hurtbox.id === excludeHurtboxId) {
+        continue;
+      }
+      if (!hurtbox.canReceiveDamage()) {
+        continue;
+      }
+      if (hurtbox.faction && hitbox.sourceFaction && hurtbox.faction === hitbox.sourceFaction) {
+        continue;
+      }
+
+      const targetRadius = Math.max(0, hurtbox.collisionArea.radius);
+      hurtbox.getWorldCenter(hurtboxCenter);
+      const combinedRadius = blastRadius + targetRadius;
+      if (explosionCenter.distanceToSquared(hurtboxCenter) > combinedRadius * combinedRadius) {
+        continue;
+      }
+
+      const hitResult = hurtbox.receiveDamage({
+        amount: damageAmount,
+        damageType: hitbox.damageType,
+        sourceFaction: hitbox.sourceFaction
+      });
+      if (hitResult) {
+        appliedAnyDamage = true;
+      }
+    }
+
+    return appliedAnyDamage;
+  };
+
   const spawnHitscanPulse = (
     hitscanPulse: NormalizedHitscanPulseFireModeDefinition,
     origin: THREE.Vector3,
     direction: THREE.Vector3
   ): void => {
     const isElectromagneticRailgun = hitscanPulse.effectStyle === "electromagnetic_railgun";
+    const isExplosiveShellFire = hitscanPulse.effectStyle === "explosive_shell_fire";
 
     if (isElectromagneticRailgun) {
       railgunBlueSparkBursts.spawnExplosion(origin, direction);
       ionMuzzleBursts.spawnBurst(origin, direction, 0.6);
+    } else if (isExplosiveShellFire) {
+      explosiveShellMuzzleOrangeSparks.spawnExplosion(origin, direction);
     } else {
       sparkBursts.spawnBurst(origin, direction);
     }
@@ -502,15 +682,17 @@ export function createGunController({
 
     if (nearestHurtbox) {
       beamHitPoint.copy(beamEndPoint);
-      const hitResult = nearestHurtbox.receiveDamage({
-        amount: hitscanPulse.damageAmount,
-        damageType: hitscanPulse.damageType,
-        segments:
-          hitscanPulse.additionalDamageSegments.length > 0
-            ? hitscanPulse.additionalDamageSegments
-            : undefined,
-        sourceFaction: hitscanPulse.sourceFaction
-      });
+      const hitResult = isExplosiveShellFire
+        ? applyHitscanExplosionDamage(hitscanPulse, beamHitPoint)
+        : nearestHurtbox.receiveDamage({
+            amount: hitscanPulse.damageAmount,
+            damageType: hitscanPulse.damageType,
+            segments:
+              hitscanPulse.additionalDamageSegments.length > 0
+                ? hitscanPulse.additionalDamageSegments
+                : undefined,
+            sourceFaction: hitscanPulse.sourceFaction
+          });
       if (hitResult) {
         if (isElectromagneticRailgun) {
           const impactOffsetDistance = Math.min(0.3, Math.max(0.08, beamDistance * 0.012));
@@ -519,6 +701,17 @@ export function createGunController({
           railgunImpactBlueSparkBursts.spawnExplosion(beamEndPoint, direction);
           railgunImpactBlueSparkBursts.spawnExplosion(beamMidpoint, direction.clone().multiplyScalar(-1));
           ionHitBursts.spawnBurst(beamHitPoint, direction, 0.95);
+        } else if (isExplosiveShellFire) {
+          explosiveShellHitExplosionSparks.spawnExplosion(beamHitPoint, direction);
+          explosiveShellHitExplosionSparks.spawnExplosion(
+            beamHitPoint,
+            direction.clone().multiplyScalar(-1)
+          );
+          explosiveShellMissileExplosionBursts.spawnBurst(
+            beamHitPoint,
+            Math.max(0, hitscanPulse.explosionRadius) * 1.5
+          );
+          concussiveBlastRings.spawnRing(beamHitPoint, hitscanPulse.explosionRadius);
         } else {
           hitSparkExplosions.spawnExplosion(beamHitPoint, direction);
         }
@@ -535,6 +728,16 @@ export function createGunController({
         beamMidpoint.y += (Math.random() - 0.5) * beamJitterScale;
         beamMidpoint.z += (Math.random() - 0.5) * beamJitterScale;
         ionHitBursts.spawnBurst(beamMidpoint, direction, 0.35);
+      }
+    } else if (isExplosiveShellFire) {
+      const smokeBurstCount = THREE.MathUtils.clamp(Math.floor(beamDistance / 26), 2, 6);
+      for (let i = 0; i < smokeBurstCount; i += 1) {
+        const t = (i + 1) / (smokeBurstCount + 1);
+        beamMidpoint.copy(origin).lerp(beamEndPoint, t);
+        beamMidpoint.x += (Math.random() - 0.5) * 0.03;
+        beamMidpoint.y += (Math.random() - 0.5) * 0.02;
+        beamMidpoint.z += (Math.random() - 0.5) * 0.03;
+        explosiveShellBeamSmokeBursts.spawnBurst(beamMidpoint, direction);
       }
     }
 
@@ -755,6 +958,8 @@ export function createGunController({
     } else if (projectile.muzzleEffectId === "chaingun_muzzle_sparks_smoke") {
       chaingunMuzzleSparkFlashes.spawnExplosion(muzzleWorld, aimDirection);
       chaingunMuzzleSmokeBursts.spawnBurst(muzzleWorld, aimDirection);
+    } else if (projectile.muzzleEffectId === "explosive_shell_muzzle") {
+      explosiveShellMuzzleOrangeSparks.spawnExplosion(muzzleWorld, aimDirection);
     }
     if (!projectile.suppressMuzzleFx) {
       if (damageType === "Plasma") {
@@ -927,8 +1132,26 @@ export function createGunController({
         const damageType = projectile.hitbox?.damageType;
         const hitEffectId = projectile.hitEffectId;
         const effectScale = Math.max(0.1, projectile.effectScale ?? 1);
+        if (hitEffectId === "explosive_shell_blast") {
+          applyProjectileExplosionDamage(projectile, projectile.object.position, collision.hurtbox.id);
+        }
         if (!projectile.suppressHitFx) {
-          if (damageType === "Plasma") {
+          if (hitEffectId === "explosive_shell_blast") {
+            projectile.object.getWorldDirection(fallbackForward);
+            explosiveShellHitExplosionSparks.spawnExplosion(projectile.object.position, fallbackForward);
+            explosiveShellHitExplosionSparks.spawnExplosion(
+              projectile.object.position,
+              fallbackForward.clone().multiplyScalar(-1)
+            );
+            explosiveShellMissileExplosionBursts.spawnBurst(
+              projectile.object.position,
+              Math.max(0, projectile.explosionRadius ?? 0) * 1.5
+            );
+            concussiveBlastRings.spawnRing(
+              projectile.object.position,
+              Math.max(0, projectile.explosionRadius ?? 0)
+            );
+          } else if (damageType === "Plasma") {
             if (hitEffectId === "plasma_arc_red_spark") {
               projectile.object.getWorldDirection(fallbackForward);
               plasmaArcHitSparkExplosions.spawnExplosion(projectile.object.position, fallbackForward);
@@ -1061,14 +1284,22 @@ export function createGunController({
     plasmaArcHitSparkExplosions.update(deltaTime);
     railgunBlueSparkBursts.update(deltaTime);
     railgunImpactBlueSparkBursts.update(deltaTime);
+    explosiveShellMuzzleOrangeSparks.update(deltaTime);
+    explosiveShellHitExplosionSparks.update(deltaTime);
+    explosiveShellMuzzleSmokeBursts.update(deltaTime);
     chaingunMuzzleSparkFlashes.update(deltaTime);
     chaingunHitYellowSparks.update(deltaTime);
     ionHitBursts.update(deltaTime);
     frostHitBursts.update(deltaTime);
     plasmaHitImplosions.update(deltaTime);
+    explosiveShellHitImplosions.update(deltaTime);
+    explosiveShellMissileExplosionBursts.update(deltaTime);
     solarHitFlashes.update(deltaTime);
     voidHitVortices.update(deltaTime);
     voidSeekerHitBursts.update(deltaTime);
+    explosiveShellBeamSmokeBursts.update(deltaTime);
+    explosiveShellHitSmokeBursts.update(deltaTime);
+    concussiveBlastRings.update(deltaTime);
   };
 
   const dispose = (): void => {
@@ -1099,14 +1330,22 @@ export function createGunController({
     plasmaArcHitSparkExplosions.dispose();
     railgunBlueSparkBursts.dispose();
     railgunImpactBlueSparkBursts.dispose();
+    explosiveShellMuzzleOrangeSparks.dispose();
+    explosiveShellHitExplosionSparks.dispose();
+    explosiveShellMuzzleSmokeBursts.dispose();
     chaingunMuzzleSparkFlashes.dispose();
     chaingunHitYellowSparks.dispose();
     ionHitBursts.dispose();
     frostHitBursts.dispose();
     plasmaHitImplosions.dispose();
+    explosiveShellHitImplosions.dispose();
+    explosiveShellMissileExplosionBursts.dispose();
     solarHitFlashes.dispose();
     voidHitVortices.dispose();
     voidSeekerHitBursts.dispose();
+    explosiveShellBeamSmokeBursts.dispose();
+    explosiveShellHitSmokeBursts.dispose();
+    concussiveBlastRings.dispose();
     projectilesRoot.clear();
     hitscanBeamPulsesRoot.clear();
     scene.remove(projectilesRoot);
@@ -1238,7 +1477,13 @@ function normalizeGunDefinitions(guns: readonly GunDefinition[]): NormalizedGunD
                 ),
                 beamColor: primaryProfile.hitscanPulse.beamColor ?? 0x40ff6b,
                 beamCoreColor: primaryProfile.hitscanPulse.beamCoreColor ?? 0xeefff4,
-                effectStyle: primaryProfile.hitscanPulse.effectStyle ?? "default"
+                effectStyle: primaryProfile.hitscanPulse.effectStyle ?? "default",
+                explosionRadius: Math.max(0, primaryProfile.hitscanPulse.explosionRadius ?? 0),
+                explosionDamageAmount: Math.max(
+                  0,
+                  primaryProfile.hitscanPulse.explosionDamageAmount ??
+                    primaryProfile.hitscanPulse.damageAmount
+                )
               }
             : null,
           heatCost: Math.max(0, primaryProfile.heatCost ?? 0),

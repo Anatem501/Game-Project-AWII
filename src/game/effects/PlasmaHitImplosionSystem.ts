@@ -29,6 +29,7 @@ type PlasmaHitImplosionConfig = {
   globCount?: number;
   lifetimeSeconds?: number;
   radius?: number;
+  opacityScale?: number;
 };
 
 const DEFAULT_LIFETIME_SECONDS = 0.28;
@@ -53,6 +54,7 @@ const IMPLOSION_FRAGMENT_SHADER = `
 uniform float uAge;
 uniform float uLifetime;
 uniform float uSeed;
+uniform float uOpacityScale;
 
 varying vec3 vWorldPos;
 varying vec3 vWorldNormal;
@@ -71,9 +73,9 @@ void main() {
   vec3 brightRed = vec3(1.0, 0.14, 0.12);
   vec3 color = mix(deepRed, brightRed, plasma * 0.58);
   float fade = 1.0 - smoothstep(0.72, 1.0, t);
-  vec3 emissive = color * (0.72 + fresnel * 0.9) * fade * 1.35;
+  vec3 emissive = color * (0.72 + fresnel * 0.9) * fade * 1.35 * uOpacityScale;
 
-  float alpha = (shellMask * 0.56 + fresnel * 0.1) * fade;
+  float alpha = (shellMask * 0.56 + fresnel * 0.1) * fade * uOpacityScale;
   if (alpha <= 0.01) {
     discard;
   }
@@ -88,6 +90,7 @@ export function createPlasmaHitImplosionSystem(
   const lifetimeSeconds = Math.max(0.01, config.lifetimeSeconds ?? DEFAULT_LIFETIME_SECONDS);
   const radius = Math.max(0.01, config.radius ?? DEFAULT_RADIUS);
   const globCount = Math.max(0, Math.floor(config.globCount ?? DEFAULT_GLOB_COUNT));
+  const opacityScale = THREE.MathUtils.clamp(config.opacityScale ?? 1, 0, 1);
   const root = new THREE.Group();
   scene.add(root);
 
@@ -107,7 +110,8 @@ export function createPlasmaHitImplosionSystem(
       uniforms: {
         uAge: { value: 0 },
         uLifetime: { value: lifetimeSeconds },
-        uSeed: { value: Math.random() * 1000 }
+        uSeed: { value: Math.random() * 1000 },
+        uOpacityScale: { value: opacityScale }
       }
     });
 
@@ -120,7 +124,7 @@ export function createPlasmaHitImplosionSystem(
     const glowMaterial = new THREE.MeshBasicMaterial({
       color: 0xff1f18,
       transparent: true,
-      opacity: 0.14,
+      opacity: 0.14 * opacityScale,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       toneMapped: false
@@ -133,7 +137,7 @@ export function createPlasmaHitImplosionSystem(
     const globMaterial = new THREE.MeshBasicMaterial({
       color: 0xff2e1f,
       transparent: true,
-      opacity: 0.42,
+      opacity: 0.42 * opacityScale,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       toneMapped: false
@@ -198,9 +202,9 @@ export function createPlasmaHitImplosionSystem(
       implosion.mesh.scale.setScalar(radialScale);
       implosion.glowMesh.scale.setScalar(radialScale * 1.28);
       const glowFade = 1 - THREE.MathUtils.smoothstep(t, 0.6, 1);
-      implosion.glowMaterial.opacity = 0.14 * glowFade;
+      implosion.glowMaterial.opacity = 0.14 * opacityScale * glowFade;
       const globFade = 1 - THREE.MathUtils.smoothstep(t, 0.42, 1);
-      implosion.globMaterial.opacity = 0.42 * globFade;
+      implosion.globMaterial.opacity = 0.42 * opacityScale * globFade;
       for (const glob of implosion.globs) {
         glob.mesh.position.addScaledVector(glob.velocity, deltaTime);
         const drag = Math.max(0, 1 - deltaTime * 6.2);

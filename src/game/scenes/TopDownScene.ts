@@ -111,6 +111,7 @@ const MAURADER_DEFAULT_MISSILE_CELL_LOCAL_OFFSETS: readonly THREE.Vector3[] = [
 const REPEATING_LASERBOLT_COMPONENT_ID = "repeating_laserbolt_fire";
 const LASERBEAM_PULSE_COMPONENT_ID = "laserbeam_pulse_fire";
 const ELECTROMAGNETIC_RAILGUN_COMPONENT_ID = "electromagnetic_railgun";
+const EXPLOSIVE_SHELL_FIRE_COMPONENT_ID = "explosive_shell_fire";
 const REPEATING_PLASMABOLT_COMPONENT_ID = "repeating_plasmabolt_fire";
 const REPEATING_VOIDBOLT_COMPONENT_ID = "repeating_voidbolt_fire";
 const REPEATING_IONBOLT_COMPONENT_ID = "repeating_ionbolt_fire";
@@ -907,7 +908,9 @@ export function setupTopDownScene(
         hitSparkIntervalSeconds: primaryComponent.hitscanPulse.hitSparkIntervalSeconds,
         beamColor: primaryComponent.hitscanPulse.beamColor ?? 0x40ff6b,
         beamCoreColor: primaryComponent.hitscanPulse.beamCoreColor ?? 0xeefff4,
-        effectStyle: primaryComponent.hitscanPulse.effectStyle ?? "default"
+        effectStyle: primaryComponent.hitscanPulse.effectStyle ?? "default",
+        explosionRadius: primaryComponent.hitscanPulse.explosionRadius,
+        explosionDamageAmount: primaryComponent.hitscanPulse.explosionDamage
       }
     : null;
   const guns = gunHardpoints.map((hardpoint, hardpointIndex) => {
@@ -1662,6 +1665,7 @@ function resolveCannonPrimaryPhaseOffsets(
     primaryComponentId !== REPEATING_LASERBOLT_COMPONENT_ID &&
     primaryComponentId !== LASERBEAM_PULSE_COMPONENT_ID &&
     primaryComponentId !== ELECTROMAGNETIC_RAILGUN_COMPONENT_ID &&
+    primaryComponentId !== EXPLOSIVE_SHELL_FIRE_COMPONENT_ID &&
     primaryComponentId !== REPEATING_PLASMABOLT_COMPONENT_ID &&
     primaryComponentId !== REPEATING_VOIDBOLT_COMPONENT_ID &&
     primaryComponentId !== REPEATING_IONBOLT_COMPONENT_ID &&

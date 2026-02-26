@@ -23,6 +23,7 @@ type LaserHitSparkExplosionConfig = {
   glowColor?: number;
   spreadRadians?: number;
   pointSizeScale?: number;
+  opacityScale?: number;
 };
 
 const DEFAULT_SPARK_COUNT = 48;
@@ -64,6 +65,7 @@ varying float vLife;
 varying float vSeed;
 uniform vec3 uCoreColor;
 uniform vec3 uGlowColor;
+uniform float uOpacityScale;
 
 void main() {
   vec2 p = gl_PointCoord - vec2(0.5);
@@ -71,7 +73,7 @@ void main() {
   float core = smoothstep(0.45, 0.0, d);
   float glow = smoothstep(0.65, 0.0, d);
   float flicker = 0.7 + 0.3 * sin((1.0 - vLife) * 28.0 + vSeed * 17.0);
-  float alpha = (core * 1.2 + glow * 0.5) * vLife * flicker;
+  float alpha = (core * 1.2 + glow * 0.5) * vLife * flicker * uOpacityScale;
 
   vec3 paletteColor = mix(uGlowColor, uCoreColor, clamp(core * 1.15, 0.0, 1.0));
   vec3 color = paletteColor * (0.75 + flicker * 0.7);
@@ -96,6 +98,7 @@ export function createLaserHitSparkExplosionSystem(
     Math.PI
   );
   const pointSizeScale = Math.max(0.1, config.pointSizeScale ?? 1);
+  const opacityScale = THREE.MathUtils.clamp(config.opacityScale ?? 1, 0, 1);
   const fallbackColor = config.color ?? 0x40ff6b;
   const sparkCoreColor = new THREE.Color(config.coreColor ?? 0xf6fffb);
   const sparkGlowColor = new THREE.Color(config.glowColor ?? fallbackColor);
@@ -161,6 +164,7 @@ export function createLaserHitSparkExplosionSystem(
         uLifetime: { value: lifetimeSeconds },
         uViewportHeight: { value: window.innerHeight || 1080 },
         uPointSizeScale: { value: pointSizeScale },
+        uOpacityScale: { value: opacityScale },
         uCoreColor: { value: new THREE.Vector3(sparkCoreColor.r, sparkCoreColor.g, sparkCoreColor.b) },
         uGlowColor: { value: new THREE.Vector3(sparkGlowColor.r, sparkGlowColor.g, sparkGlowColor.b) }
       },

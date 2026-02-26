@@ -67,6 +67,37 @@ export function createCannonPrimaryProjectileFactory(
     });
   }
 
+  if (componentId === "explosive_shell_fire") {
+    return createChaingunBulletFactory({
+      faction: config.faction,
+      speed: component.projectile.speed,
+      lifetimeSeconds: component.projectile.lifetimeSeconds,
+      damage: component.projectile.damage,
+      damageType: component.projectile.damageType,
+      collisionRadius: component.projectile.collisionRadius,
+      bulletLength: 0.26,
+      bulletRadius: 0.062,
+      bulletColor: 0xd7ad4a,
+      tailLength: 1.84,
+      tailWidth: 0.045,
+      tailHeadColor: 0xcfd4da,
+      tailTipColor: 0x4a4f56,
+      tailOpacity: 0.62,
+      smokeTailLength: 2.96,
+      smokeTailWidth: 0.085,
+      smokeTailHeadColor: 0xd6dbe1,
+      smokeTailTipColor: 0x26282c,
+      smokeTailOpacity: 0.64,
+      effectScale: 1.15,
+      muzzleEffectId: "explosive_shell_muzzle",
+      hitEffectId: "explosive_shell_blast",
+      suppressMuzzleFx: true,
+      suppressHitFx: false,
+      explosionRadius: 0.75,
+      explosionDamageAmount: 20
+    });
+  }
+
   if (componentId === "repeating_plasmabolt_fire") {
     return createPlasmaBoltFactory({
       faction: config.faction,

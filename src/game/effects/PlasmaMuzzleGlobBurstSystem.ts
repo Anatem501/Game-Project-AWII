@@ -25,6 +25,7 @@ type PlasmaMuzzleGlobBurstSystemConfig = {
   deepColor?: number;
   coreColor?: number;
   blending?: THREE.Blending;
+  opacityScale?: number;
 };
 
 const DEFAULT_GLOB_COUNT = 20;
@@ -66,6 +67,7 @@ void main() {
 const GLOB_FRAGMENT_SHADER = `
 uniform vec3 uDeepColor;
 uniform vec3 uCoreColor;
+uniform float uOpacityScale;
 
 varying float vLife;
 varying float vSeed;
@@ -76,7 +78,7 @@ void main() {
   float blob = smoothstep(0.5, 0.0, distanceToCenter);
   float halo = smoothstep(0.72, 0.0, distanceToCenter);
   float noise = 0.97 + 0.03 * sin(vSeed * 13.0);
-  float alpha = (blob * 1.28 + halo * 0.48) * vLife * noise;
+  float alpha = (blob * 1.28 + halo * 0.48) * vLife * noise * uOpacityScale;
 
   vec3 color = mix(uDeepColor, uCoreColor, pow(blob, 0.8));
   gl_FragColor = vec4(color, alpha);
@@ -105,6 +107,7 @@ export function createPlasmaMuzzleGlobBurstSystem(
   const forwardVelocityBias = Math.max(0, config.forwardVelocityBias ?? 0);
   const motionHoldSeconds = Math.max(0, config.motionHoldSeconds ?? 0);
   const pointSizeScale = Math.max(0.1, config.pointSizeScale ?? 1);
+  const opacityScale = THREE.MathUtils.clamp(config.opacityScale ?? 1, 0, 1);
   const deepColor = new THREE.Color(config.deepColor ?? 0xe0081f);
   const coreColor = new THREE.Color(config.coreColor ?? 0xff292b);
   const blending = config.blending ?? THREE.AdditiveBlending;
@@ -182,6 +185,7 @@ export function createPlasmaMuzzleGlobBurstSystem(
         uMotionHold: { value: motionHoldSeconds },
         uViewportHeight: { value: window.innerHeight || 1080 },
         uPointSizeScale: { value: pointSizeScale },
+        uOpacityScale: { value: opacityScale },
         uDeepColor: { value: new THREE.Vector3(deepColor.r, deepColor.g, deepColor.b) },
         uCoreColor: { value: new THREE.Vector3(coreColor.r, coreColor.g, coreColor.b) }
       }

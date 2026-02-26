@@ -5,6 +5,7 @@ export const CANNON_PRIMARY_COMPONENT_OPTIONS = [
   "repeating_laserbolt_fire",
   "laserbeam_pulse_fire",
   "electromagnetic_railgun",
+  "explosive_shell_fire",
   "solar_seeker_shots",
   "void_seeker_fire",
   "rapid_chaingun_fire",
@@ -65,7 +66,9 @@ export type CannonPrimaryComponentDefinition = WeaponComponentPresentation & {
     hitSparkIntervalSeconds?: number;
     beamColor?: number;
     beamCoreColor?: number;
-    effectStyle?: "default" | "electromagnetic_railgun";
+    effectStyle?: "default" | "electromagnetic_railgun" | "explosive_shell_fire";
+    explosionRadius?: number;
+    explosionDamage?: number;
   };
   projectile: LaserBoltFactoryOptions;
 };
@@ -198,6 +201,28 @@ const CANNON_PRIMARY_COMPONENTS: Record<
       damage: 34,
       damageType: "Kinetic",
       collisionRadius: 0.04
+    }
+  },
+  explosive_shell_fire: {
+    id: "explosive_shell_fire",
+    name: "Explosive Shell Fire",
+    weaponType: "Cannons",
+    fireType: "Primary",
+    damageType: "Concussive",
+    fireIntervalSeconds: 1.2,
+    description:
+      "Fast artillery shell projectile that detonates on impact and deals concussive blast damage in a small area.",
+    projectile: {
+      color: 0xd1ab58,
+      emissive: 0xa8601f,
+      emissiveIntensity: 0.82,
+      speed: 58,
+      lifetimeSeconds: 1.35,
+      length: 0.28,
+      thickness: 0.09,
+      damage: 20,
+      damageType: "Concussive",
+      collisionRadius: 0.08
     }
   },
   solar_seeker_shots: {

@@ -15,6 +15,8 @@ export type ProjectileInstance = {
   effectScale?: number;
   hitEffectId?: string;
   muzzleEffectId?: string;
+  explosionRadius?: number;
+  explosionDamageAmount?: number;
   suppressMuzzleFx?: boolean;
   suppressHitFx?: boolean;
   update: (deltaTime: number) => boolean;

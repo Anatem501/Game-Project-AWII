@@ -72,11 +72,11 @@ export const GLOBAL_DAMAGE_MULTIPLIERS: DamageMultiplierMap = {
   Ion: { shield: 1.5, armor: 0.6, hull: 0.8 },
   Plasma: { shield: 1.1, armor: 0.7, hull: 1.1 },
   Solar: { shield: 1.1, armor: 0.6, hull: 1 },
-  Cryo: { shield: 0.9, armor: 0.7, hull: 1.0 },
-  Void: { shield:1, armor: 1, hull: 1 },
+  Cryo: { shield: 0.75, armor: 0.7, hull: 1.0 },
+  Void: { shield: 1, armor: 1, hull: 1 },
   Acid: { shield: 0.0, armor: 1.5, hull: 1.5 },
-  Kinetic: { shield: 0.75, armor: 0.7, hull: 1.25 },
-  Concussive: { shield: 0.75, armor: 0.8, hull: 1.1 }
+  Kinetic: { shield: 0.75, armor: 0.6, hull: 1.25 },
+  Concussive: { shield: 0.75, armor: 0.8, hull: 1 }
 };
 
 export function createHealthComponent(config: HealthConfig): HealthComponent {

@@ -53,6 +53,18 @@ export type ChaingunBulletFactoryOptions = {
   tailHeadColor?: number;
   tailTipColor?: number;
   tailOpacity?: number;
+  smokeTailLength?: number;
+  smokeTailWidth?: number;
+  smokeTailHeadColor?: number;
+  smokeTailTipColor?: number;
+  smokeTailOpacity?: number;
+  effectScale?: number;
+  hitEffectId?: string;
+  muzzleEffectId?: string;
+  suppressMuzzleFx?: boolean;
+  suppressHitFx?: boolean;
+  explosionRadius?: number;
+  explosionDamageAmount?: number;
 };
 
 export function createChaingunBulletFactory(
@@ -66,6 +78,9 @@ export function createChaingunBulletFactory(
   const bulletRadius = Math.max(0.004, options.bulletRadius ?? 0.015);
   const tailLength = Math.max(0.02, options.tailLength ?? 0.22);
   const tailWidth = Math.max(0.005, options.tailWidth ?? 0.03);
+  const smokeTailOpacity = Math.max(0, options.smokeTailOpacity ?? 0);
+  const smokeTailLength = Math.max(0.02, options.smokeTailLength ?? tailLength * 1.35);
+  const smokeTailWidth = Math.max(0.005, options.smokeTailWidth ?? tailWidth * 1.7);
   const collisionRadius = Math.max(
     0.008,
     options.collisionRadius ?? Math.max(bulletRadius * 1.15, tailWidth * 0.4)
@@ -89,7 +104,7 @@ export function createChaingunBulletFactory(
     fragmentShader: TAIL_FRAGMENT_SHADER,
     transparent: true,
     depthWrite: false,
-    depthTest: true,
+    depthTest: false,
     side: THREE.DoubleSide,
     blending: THREE.AdditiveBlending,
     toneMapped: false,
@@ -99,6 +114,26 @@ export function createChaingunBulletFactory(
       uOpacity: { value: Math.max(0.05, options.tailOpacity ?? 0.8) }
     }
   });
+  const smokeTailGeometry =
+    smokeTailOpacity > 0 ? new THREE.PlaneGeometry(smokeTailWidth, smokeTailLength, 1, 1) : null;
+  const smokeTailMaterial =
+    smokeTailOpacity > 0
+      ? new THREE.ShaderMaterial({
+          vertexShader: TAIL_VERTEX_SHADER,
+          fragmentShader: TAIL_FRAGMENT_SHADER,
+          transparent: true,
+          depthWrite: false,
+          depthTest: false,
+          side: THREE.DoubleSide,
+          blending: THREE.NormalBlending,
+          toneMapped: false,
+          uniforms: {
+            uTailColor: { value: new THREE.Color(options.smokeTailTipColor ?? 0x202224) },
+            uHeadColor: { value: new THREE.Color(options.smokeTailHeadColor ?? 0xb6bcc4) },
+            uOpacity: { value: Math.max(0.03, smokeTailOpacity) }
+          }
+        })
+      : null;
 
   const shotQuaternion = new THREE.Quaternion();
 
@@ -136,6 +171,15 @@ export function createChaingunBulletFactory(
     tailPlaneA.frustumCulled = false;
     root.add(tailPlaneA);
 
+    if (smokeTailGeometry && smokeTailMaterial) {
+      const smokeTailPlane = new THREE.Mesh(smokeTailGeometry, smokeTailMaterial);
+      smokeTailPlane.position.z = -smokeTailLength * 0.52;
+      smokeTailPlane.rotation.x = Math.PI * 0.5;
+      smokeTailPlane.renderOrder = 12;
+      smokeTailPlane.frustumCulled = false;
+      root.add(smokeTailPlane);
+    }
+
     root.position.copy(origin);
     shotQuaternion.setFromUnitVectors(PROJECTILE_FORWARD, projectileDirection);
     root.quaternion.copy(shotQuaternion);
@@ -153,11 +197,17 @@ export function createChaingunBulletFactory(
     return {
       object: root,
       hitbox,
-      effectScale: 0.65,
-      hitEffectId: "chaingun_yellow_sparks",
-      muzzleEffectId: "chaingun_muzzle_sparks_smoke",
-      suppressMuzzleFx: true,
-      suppressHitFx: false,
+      effectScale: Math.max(0.1, options.effectScale ?? 0.65),
+      hitEffectId: options.hitEffectId ?? "chaingun_yellow_sparks",
+      muzzleEffectId: options.muzzleEffectId ?? "chaingun_muzzle_sparks_smoke",
+      explosionRadius:
+        options.explosionRadius !== undefined ? Math.max(0, options.explosionRadius) : undefined,
+      explosionDamageAmount:
+        options.explosionDamageAmount !== undefined
+          ? Math.max(0, options.explosionDamageAmount)
+          : undefined,
+      suppressMuzzleFx: options.suppressMuzzleFx ?? true,
+      suppressHitFx: options.suppressHitFx ?? false,
       update: (deltaTime: number): boolean => {
         lifeRemaining -= deltaTime;
         root.position.addScaledVector(velocity, deltaTime);
@@ -174,6 +224,8 @@ export function createChaingunBulletFactory(
       bulletMaterial.dispose();
       tailGeometry.dispose();
       tailMaterial.dispose();
+      smokeTailGeometry?.dispose();
+      smokeTailMaterial?.dispose();
     }
   };
 }
