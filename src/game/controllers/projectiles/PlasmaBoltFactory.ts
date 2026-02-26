@@ -580,6 +580,7 @@ export function createPlasmaBoltFactory(
       damageAmount: damage,
       damageType,
       additionalDamageSegments: options.additionalDamageSegments,
+      statusPayloads: options.statusPayloads,
       sourceFaction: faction,
       maxHits: maxPierceHits
     });

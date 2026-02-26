@@ -57,6 +57,8 @@ export type EnemyDualLaserBoltTurretConfig = {
   targetHurtboxes?: readonly HurtboxComponent[];
   consumeShotCost?: () => boolean;
   getFireIntervalMultiplier?: () => number;
+  getTurnRateMultiplier?: () => number;
+  getLockedAimWorldDirection?: (out: THREE.Vector3) => THREE.Vector3 | null;
 };
 
 export class EnemyDualLaserBoltTurret {
@@ -96,6 +98,8 @@ export class EnemyDualLaserBoltTurret {
   private readonly burstWindupMaxSeconds: number;
   private readonly consumeShotCost?: () => boolean;
   private readonly getFireIntervalMultiplier?: () => number;
+  private readonly getTurnRateMultiplier?: () => number;
+  private readonly getLockedAimWorldDirection?: (out: THREE.Vector3) => THREE.Vector3 | null;
 
   private readonly turretWorldPosition = new THREE.Vector3();
   private readonly muzzleWorldPosition = new THREE.Vector3();
@@ -109,6 +113,7 @@ export class EnemyDualLaserBoltTurret {
   private readonly targetVelocityWorld = new THREE.Vector3();
   private readonly shotDirection = new THREE.Vector3();
   private readonly fallbackForward = new THREE.Vector3();
+  private readonly lockedAimDirectionWorld = new THREE.Vector3();
 
   private readonly fallbackAimNode = new THREE.Group();
   private playerTarget: THREE.Object3D | null = null;
@@ -176,6 +181,8 @@ export class EnemyDualLaserBoltTurret {
     );
     this.consumeShotCost = config.consumeShotCost;
     this.getFireIntervalMultiplier = config.getFireIntervalMultiplier;
+    this.getTurnRateMultiplier = config.getTurnRateMultiplier;
+    this.getLockedAimWorldDirection = config.getLockedAimWorldDirection;
     this.autoFire = config.autoFire ?? true;
     this.targetHurtboxes = config.targetHurtboxes ?? [];
     this.playerTarget = config.playerTarget ?? null;
@@ -231,6 +238,17 @@ export class EnemyDualLaserBoltTurret {
     return this.muzzles;
   }
 
+  getAimWorldDirection(out: THREE.Vector3): THREE.Vector3 {
+    this.aimNode.getWorldDirection(out);
+    out.setY(0);
+    if (out.lengthSq() <= 0.000001) {
+      out.set(0, 0, 1);
+    } else {
+      out.normalize();
+    }
+    return out;
+  }
+
   update(deltaTime: number): void {
     if (this.disposed || deltaTime <= 0) {
       return;
@@ -268,17 +286,30 @@ export class EnemyDualLaserBoltTurret {
       return;
     }
 
-    this.updateAimTargetAtInterval(this.turretWorldPosition);
-    this.toTarget.subVectors(this.aimTargetWorld, this.turretWorldPosition).setY(0);
-    if (this.toTarget.lengthSq() <= 0.000001) {
-      this.toTarget.subVectors(this.targetWorld, this.turretWorldPosition).setY(0);
+    const lockedAimDirection = this.getLockedAimWorldDirection?.(this.lockedAimDirectionWorld) ?? null;
+    if (lockedAimDirection && lockedAimDirection.lengthSq() > 0.000001) {
+      this.lockedAimDirectionWorld.copy(lockedAimDirection).setY(0).normalize();
+      this.aimTargetWorld
+        .copy(this.turretWorldPosition)
+        .addScaledVector(
+          this.lockedAimDirectionWorld,
+          Math.max(this.fireRange, distanceToTarget, 8)
+        );
+      this.toTarget.copy(this.lockedAimDirectionWorld);
+    } else {
+      this.updateAimTargetAtInterval(this.turretWorldPosition);
+      this.toTarget.subVectors(this.aimTargetWorld, this.turretWorldPosition).setY(0);
+      if (this.toTarget.lengthSq() <= 0.000001) {
+        this.toTarget.subVectors(this.targetWorld, this.turretWorldPosition).setY(0);
+      }
     }
 
     const desiredYaw = Math.atan2(this.toTarget.x, this.toTarget.z);
     const localDesiredYaw = this.getLocalDesiredYaw(desiredYaw);
     const localDesiredYawWithOffset = localDesiredYaw + this.aimYawOffsetRadians;
     const yawDelta = shortestAngleDelta(this.aimNode.rotation.y, localDesiredYawWithOffset);
-    const maxYawStep = this.turnSpeedRadians * deltaTime;
+    const turnRateMultiplier = THREE.MathUtils.clamp(this.getTurnRateMultiplier?.() ?? 1, 0, 4);
+    const maxYawStep = this.turnSpeedRadians * turnRateMultiplier * deltaTime;
     this.aimNode.rotation.y += THREE.MathUtils.clamp(yawDelta, -maxYawStep, maxYawStep);
 
     const alignedDelta = Math.abs(

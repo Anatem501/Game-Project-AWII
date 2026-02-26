@@ -23,6 +23,7 @@ export type HurtboxConfig = {
   faction?: string | null;
   id?: string;
   enabled?: boolean;
+  transformIncomingDamagePacket?: (damagePacket: DamagePacket) => DamagePacket;
   onHit?: (event: HurtboxHitEvent) => void;
 };
 
@@ -63,17 +64,22 @@ export function createHurtboxComponent(config: HurtboxConfig): HurtboxComponent 
     if (!enabled) {
       return null;
     }
-    const validSegments = (damagePacket.segments ?? []).filter((segment) => segment.amount > 0);
+    const transformedDamagePacket = config.transformIncomingDamagePacket
+      ? config.transformIncomingDamagePacket(damagePacket)
+      : damagePacket;
+    const validSegments = (transformedDamagePacket.segments ?? []).filter(
+      (segment) => segment.amount > 0
+    );
     const totalIncomingRequested =
-      Math.max(0, damagePacket.amount) +
+      Math.max(0, transformedDamagePacket.amount) +
       validSegments.reduce((sum, segment) => sum + Math.max(0, segment.amount), 0);
     if (totalIncomingRequested <= 0) {
       return null;
     }
 
     const firstBreakdown = config.health.applyDamage(
-      Math.max(0, damagePacket.amount),
-      damagePacket.damageType
+      Math.max(0, transformedDamagePacket.amount),
+      transformedDamagePacket.damageType
     );
     const breakdown = {
       ...firstBreakdown,
@@ -93,9 +99,14 @@ export function createHurtboxComponent(config: HurtboxConfig): HurtboxComponent 
       breakdown.destroyed = segmentBreakdown.destroyed;
     }
     const snapshot = config.health.getSnapshot();
-    const event: HurtboxHitEvent = { breakdown, damagePacket, snapshot, hurtboxId: id };
+    const event: HurtboxHitEvent = {
+      breakdown,
+      damagePacket: transformedDamagePacket,
+      snapshot,
+      hurtboxId: id
+    };
     config.onHit?.(event);
-    return { breakdown, damagePacket, snapshot };
+    return { breakdown, damagePacket: transformedDamagePacket, snapshot };
   };
 
   return {

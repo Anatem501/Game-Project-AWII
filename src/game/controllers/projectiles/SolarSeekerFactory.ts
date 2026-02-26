@@ -355,6 +355,7 @@ export function createSolarSeekerFactory(
       damageAmount: damage,
       damageType,
       additionalDamageSegments: options.additionalDamageSegments,
+      statusPayloads: options.statusPayloads,
       sourceFaction: faction
     });
 

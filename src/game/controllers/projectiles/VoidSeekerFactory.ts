@@ -861,6 +861,7 @@ export function createVoidSeekerFactory(
       damageAmount: damage,
       damageType,
       additionalDamageSegments: options.additionalDamageSegments,
+      statusPayloads: options.statusPayloads,
       sourceFaction: faction
     });
 

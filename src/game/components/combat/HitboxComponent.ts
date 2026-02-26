@@ -1,6 +1,11 @@
 import * as THREE from "three";
 import { DEFAULT_DAMAGE_TYPE, type DamageType } from "./DamageTypes";
-import type { CollisionArea, DamagePacket, DamagePacketSegment } from "./CombatTypes";
+import type {
+  CollisionArea,
+  DamagePacket,
+  DamagePacketSegment,
+  StatusPayload
+} from "./CombatTypes";
 
 export type HitboxConfig = {
   owner: THREE.Object3D;
@@ -8,6 +13,7 @@ export type HitboxConfig = {
   damageAmount: number;
   damageType?: DamageType;
   additionalDamageSegments?: readonly DamagePacketSegment[];
+  statusPayloads?: readonly StatusPayload[];
   sourceId?: string;
   sourceFaction?: string | null;
   maxHits?: number;
@@ -53,6 +59,14 @@ export function createHitboxComponent(config: HitboxConfig): HitboxComponent {
         damageType: segment.damageType
       }))
       .filter((segment) => segment.amount > 0) ?? [];
+  const statusPayloads =
+    config.statusPayloads
+      ?.map((payload) =>
+        payload.kind === "cryo_buildup"
+          ? { kind: payload.kind, amount: Math.max(0, payload.amount) }
+          : payload
+      )
+      .filter((payload) => payload.kind !== "cryo_buildup" || payload.amount > 0) ?? [];
 
   let enabled = config.enabled ?? true;
   let hitCount = 0;
@@ -98,6 +112,7 @@ export function createHitboxComponent(config: HitboxConfig): HitboxComponent {
       amount: damageAmount,
       damageType,
       segments: additionalDamageSegments.length > 0 ? additionalDamageSegments : undefined,
+      statusPayloads: statusPayloads.length > 0 ? statusPayloads : undefined,
       sourceId: config.sourceId,
       sourceFaction
     })

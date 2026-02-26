@@ -48,6 +48,7 @@ export type ShipControlIntent = {
 export type ShipControllerState = {
   forward: THREE.Vector3;
   position: THREE.Vector3;
+  velocity: THREE.Vector3;
   yaw: number;
 };
 
@@ -55,6 +56,9 @@ type ShipControllerParams = {
   shipRoot: THREE.Group;
   handling: ShipHandlingConfig;
   initialYaw?: number;
+  getMoveSpeedMultiplier?: () => number;
+  getTurnRateMultiplier?: () => number;
+  getFrozenDriftVelocity?: (out: THREE.Vector3) => THREE.Vector3 | null;
 };
 
 export type ShipController = {
@@ -70,14 +74,21 @@ export type ShipController = {
 export function createShipController({
   shipRoot,
   handling,
-  initialYaw = 0
+  initialYaw = 0,
+  getMoveSpeedMultiplier,
+  getTurnRateMultiplier,
+  getFrozenDriftVelocity
 }: ShipControllerParams): ShipController {
   const localVelocity = new THREE.Vector2(0, IDLE_FORWARD_SPEED_UNITS_PER_SECOND);
   const worldVelocity = new THREE.Vector3();
+  const frozenDriftVelocity = new THREE.Vector3();
+  const frozenDriftHeading = new THREE.Vector3();
   const forward = new THREE.Vector3(0, 0, -1);
   const right = new THREE.Vector3(1, 0, 0);
   const movementQuaternion = new THREE.Quaternion();
   const desiredTemporaryPosition = new THREE.Vector3();
+  const previousTemporaryPosition = new THREE.Vector3();
+  const stateVelocity = new THREE.Vector3();
 
   let shipYaw = initialYaw;
   let visualRoll = 0;
@@ -87,11 +98,35 @@ export function createShipController({
   const state: ShipControllerState = {
     forward,
     position: shipRoot.position,
+    velocity: stateVelocity,
     yaw: shipYaw
   };
 
   const update = (deltaTime: number, intent: ShipControlIntent): ShipControllerState => {
     if (deltaTime <= 0) {
+      return state;
+    }
+
+    const moveSpeedMultiplier = THREE.MathUtils.clamp(getMoveSpeedMultiplier?.() ?? 1, 0, 10);
+    const turnRateMultiplier = THREE.MathUtils.clamp(getTurnRateMultiplier?.() ?? 1, 0, 10);
+    const currentFrozenDriftVelocity = getFrozenDriftVelocity?.(frozenDriftVelocity) ?? null;
+    if (currentFrozenDriftVelocity) {
+      activeTemporaryManeuver = null;
+      visualPitch = THREE.MathUtils.lerp(visualPitch, 0, 1 - Math.exp(-8 * deltaTime));
+      visualRoll = THREE.MathUtils.lerp(visualRoll, 0, 1 - Math.exp(-8 * deltaTime));
+      shipRoot.position.addScaledVector(currentFrozenDriftVelocity, deltaTime);
+      stateVelocity.copy(currentFrozenDriftVelocity);
+      if (currentFrozenDriftVelocity.lengthSq() > 0.000001) {
+        frozenDriftHeading.copy(currentFrozenDriftVelocity).setY(0);
+        if (frozenDriftHeading.lengthSq() > 0.000001) {
+          frozenDriftHeading.normalize();
+          shipYaw = -Math.atan2(frozenDriftHeading.x, -frozenDriftHeading.z);
+        }
+      }
+      shipRoot.rotation.set(visualPitch, shipYaw, visualRoll, SHIP_ROTATION_ORDER);
+      shipRoot.getWorldQuaternion(movementQuaternion);
+      forward.set(0, 0, -1).applyQuaternion(movementQuaternion).setY(0).normalize();
+      state.yaw = shipYaw;
       return state;
     }
 
@@ -108,13 +143,16 @@ export function createShipController({
     const turnInput = THREE.MathUtils.clamp(intent.turnInput, -1, 1);
     const hasTurnInput = Math.abs(turnInput) > 0.0001;
 
-    const targetSideVelocity = intent.strafeInput * handling.topManeuveringSpeed;
+    const effectiveTopManeuveringSpeed = handling.topManeuveringSpeed * moveSpeedMultiplier;
+    const effectiveThrustSpeed = handling.thrustSpeed * moveSpeedMultiplier;
+    const effectiveIdleForwardSpeed = IDLE_FORWARD_SPEED_UNITS_PER_SECOND * moveSpeedMultiplier;
+    const targetSideVelocity = intent.strafeInput * effectiveTopManeuveringSpeed;
     const targetForwardVelocity =
       intent.forwardInput < 0
-        ? -handling.topManeuveringSpeed
+        ? -effectiveTopManeuveringSpeed
         : intent.forwardInput > 0
-          ? handling.thrustSpeed
-          : IDLE_FORWARD_SPEED_UNITS_PER_SECOND;
+          ? effectiveThrustSpeed
+          : effectiveIdleForwardSpeed;
 
     localVelocity.x = approachVelocityAxis(
       localVelocity.x,
@@ -135,18 +173,18 @@ export function createShipController({
 
     localVelocity.x = THREE.MathUtils.clamp(
       localVelocity.x,
-      -handling.topManeuveringSpeed,
-      handling.topManeuveringSpeed
+      -effectiveTopManeuveringSpeed,
+      effectiveTopManeuveringSpeed
     );
     localVelocity.y = THREE.MathUtils.clamp(
       localVelocity.y,
-      -handling.topManeuveringSpeed,
-      handling.thrustSpeed
+      -effectiveTopManeuveringSpeed,
+      effectiveThrustSpeed
     );
 
     let currentTurnYawRate = 0;
     if (hasTurnInput) {
-      currentTurnYawRate = turnInput * TURN_MAX_YAW_RATE_RADIANS;
+      currentTurnYawRate = turnInput * TURN_MAX_YAW_RATE_RADIANS * turnRateMultiplier;
       shipYaw += currentTurnYawRate * deltaTime;
     }
 
@@ -180,12 +218,13 @@ export function createShipController({
     worldVelocity.copy(right).multiplyScalar(localVelocity.x);
     worldVelocity.addScaledVector(forward, localVelocity.y);
 
-    const thrustSpeedSq = handling.thrustSpeed * handling.thrustSpeed;
+    const thrustSpeedSq = effectiveThrustSpeed * effectiveThrustSpeed;
     if (worldVelocity.lengthSq() > thrustSpeedSq) {
-      worldVelocity.setLength(handling.thrustSpeed);
+      worldVelocity.setLength(effectiveThrustSpeed);
     }
 
     shipRoot.position.addScaledVector(worldVelocity, deltaTime);
+    stateVelocity.copy(worldVelocity);
     state.yaw = shipYaw;
     return state;
   };
@@ -242,6 +281,7 @@ export function createShipController({
     const desiredYaw = normalizeAngleRadians(maneuver.startYaw + yawDelta);
     const desiredPitch = pitch;
     const desiredRoll = roll;
+    previousTemporaryPosition.copy(shipRoot.position);
     desiredTemporaryPosition
       .copy(maneuver.startPosition)
       .addScaledVector(startRight, localStrafe)
@@ -262,6 +302,14 @@ export function createShipController({
       forward.normalize();
     }
     state.yaw = shipYaw;
+    if (deltaTime > 0) {
+      stateVelocity
+        .copy(desiredTemporaryPosition)
+        .sub(previousTemporaryPosition)
+        .multiplyScalar(1 / deltaTime);
+    } else {
+      stateVelocity.set(0, 0, 0);
+    }
 
     if (t >= 0.9999) {
       // Canonicalize to level orientation so normal flight roll smoothing does not
@@ -292,6 +340,7 @@ export function createShipController({
 
       shipRoot.getWorldQuaternion(movementQuaternion);
       forward.set(0, 0, -1).applyQuaternion(movementQuaternion).setY(0).normalize();
+      stateVelocity.set(0, 0, 0);
       state.yaw = shipYaw;
       return state;
     },

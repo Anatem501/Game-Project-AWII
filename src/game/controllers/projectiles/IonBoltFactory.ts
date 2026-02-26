@@ -376,6 +376,8 @@ export function createIonBoltFactory(options: IonBoltFactoryOptions = {}): Proje
       collisionArea: { radius: collisionRadius },
       damageAmount: damage,
       damageType,
+      additionalDamageSegments: options.additionalDamageSegments,
+      statusPayloads: options.statusPayloads,
       sourceFaction: faction
     });
     let lifeRemaining = lifetimeSeconds;

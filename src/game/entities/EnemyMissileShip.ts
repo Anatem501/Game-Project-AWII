@@ -5,11 +5,13 @@ import {
   createShipResourceComponent,
   type ShipResourceConfig
 } from "../components/ShipResourceComponent";
+import { createShipStatusComponent } from "../components/ShipStatusComponent";
 import { createHurtboxComponent, type HurtboxComponent } from "../components/combat/HurtboxComponent";
 import { createCannonOverheatGlowEffect } from "../effects/CannonOverheatGlowEffect";
 import { createCannonOverheatSteamEffect } from "../effects/CannonOverheatSteamEffect";
 import { createPlayerThrusterEffect } from "../effects/PlayerThrusterEffect";
 import { createShieldBubbleEffect } from "../effects/ShieldBubbleEffect";
+import { createShipCryoFreezeSurfaceEffect } from "../effects/ShipCryoFreezeSurfaceEffect";
 import type { EnemyShipAiStateId } from "../enemies/ai/EnemyShipAiTypes";
 import {
   EnemyCooldownCallbackAttackAction,
@@ -124,6 +126,7 @@ export class EnemyMissileShip {
   private readonly scene: THREE.Scene;
   private readonly health: ReturnType<typeof createHealthComponent>;
   private readonly resources: ReturnType<typeof createShipResourceComponent> | null;
+  private readonly status = createShipStatusComponent();
   private readonly targetHurtboxes: readonly HurtboxComponent[];
   private readonly perception: EnemyShipPerceptionController;
   private readonly flightController: EnemyShipFlightController;
@@ -139,6 +142,7 @@ export class EnemyMissileShip {
   private readonly swarmAttackHeatCost: number;
   private readonly homingAttackHeatCost: number;
   private readonly thrusterEffectAnchor = new THREE.Group();
+  private readonly cryoSurfaceEffect: ReturnType<typeof createShipCryoFreezeSurfaceEffect>;
   private shieldBubbleEffect: ReturnType<typeof createShieldBubbleEffect> | null = null;
   private weaponOverheatSteamEffect: ReturnType<typeof createCannonOverheatSteamEffect> | null = null;
   private thrusterEffect: ReturnType<typeof createPlayerThrusterEffect> | null = null;
@@ -172,6 +176,7 @@ export class EnemyMissileShip {
   private readonly shotDirection = new THREE.Vector3();
   private readonly previousPosition = new THREE.Vector3();
   private readonly regroupBreakDirection = new THREE.Vector3();
+  private readonly frameVelocity = new THREE.Vector3();
 
   private playerTargetObject: THREE.Object3D | null;
   private aiState: EnemyShipAiStateId = "Spawn";
@@ -227,6 +232,10 @@ export class EnemyMissileShip {
     this.scene.add(this.root);
     this.root.add(this.thrusterEffectAnchor);
     this.previousPosition.copy(this.root.position);
+    this.cryoSurfaceEffect = createShipCryoFreezeSurfaceEffect(this.root);
+    this.resources?.setHeatAddedListener((amount) => {
+      this.status.applyHeatGain(amount);
+    });
 
     this.flightController = new EnemyShipFlightController({
       root: this.root,
@@ -284,11 +293,14 @@ export class EnemyMissileShip {
       faction: "enemy",
       health: this.health,
       owner: this.root,
+      transformIncomingDamagePacket: (damagePacket) =>
+        this.status.transformIncomingDamagePacket(damagePacket),
       onHit: (event) => {
         this.resources?.applyIncomingDamageHeat(
           event.damagePacket.damageType,
           event.breakdown.incomingBaseDamage
         );
+        this.status.applyHitStatusPayloads(event.damagePacket, event.breakdown);
       }
     });
     if (config.health.maxShield > 0) {
@@ -384,6 +396,25 @@ export class EnemyMissileShip {
     if (this.disposed || deltaTime <= 0) {
       return;
     }
+    this.frameVelocity
+      .copy(this.root.position)
+      .sub(this.previousPosition)
+      .multiplyScalar(1 / Math.max(0.0001, deltaTime));
+    this.root.getWorldDirection(this.worldForward);
+    this.worldForward.setY(0);
+    if (this.worldForward.lengthSq() <= 0.000001) {
+      this.worldForward.copy(FORWARD_AXIS);
+    } else {
+      this.worldForward.normalize();
+    }
+    this.status.syncMotionSample(this.worldForward, this.frameVelocity);
+    this.status.update(deltaTime);
+    if (this.status.isCryofrozen()) {
+      const driftVelocity = this.status.getFrozenDriftVelocity(this.frameVelocity);
+      if (driftVelocity) {
+        this.root.position.addScaledVector(driftVelocity, deltaTime);
+      }
+    }
     this.swarmProjectileRuntime.update(deltaTime);
     this.homingProjectileRuntime.update(deltaTime);
     this.health.update(deltaTime);
@@ -422,6 +453,11 @@ export class EnemyMissileShip {
       ? THREE.MathUtils.clamp(1 - telegraph.telegraphSecondsRemaining / telegraphDuration, 0, 1)
       : 0;
     this.lockTelegraphGlowEffect.update(deltaTime, Math.max(telegraphHeat01, weaponHeat01), false);
+    this.cryoSurfaceEffect.update(
+      deltaTime,
+      this.status.getCryoVisualIntensity01(),
+      this.status.isCryofrozen()
+    );
     this.updateThrusterEffect(deltaTime);
   }
 
@@ -458,6 +494,9 @@ export class EnemyMissileShip {
   }
 
   faceTarget(deltaTime: number): boolean {
+    if (this.status.isCryofrozen()) {
+      return false;
+    }
     if (!this.perception.predictAimTarget(this.root.position, this.projectileSpeedForLead, this.aimLeadFactor, this.aimTargetWorld)) {
       return false;
     }
@@ -497,6 +536,9 @@ export class EnemyMissileShip {
   }
 
   updateAttackMovement(deltaTime: number, distanceToTarget: number): void {
+    if (this.status.isCryofrozen()) {
+      return;
+    }
     if (!Number.isFinite(distanceToTarget)) {
       this.coastForward(deltaTime, this.attackSpeed * 0.6);
       return;
@@ -518,9 +560,10 @@ export class EnemyMissileShip {
     } else {
       this.worldForward.normalize();
     }
+    const moveSpeedMultiplier = this.status.getMoveSpeedMultiplier();
     this.flightController.step(deltaTime, {
       desiredHeadingWorld: this.worldForward,
-      desiredForwardSpeed: this.attackSpeed * 0.72,
+      desiredForwardSpeed: this.attackSpeed * 0.72 * moveSpeedMultiplier,
       desiredStrafe: 0
     });
   }
@@ -588,6 +631,9 @@ export class EnemyMissileShip {
   }
 
   canStartPrimaryAttack(): boolean {
+    if (this.status.isCryofrozen()) {
+      return false;
+    }
     if (
       this.generalAttackCooldownRemaining > 0 ||
       this.magazine.isReloading() ||
@@ -599,6 +645,9 @@ export class EnemyMissileShip {
   }
   isAttackActionActive(): boolean { return this.primaryAttackLoadout.isAttackActionActive(); }
   tryExecutePrimaryAttack(): void {
+    if (this.status.isCryofrozen()) {
+      return;
+    }
     if (
       this.generalAttackCooldownRemaining > 0 ||
       this.magazine.isReloading() ||
@@ -694,6 +743,8 @@ export class EnemyMissileShip {
     this.lockTelegraphGlowEffect.dispose();
     this.weaponOverheatSteamEffect?.dispose();
     this.weaponOverheatSteamEffect = null;
+    this.cryoSurfaceEffect.dispose();
+    this.resources?.setHeatAddedListener(null);
     this.shieldBubbleEffect?.dispose();
     this.shieldBubbleEffect = null;
     this.thrusterEffect?.dispose();
@@ -703,6 +754,9 @@ export class EnemyMissileShip {
   }
 
   private canStartAttackWithMagazineCost(projectileCount: number, heatCost = 0): boolean {
+    if (this.status.isCryofrozen()) {
+      return false;
+    }
     if (
       projectileCount <= 0 ||
       this.generalAttackCooldownRemaining > 0 ||
@@ -728,6 +782,9 @@ export class EnemyMissileShip {
   }
 
   private executeSwarmAttack(): boolean {
+    if (this.status.isCryofrozen()) {
+      return false;
+    }
     if (!this.perception.tryCopyCurrentTargetWorld(this.targetWorld)) {
       return false;
     }
@@ -764,6 +821,9 @@ export class EnemyMissileShip {
   }
 
   private executeHomingAttack(): boolean {
+    if (this.status.isCryofrozen()) {
+      return false;
+    }
     if (!this.perception.tryCopyCurrentTargetWorld(this.targetWorld)) {
       return false;
     }
@@ -899,6 +959,10 @@ export class EnemyMissileShip {
   }
 
   private moveToward(targetPosition: THREE.Vector3, speed: number, deltaTime: number, stopDistance: number, desiredStrafe: number): void {
+    if (this.status.isCryofrozen()) {
+      return;
+    }
+    const adjustedSpeed = Math.max(0, speed * this.status.getMoveSpeedMultiplier());
     this.moveDirection.subVectors(targetPosition, this.root.position).setY(0);
     const distance = this.moveDirection.length();
     if (distance <= 0.000001 || deltaTime <= 0) {
@@ -913,25 +977,29 @@ export class EnemyMissileShip {
     const maxSafeSpeedThisFrame = Math.max(0, (distance - stopDistance) / Math.max(0.0001, deltaTime));
     this.flightController.step(deltaTime, {
       desiredHeadingWorld: this.moveDirection,
-      desiredForwardSpeed: Math.min(speed, maxSafeSpeedThisFrame),
+      desiredForwardSpeed: Math.min(adjustedSpeed, maxSafeSpeedThisFrame),
       desiredStrafe
     });
   }
 
   private moveAwayFromTarget(deltaTime: number, speed: number, desiredStrafe: number): void {
+    if (this.status.isCryofrozen()) {
+      return;
+    }
+    const adjustedSpeed = Math.max(0, speed * this.status.getMoveSpeedMultiplier());
     if (!this.perception.tryCopyCurrentTargetWorld(this.targetWorld)) {
-      this.coastForward(deltaTime, speed * 0.65);
+      this.coastForward(deltaTime, adjustedSpeed * 0.65);
       return;
     }
     this.moveDirection.subVectors(this.root.position, this.targetWorld).setY(0);
     if (this.moveDirection.lengthSq() <= 0.000001) {
-      this.coastForward(deltaTime, speed * 0.65);
+      this.coastForward(deltaTime, adjustedSpeed * 0.65);
       return;
     }
     this.moveDirection.normalize();
     this.flightController.step(deltaTime, {
       desiredHeadingWorld: this.moveDirection,
-      desiredForwardSpeed: speed,
+      desiredForwardSpeed: adjustedSpeed,
       desiredStrafe
     });
   }
@@ -942,23 +1010,31 @@ export class EnemyMissileShip {
     speed: number,
     desiredStrafe: number
   ): void {
+    if (this.status.isCryofrozen()) {
+      return;
+    }
+    const adjustedSpeed = Math.max(0, speed * this.status.getMoveSpeedMultiplier());
     if (deltaTime <= 0) {
       return;
     }
     this.moveDirection.copy(directionWorld).setY(0);
     if (this.moveDirection.lengthSq() <= 0.000001) {
-      this.coastForward(deltaTime, speed * 0.65);
+      this.coastForward(deltaTime, adjustedSpeed * 0.65);
       return;
     }
     this.moveDirection.normalize();
     this.flightController.step(deltaTime, {
       desiredHeadingWorld: this.moveDirection,
-      desiredForwardSpeed: speed,
+      desiredForwardSpeed: adjustedSpeed,
       desiredStrafe
     });
   }
 
   private coastForward(deltaTime: number, speed: number): void {
+    if (this.status.isCryofrozen()) {
+      return;
+    }
+    const adjustedSpeed = Math.max(0, speed * this.status.getMoveSpeedMultiplier());
     this.root.getWorldDirection(this.worldForward);
     this.worldForward.setY(0);
     if (this.worldForward.lengthSq() <= 0.000001) {
@@ -966,7 +1042,11 @@ export class EnemyMissileShip {
     } else {
       this.worldForward.normalize();
     }
-    this.flightController.step(deltaTime, { desiredHeadingWorld: this.worldForward, desiredForwardSpeed: speed, desiredStrafe: 0 });
+    this.flightController.step(deltaTime, {
+      desiredHeadingWorld: this.worldForward,
+      desiredForwardSpeed: adjustedSpeed,
+      desiredStrafe: 0
+    });
   }
 
   private initializeRegroupBreakDirection(): void {
@@ -1038,6 +1118,9 @@ export class EnemyMissileShip {
   }
 
   private hasForwardHomingLockContact(): boolean {
+    if (this.status.isCryofrozen()) {
+      return false;
+    }
     if (!this.perception.tryCopyCurrentTargetWorld(this.targetWorld)) {
       return false;
     }

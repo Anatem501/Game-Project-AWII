@@ -33,6 +33,7 @@ type PlayerControllerParams = {
   inputAimReticle: THREE.Object3D;
   trueAimReticle: THREE.Object3D;
   builtInEquipmentAbility?: PlayerBuiltInEquipmentAbility | null;
+  getLockedAimForward?: (out: THREE.Vector3) => THREE.Vector3 | null;
 };
 
 export type PlayerControllerState = ShipControllerState;
@@ -53,7 +54,8 @@ export function createPlayerController({
   shipController,
   inputAimReticle,
   trueAimReticle,
-  builtInEquipmentAbility = null
+  builtInEquipmentAbility = null,
+  getLockedAimForward
 }: PlayerControllerParams): PlayerController {
   const pressedKeys = new Set<string>();
   const pointerNdc = new THREE.Vector2(0, 0);
@@ -68,6 +70,7 @@ export function createPlayerController({
   const toAim = new THREE.Vector3();
   const shipRight = new THREE.Vector3();
   const cameraForward = new THREE.Vector3();
+  const lockedAimForward = new THREE.Vector3();
 
   const raycaster = new THREE.Raycaster();
   const movementPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -173,7 +176,13 @@ export function createPlayerController({
       hasLastMouseWorld = true;
     }
 
-    if (hasLastMouseWorld) {
+    const frozenAimForward = getLockedAimForward?.(lockedAimForward) ?? null;
+    if (frozenAimForward) {
+      inputAimTarget
+        .copy(currentShipState.position)
+        .addScaledVector(frozenAimForward, RETICLE_MAX_DISTANCE_FROM_SHIP);
+      inputAimTarget.y = aimWorldY;
+    } else if (hasLastMouseWorld) {
       inputAimTarget.copy(lastMouseWorld);
       inputAimTarget.y = aimWorldY;
     } else {

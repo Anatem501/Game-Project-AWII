@@ -395,6 +395,7 @@ const CANNON_PRIMARY_COMPONENTS: Record<
       damage: 4,
       damageType: "Cryo",
       additionalDamageSegments: [{ amount: 4, damageType: "Kinetic" }],
+      statusPayloads: [{ kind: "cryo_buildup", amount: 50 }],
       collisionRadius: 0.08
     }
   },
@@ -493,6 +494,7 @@ const CANNON_PRIMARY_COMPONENTS: Record<
       thickness: 0.08,
       damage: 8,
       damageType: "Cryo",
+      statusPayloads: [{ kind: "cryo_buildup", amount: 100 }],
       collisionRadius: 0.11
     }
   }

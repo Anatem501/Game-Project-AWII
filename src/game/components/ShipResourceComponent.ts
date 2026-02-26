@@ -22,6 +22,7 @@ export type ShipResourceConfig = {
   energyRechargeDelaySeconds?: number;
   minEnergyRatio?: number;
   plasmaHeatPerDamage?: number;
+  onHeatAdded?: (amount: number) => void;
 };
 
 export type ShipResourceSnapshot = {
@@ -43,6 +44,7 @@ export type ShipResourceSnapshot = {
 
 export type ShipResourceComponent = {
   update: (deltaTime: number) => void;
+  setHeatAddedListener: (listener: ((amount: number) => void) | null) => void;
   tryConsumeWeaponCost: (cost: WeaponResourceCost) => boolean;
   applyIncomingDamageHeat: (damageType: DamageType, incomingDamage: number) => void;
   getWeaponFireIntervalMultiplier: () => number;
@@ -80,6 +82,7 @@ export function createShipResourceComponent(config: ShipResourceConfig): ShipRes
   let energyRechargeDelayRemaining = 0;
   let overheatClearSecondsRemaining = 0;
   let overheatHeatStart = 0;
+  let onHeatAdded = config.onHeatAdded ?? null;
 
   const addHeat = (amount: number): void => {
     if (maxHeat <= 0 || amount <= 0) {
@@ -88,6 +91,7 @@ export function createShipResourceComponent(config: ShipResourceConfig): ShipRes
     if (overheated) {
       return;
     }
+    const previousHeat = heat;
     heat += amount;
     heatDissipationDelayRemaining = heatDissipationDelaySeconds;
     if (heat > maxHeat) {
@@ -95,6 +99,10 @@ export function createShipResourceComponent(config: ShipResourceConfig): ShipRes
       overheatClearSecondsRemaining = OVERHEAT_CLEAR_DURATION_SECONDS;
       overheatHeatStart = Math.max(heat, maxHeat);
       heatDissipationDelayRemaining = 0;
+    }
+    const heatAdded = Math.max(0, heat - previousHeat);
+    if (heatAdded > 0) {
+      onHeatAdded?.(heatAdded);
     }
   };
 
@@ -195,6 +203,9 @@ export function createShipResourceComponent(config: ShipResourceConfig): ShipRes
 
   return {
     update,
+    setHeatAddedListener: (listener) => {
+      onHeatAdded = listener;
+    },
     tryConsumeWeaponCost,
     applyIncomingDamageHeat,
     getWeaponFireIntervalMultiplier,

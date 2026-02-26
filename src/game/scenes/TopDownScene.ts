@@ -6,6 +6,7 @@ import {
   type ShipResourceComponent,
   type ShipResourceConfig
 } from "../components/ShipResourceComponent";
+import { createShipStatusComponent } from "../components/ShipStatusComponent";
 import enemyDualLaserTurretModelUrl from "../../assets/models/DualGunTurrretV1.glb?url";
 import plasmaboltModelUrl from "../../assets/models/Plasmabolt-v01.glb?url";
 import ionboltModelUrl from "../../assets/models/Ionbolt-v01.glb?url";
@@ -29,6 +30,7 @@ import { createCannonOverheatGlowEffect } from "../effects/CannonOverheatGlowEff
 import { createCannonOverheatSteamEffect } from "../effects/CannonOverheatSteamEffect";
 import { createPlayerThrusterEffect } from "../effects/PlayerThrusterEffect";
 import { createShieldBubbleEffect } from "../effects/ShieldBubbleEffect";
+import { createShipCryoFreezeSurfaceEffect } from "../effects/ShipCryoFreezeSurfaceEffect";
 import { createPlayerBuiltInEquipmentAbility } from "../equipment/abilities/PlayerBuiltInEquipmentAbilityFactory";
 import { EnemyDualLaserBoltTurret } from "../entities/EnemyDualLaserBoltTurret";
 import { EnemyPlasmaboltTurret } from "../entities/EnemyPlasmaboltTurret";
@@ -331,10 +333,18 @@ export function setupTopDownScene(
     trailLengthScale: selectedShip.thrusterTrailLengthScale,
     glowOpacityScale: selectedShip.thrusterGlowOpacityScale
   });
+  const playerStatus = createShipStatusComponent();
+  playerResources.setHeatAddedListener((amount) => {
+    playerStatus.applyHeatGain(amount);
+  });
+  const playerCryoSurfaceEffect = createShipCryoFreezeSurfaceEffect(playerRoot);
 
   const shipController = createShipController({
     handling: selectedShip.handling,
-    shipRoot: playerRoot
+    shipRoot: playerRoot,
+    getMoveSpeedMultiplier: () => playerStatus.getMoveSpeedMultiplier(),
+    getTurnRateMultiplier: () => playerStatus.getTurnRateMultiplier(),
+    getFrozenDriftVelocity: (out) => playerStatus.getFrozenDriftVelocity(out)
   });
   const playerSpawnPosition = playerRoot.position.clone();
   const playerSpawnYaw = shipController.getState().yaw;
@@ -348,18 +358,28 @@ export function setupTopDownScene(
     inputAimReticle,
     shipController,
     trueAimReticle,
-    builtInEquipmentAbility: playerBuiltInEquipmentAbility
+    builtInEquipmentAbility: playerBuiltInEquipmentAbility,
+    getLockedAimForward: (out) => playerStatus.getLockedAimForward(out)
   });
 
   const playerHealth = createHealthComponent(selectedShip.health);
   if (selectedShip.health.maxShield > 0) {
     playerShieldBubbleEffect = createShieldBubbleEffect(playerRoot);
   }
+  const handlePlayerIncomingHit = (damagePacket: Parameters<typeof playerStatus.applyHitStatusPayloads>[0], breakdown: Parameters<typeof playerStatus.applyHitStatusPayloads>[1]): void => {
+    playerResources.applyIncomingDamageHeat(damagePacket.damageType, breakdown.incomingBaseDamage);
+    playerStatus.applyHitStatusPayloads(damagePacket, breakdown);
+  };
   const playerHurtbox = createHurtboxComponent({
     collisionArea: { radius: PLAYER_HURTBOX_RADIUS },
     faction: "player",
     health: playerHealth,
-    owner: playerRoot
+    owner: playerRoot,
+    transformIncomingDamagePacket: (damagePacket) =>
+      playerStatus.transformIncomingDamagePacket(damagePacket),
+    onHit: (event) => {
+      handlePlayerIncomingHit(event.damagePacket, event.breakdown);
+    }
   });
   let playerShieldHurtbox: HurtboxComponent | null = null;
   const playerTargetHurtboxes: HurtboxComponent[] = [];
@@ -399,7 +419,12 @@ export function setupTopDownScene(
       faction: "player",
       health: playerHealth,
       owner: playerRoot,
-      enabled: playerHealth.getSnapshot().shield.current > 0
+      enabled: playerHealth.getSnapshot().shield.current > 0,
+      transformIncomingDamagePacket: (damagePacket) =>
+        playerStatus.transformIncomingDamagePacket(damagePacket),
+      onHit: (event) => {
+        handlePlayerIncomingHit(event.damagePacket, event.breakdown);
+      }
     });
   }
   updatePlayerTargetHurtboxes();
@@ -422,11 +447,17 @@ export function setupTopDownScene(
   const reticleEnemyCenter = new THREE.Vector3();
   let enemyDualTurretHealth: ReturnType<typeof createHealthComponent> | null = null;
   let enemyDualLaserBoltTurret: EnemyDualLaserBoltTurret | null = null;
+  let enemyDualTurretStatus: ReturnType<typeof createShipStatusComponent> | null = null;
+  let enemyDualTurretCryoSurfaceEffect: ReturnType<typeof createShipCryoFreezeSurfaceEffect> | null =
+    null;
   let enemyDualTurretHurtbox: HurtboxComponent | null = null;
   let enemyDualTurretShieldHurtbox: HurtboxComponent | null = null;
   let enemyDualTurretRespawnSecondsRemaining = 0;
   let enemyPlasmaboltTurretHealth: ReturnType<typeof createHealthComponent> | null = null;
   let enemyPlasmaboltTurret: EnemyPlasmaboltTurret | null = null;
+  let enemyPlasmaboltTurretStatus: ReturnType<typeof createShipStatusComponent> | null = null;
+  let enemyPlasmaboltTurretCryoSurfaceEffect: ReturnType<typeof createShipCryoFreezeSurfaceEffect> | null =
+    null;
   let enemyPlasmaboltTurretHurtbox: HurtboxComponent | null = null;
   let enemyPlasmaboltTurretShieldHurtbox: HurtboxComponent | null = null;
   let enemyPlasmaboltTurretRespawnSecondsRemaining = 0;
@@ -592,6 +623,10 @@ export function setupTopDownScene(
 
   const spawnEnemyDualLaserBoltTurret = (): void => {
     enemyDualTurretResources = createShipResourceComponent(DEFAULT_ENEMY_RESOURCE_CONFIG);
+    enemyDualTurretStatus = createShipStatusComponent();
+    enemyDualTurretResources.setHeatAddedListener((amount) => {
+      enemyDualTurretStatus?.applyHeatGain(amount);
+    });
     enemyDualTurretHealth = createEnemyTurretHealth();
 
     enemyDualLaserBoltTurret = new EnemyDualLaserBoltTurret(scene, {
@@ -615,8 +650,11 @@ export function setupTopDownScene(
       playerTarget: playerRoot,
       position: ENEMY_DUAL_TURRET_SPAWN,
       targetHurtboxes: playerTargetHurtboxes,
-      turnSpeedRadians: THREE.MathUtils.degToRad(150)
+      turnSpeedRadians: THREE.MathUtils.degToRad(150),
+      getTurnRateMultiplier: () => enemyDualTurretStatus?.getTurnRateMultiplier() ?? 1,
+      getLockedAimWorldDirection: (out) => enemyDualTurretStatus?.getLockedAimForward(out) ?? null
     });
+    enemyDualTurretCryoSurfaceEffect = createShipCryoFreezeSurfaceEffect(enemyDualLaserBoltTurret.root);
 
     enemyDualTurretHurtbox = createHurtboxComponent({
       collisionArea: {
@@ -626,11 +664,14 @@ export function setupTopDownScene(
       faction: "enemy",
       health: enemyDualTurretHealth,
       owner: enemyDualLaserBoltTurret.root,
+      transformIncomingDamagePacket: (damagePacket) =>
+        enemyDualTurretStatus?.transformIncomingDamagePacket(damagePacket) ?? damagePacket,
       onHit: (hitEvent) => {
         enemyDualTurretResources?.applyIncomingDamageHeat(
           hitEvent.damagePacket.damageType,
-          hitEvent.damagePacket.amount
+          hitEvent.breakdown.incomingBaseDamage
         );
+        enemyDualTurretStatus?.applyHitStatusPayloads(hitEvent.damagePacket, hitEvent.breakdown);
       }
     });
     if (enemyDualTurretHealth.getSnapshot().shield.max > 0) {
@@ -645,11 +686,14 @@ export function setupTopDownScene(
         health: enemyDualTurretHealth,
         owner: enemyDualLaserBoltTurret.root,
         enabled: enemyDualTurretHealth.getSnapshot().shield.current > 0,
+        transformIncomingDamagePacket: (damagePacket) =>
+          enemyDualTurretStatus?.transformIncomingDamagePacket(damagePacket) ?? damagePacket,
         onHit: (hitEvent) => {
           enemyDualTurretResources?.applyIncomingDamageHeat(
             hitEvent.damagePacket.damageType,
-            hitEvent.damagePacket.amount
+            hitEvent.breakdown.incomingBaseDamage
           );
+          enemyDualTurretStatus?.applyHitStatusPayloads(hitEvent.damagePacket, hitEvent.breakdown);
         }
       });
     }
@@ -660,8 +704,12 @@ export function setupTopDownScene(
   const despawnEnemyDualLaserBoltTurret = (): void => {
     enemyDualTurretShieldHurtbox?.setEnabled(false);
     enemyDualTurretHurtbox?.setEnabled(false);
+    enemyDualTurretCryoSurfaceEffect?.dispose();
+    enemyDualTurretCryoSurfaceEffect = null;
+    enemyDualTurretResources?.setHeatAddedListener(null);
     enemyDualLaserBoltTurret?.dispose();
     enemyDualLaserBoltTurret = null;
+    enemyDualTurretStatus = null;
     enemyDualTurretHurtbox = null;
     enemyDualTurretShieldHurtbox = null;
     enemyDualTurretShieldBubbleEffect?.dispose();
@@ -675,6 +723,10 @@ export function setupTopDownScene(
     enemyPlasmaboltTurretResources = createShipResourceComponent(
       DEFAULT_ENEMY_PLASMABOLT_RESOURCE_CONFIG
     );
+    enemyPlasmaboltTurretStatus = createShipStatusComponent();
+    enemyPlasmaboltTurretResources.setHeatAddedListener((amount) => {
+      enemyPlasmaboltTurretStatus?.applyHeatGain(amount);
+    });
     enemyPlasmaboltTurretHealth = createEnemyTurretHealth();
     enemyPlasmaboltTurretProjectileFactory = createCannonPrimaryProjectileFactory(
       REPEATING_PLASMABOLT_COMPONENT_ID,
@@ -721,8 +773,14 @@ export function setupTopDownScene(
         );
       },
       getFireIntervalMultiplier: () =>
-        enemyPlasmaboltTurretResources?.getWeaponFireIntervalMultiplier() ?? 1
+        enemyPlasmaboltTurretResources?.getWeaponFireIntervalMultiplier() ?? 1,
+      getTurnRateMultiplier: () => enemyPlasmaboltTurretStatus?.getTurnRateMultiplier() ?? 1,
+      getLockedAimWorldDirection: (out) =>
+        enemyPlasmaboltTurretStatus?.getLockedAimForward(out) ?? null
     });
+    enemyPlasmaboltTurretCryoSurfaceEffect = createShipCryoFreezeSurfaceEffect(
+      enemyPlasmaboltTurret.root
+    );
 
     enemyPlasmaboltTurretHurtbox = createHurtboxComponent({
       collisionArea: {
@@ -732,10 +790,16 @@ export function setupTopDownScene(
       faction: "enemy",
       health: enemyPlasmaboltTurretHealth,
       owner: enemyPlasmaboltTurret.root,
+      transformIncomingDamagePacket: (damagePacket) =>
+        enemyPlasmaboltTurretStatus?.transformIncomingDamagePacket(damagePacket) ?? damagePacket,
       onHit: (hitEvent) => {
         enemyPlasmaboltTurretResources?.applyIncomingDamageHeat(
           hitEvent.damagePacket.damageType,
-          hitEvent.damagePacket.amount
+          hitEvent.breakdown.incomingBaseDamage
+        );
+        enemyPlasmaboltTurretStatus?.applyHitStatusPayloads(
+          hitEvent.damagePacket,
+          hitEvent.breakdown
         );
       }
     });
@@ -762,10 +826,16 @@ export function setupTopDownScene(
         health: enemyPlasmaboltTurretHealth,
         owner: enemyPlasmaboltTurret.root,
         enabled: enemyPlasmaboltTurretHealth.getSnapshot().shield.current > 0,
+        transformIncomingDamagePacket: (damagePacket) =>
+          enemyPlasmaboltTurretStatus?.transformIncomingDamagePacket(damagePacket) ?? damagePacket,
         onHit: (hitEvent) => {
           enemyPlasmaboltTurretResources?.applyIncomingDamageHeat(
             hitEvent.damagePacket.damageType,
-            hitEvent.damagePacket.amount
+            hitEvent.breakdown.incomingBaseDamage
+          );
+          enemyPlasmaboltTurretStatus?.applyHitStatusPayloads(
+            hitEvent.damagePacket,
+            hitEvent.breakdown
           );
         }
       });
@@ -776,8 +846,12 @@ export function setupTopDownScene(
   const despawnEnemyPlasmaboltTurret = (): void => {
     enemyPlasmaboltTurretShieldHurtbox?.setEnabled(false);
     enemyPlasmaboltTurretHurtbox?.setEnabled(false);
+    enemyPlasmaboltTurretCryoSurfaceEffect?.dispose();
+    enemyPlasmaboltTurretCryoSurfaceEffect = null;
+    enemyPlasmaboltTurretResources?.setHeatAddedListener(null);
     enemyPlasmaboltTurret?.dispose();
     enemyPlasmaboltTurret = null;
+    enemyPlasmaboltTurretStatus = null;
     enemyPlasmaboltTurretHurtbox = null;
     enemyPlasmaboltTurretShieldHurtbox = null;
     enemyPlasmaboltTurretHealth = null;
@@ -1039,6 +1113,8 @@ export function setupTopDownScene(
     -Math.PI / 2
   );
   const reticleSpinAxis = new THREE.Vector3(0, 1, 0);
+  const staticTurretAimDirection = new THREE.Vector3();
+  const staticTurretZeroVelocity = new THREE.Vector3();
   const reticleSpinQuaternion = new THREE.Quaternion();
   let reticleLockSpinYaw = 0;
   const lockingInputReticleColor = new THREE.Color(0xff6666);
@@ -1052,6 +1128,8 @@ export function setupTopDownScene(
     if (!playerIsDestroyed) {
       playerState = playerController.update(deltaTime, camera);
     }
+    playerStatus.syncMotionSample(playerState.forward, playerState.velocity);
+    playerCryoSurfaceEffect.update(deltaTime, playerStatus.getCryoVisualIntensity01(), playerStatus.isCryofrozen());
     cameraController.setYawLock(
       !playerIsDestroyed ? playerController.getTemporaryManeuverCameraLockYaw() : null
     );
@@ -1239,6 +1317,16 @@ export function setupTopDownScene(
     updatePlayerTargetHurtboxes();
 
     if (enemyDualLaserBoltTurret && enemyDualTurretHealth) {
+      if (enemyDualTurretStatus) {
+        enemyDualLaserBoltTurret.getAimWorldDirection(staticTurretAimDirection);
+        enemyDualTurretStatus.syncMotionSample(staticTurretAimDirection, staticTurretZeroVelocity);
+        enemyDualTurretStatus.update(deltaTime);
+        enemyDualTurretCryoSurfaceEffect?.update(
+          deltaTime,
+          enemyDualTurretStatus.getCryoVisualIntensity01(),
+          enemyDualTurretStatus.isCryofrozen()
+        );
+      }
       enemyDualTurretHealth.update(deltaTime);
       const enemyDualTurretHealthSnapshot = enemyDualTurretHealth.getSnapshot();
       enemyDualTurretShieldBubbleEffect?.update(deltaTime, enemyDualTurretHealthSnapshot);
@@ -1264,6 +1352,19 @@ export function setupTopDownScene(
       }
     }
     if (enemyPlasmaboltTurret && enemyPlasmaboltTurretHealth) {
+      if (enemyPlasmaboltTurretStatus) {
+        enemyPlasmaboltTurret.getAimWorldDirection(staticTurretAimDirection);
+        enemyPlasmaboltTurretStatus.syncMotionSample(
+          staticTurretAimDirection,
+          staticTurretZeroVelocity
+        );
+        enemyPlasmaboltTurretStatus.update(deltaTime);
+        enemyPlasmaboltTurretCryoSurfaceEffect?.update(
+          deltaTime,
+          enemyPlasmaboltTurretStatus.getCryoVisualIntensity01(),
+          enemyPlasmaboltTurretStatus.isCryofrozen()
+        );
+      }
       enemyPlasmaboltTurretHealth.update(deltaTime);
       const enemyPlasmaboltTurretHealthSnapshot = enemyPlasmaboltTurretHealth.getSnapshot();
       enemyPlasmaboltTurretShieldBubbleEffect?.update(deltaTime, enemyPlasmaboltTurretHealthSnapshot);
@@ -1347,6 +1448,7 @@ export function setupTopDownScene(
 
     if (!playerIsDestroyed) {
       playerHealth.setShieldRechargeRateMultiplier(resourceSnapshot.energy.lowPower ? 0.5 : 1);
+      playerStatus.update(deltaTime);
       playerHealth.update(deltaTime);
       const playerHealthSnapshot = playerHealth.getSnapshot();
       if (playerHealthSnapshot.destroyed) {
@@ -1363,6 +1465,7 @@ export function setupTopDownScene(
       if (playerRespawnSecondsRemaining <= 0) {
         playerHealth.reset();
         playerResources.reset();
+        playerStatus.reset();
         shipController.reset(playerSpawnPosition, playerSpawnYaw);
         cameraController.setYawLock(null);
         playerHurtbox.setEnabled(true);
@@ -1523,6 +1626,8 @@ export function setupTopDownScene(
     playerThrusterEffect = null;
     playerShieldBubbleEffect?.dispose();
     playerShieldBubbleEffect = null;
+    playerCryoSurfaceEffect.dispose();
+    playerResources.setHeatAddedListener(null);
     playerNotificationMissileLockingLabel.dispose();
     playerNotificationMissileIncomingLabel.dispose();
     playerNotificationOverheatedLabel.dispose();

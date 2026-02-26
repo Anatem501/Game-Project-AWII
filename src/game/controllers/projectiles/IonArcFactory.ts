@@ -452,6 +452,8 @@ export function createIonArcFactory(options: IonArcFactoryOptions = {}): Project
       collisionArea: { radius: collisionRadiusBase * sizeScale },
       damageAmount: damage,
       damageType,
+      additionalDamageSegments: options.additionalDamageSegments,
+      statusPayloads: options.statusPayloads,
       sourceFaction: faction,
       maxHits: maxPierceHits
     });

@@ -9,6 +9,7 @@ import {
   createShipResourceComponent,
   type ShipResourceConfig
 } from "../components/ShipResourceComponent";
+import { createShipStatusComponent } from "../components/ShipStatusComponent";
 import { createHurtboxComponent, type HurtboxComponent } from "../components/combat/HurtboxComponent";
 import {
   createLaserBoltFactory,
@@ -18,6 +19,7 @@ import { createCannonOverheatGlowEffect } from "../effects/CannonOverheatGlowEff
 import { createCannonOverheatSteamEffect } from "../effects/CannonOverheatSteamEffect";
 import { createPlayerThrusterEffect } from "../effects/PlayerThrusterEffect";
 import { createShieldBubbleEffect, type ShieldBubbleEffectOptions } from "../effects/ShieldBubbleEffect";
+import { createShipCryoFreezeSurfaceEffect } from "../effects/ShipCryoFreezeSurfaceEffect";
 import { createShipGunSparkBurstSystem } from "../effects/ShipGunSparkBurstSystem";
 import type {
   ProjectileFactory
@@ -117,6 +119,7 @@ export class EnemyCannonShip {
   private readonly scene: THREE.Scene;
   private readonly health: ReturnType<typeof createHealthComponent>;
   private readonly resources: ReturnType<typeof createShipResourceComponent> | null;
+  private readonly status = createShipStatusComponent();
   private readonly targetHurtboxes: readonly HurtboxComponent[];
   private readonly projectileFactory: ProjectileFactory;
   private readonly ownedProjectileFactory: ProjectileFactory | null;
@@ -135,6 +138,7 @@ export class EnemyCannonShip {
   private cannonOverheatSteamEffect: ReturnType<typeof createCannonOverheatSteamEffect> | null = null;
   private thrusterEffect: ReturnType<typeof createPlayerThrusterEffect> | null = null;
   private readonly centerPassPatrolPlanner: CenterPassEdgePatrolPlanner | null;
+  private readonly cryoSurfaceEffect: ReturnType<typeof createShipCryoFreezeSurfaceEffect>;
 
   private readonly patrolCenter: THREE.Vector3;
   private readonly patrolPattern: "orbit" | "center_pass_edge";
@@ -165,6 +169,7 @@ export class EnemyCannonShip {
   private readonly previousPosition = new THREE.Vector3();
   private readonly patrolDesiredPosition = new THREE.Vector3();
   private readonly flybyTargetPoint = new THREE.Vector3();
+  private readonly frameVelocity = new THREE.Vector3();
 
   private aiState: EnemyShipAiStateId = "Spawn";
   private patrolOrbitAngle = Math.random() * Math.PI * 2;
@@ -244,6 +249,10 @@ export class EnemyCannonShip {
     this.root = new THREE.Group();
     this.root.position.copy(config.position ?? new THREE.Vector3());
     this.scene.add(this.root);
+    this.cryoSurfaceEffect = createShipCryoFreezeSurfaceEffect(this.root);
+    this.resources?.setHeatAddedListener((amount) => {
+      this.status.applyHeatGain(amount);
+    });
     this.burstWeapon = new EnemyBurstWeaponController({
       id: "laser_burst",
       shotCount: Math.max(1, Math.floor(config.burstShotCount ?? 3)),
@@ -329,11 +338,14 @@ export class EnemyCannonShip {
       faction: "enemy",
       health: this.health,
       owner: this.root,
+      transformIncomingDamagePacket: (damagePacket) =>
+        this.status.transformIncomingDamagePacket(damagePacket),
       onHit: (event) => {
         this.resources?.applyIncomingDamageHeat(
           event.damagePacket.damageType,
           event.breakdown.incomingBaseDamage
         );
+        this.status.applyHitStatusPayloads(event.damagePacket, event.breakdown);
       }
     });
     if (config.health.maxShield > 0) {
@@ -347,6 +359,26 @@ export class EnemyCannonShip {
   update(deltaTime: number): void {
     if (this.disposed || deltaTime <= 0) {
       return;
+    }
+
+    this.frameVelocity
+      .copy(this.root.position)
+      .sub(this.previousPosition)
+      .multiplyScalar(1 / Math.max(0.0001, deltaTime));
+    this.root.getWorldDirection(this.worldForward);
+    this.worldForward.setY(0);
+    if (this.worldForward.lengthSq() <= 0.000001) {
+      this.worldForward.copy(FORWARD_AXIS);
+    } else {
+      this.worldForward.normalize();
+    }
+    this.status.syncMotionSample(this.worldForward, this.frameVelocity);
+    this.status.update(deltaTime);
+    if (this.status.isCryofrozen()) {
+      const driftVelocity = this.status.getFrozenDriftVelocity(this.frameVelocity);
+      if (driftVelocity) {
+        this.root.position.addScaledVector(driftVelocity, deltaTime);
+      }
     }
 
     this.projectileRuntime.update(deltaTime);
@@ -382,6 +414,11 @@ export class EnemyCannonShip {
       ...telegraphVisual,
       active: this.aiState === "Attack" && telegraphVisual.active
     });
+    this.cryoSurfaceEffect.update(
+      deltaTime,
+      this.status.getCryoVisualIntensity01(),
+      this.status.isCryofrozen()
+    );
     this.updateThrusterEffect(deltaTime);
   }
 
@@ -426,6 +463,9 @@ export class EnemyCannonShip {
   }
 
   faceTarget(deltaTime: number): boolean {
+    if (this.status.isCryofrozen()) {
+      return false;
+    }
     if (!this.perception.predictAimTarget(
       this.root.position,
       this.projectileSpeedForLead,
@@ -578,6 +618,9 @@ export class EnemyCannonShip {
   }
 
   updateEvadeMovement(deltaTime: number, strafeSign: 1 | -1): void {
+    if (this.status.isCryofrozen()) {
+      return;
+    }
     if (!this.perception.tryCopyCurrentTargetWorld(this.targetWorld)) {
       return;
     }
@@ -589,9 +632,10 @@ export class EnemyCannonShip {
 
     this.moveDirection.copy(this.toTarget).multiplyScalar(-1);
     const escapeHeading = this.moveDirection.lengthSq() > 0.000001 ? this.moveDirection : this.toTarget;
+    const moveSpeedMultiplier = this.status.getMoveSpeedMultiplier();
     this.flightController.step(deltaTime, {
       desiredHeadingWorld: escapeHeading,
-      desiredForwardSpeed: this.chaseSpeed * 1.05,
+      desiredForwardSpeed: this.chaseSpeed * 1.05 * moveSpeedMultiplier,
       desiredStrafe: strafeSign
     });
   }
@@ -615,6 +659,9 @@ export class EnemyCannonShip {
   }
 
   canStartPrimaryAttack(): boolean {
+    if (this.status.isCryofrozen()) {
+      return false;
+    }
     if (this.resources && !this.resources.canFireCannons()) {
       return false;
     }
@@ -626,6 +673,9 @@ export class EnemyCannonShip {
   }
 
   tryExecutePrimaryAttack(): void {
+    if (this.status.isCryofrozen()) {
+      return;
+    }
     const wasActive = this.primaryAttackLoadout.isAttackActionActive();
     this.primaryAttackLoadout.tryExecutePrimaryAttack();
     const isActive = this.primaryAttackLoadout.isAttackActionActive();
@@ -721,6 +771,8 @@ export class EnemyCannonShip {
     this.cannonOverheatGlowEffect = null;
     this.cannonOverheatSteamEffect?.dispose();
     this.cannonOverheatSteamEffect = null;
+    this.cryoSurfaceEffect.dispose();
+    this.resources?.setHeatAddedListener(null);
     this.thrusterEffect?.dispose();
     this.thrusterEffect = null;
 
@@ -731,6 +783,9 @@ export class EnemyCannonShip {
   }
 
   private spawnLaserBurstShot(): boolean {
+    if (this.status.isCryofrozen()) {
+      return false;
+    }
     const muzzles = this.muzzleRig.muzzles;
     if (muzzles.length <= 0) {
       return false;
@@ -837,9 +892,13 @@ export class EnemyCannonShip {
     deltaTime: number,
     stopDistance: number
   ): void {
+    if (this.status.isCryofrozen()) {
+      return;
+    }
+    const adjustedSpeed = Math.max(0, speed * this.status.getMoveSpeedMultiplier());
     this.moveDirection.subVectors(targetPosition, this.root.position).setY(0);
     const distance = this.moveDirection.length();
-    if (distance <= 0.000001 || speed <= 0 || deltaTime <= 0) {
+    if (distance <= 0.000001 || adjustedSpeed <= 0 || deltaTime <= 0) {
       this.flightController.step(deltaTime, {
         desiredHeadingWorld: this.worldForward.set(0, 0, 0),
         desiredForwardSpeed: 0,
@@ -861,7 +920,7 @@ export class EnemyCannonShip {
     const maxSafeSpeedThisFrame = Math.max(0, (distance - stopDistance) / Math.max(0.0001, deltaTime));
     this.flightController.step(deltaTime, {
       desiredHeadingWorld: this.moveDirection,
-      desiredForwardSpeed: Math.min(speed, maxSafeSpeedThisFrame),
+      desiredForwardSpeed: Math.min(adjustedSpeed, maxSafeSpeedThisFrame),
       desiredStrafe: 0
     });
   }
@@ -871,6 +930,10 @@ export class EnemyCannonShip {
     speed: number,
     deltaTime: number
   ): void {
+    if (this.status.isCryofrozen()) {
+      return;
+    }
+    const adjustedSpeed = Math.max(0, speed * this.status.getMoveSpeedMultiplier());
     this.moveDirection.subVectors(this.root.position, targetPosition).setY(0);
     if (this.moveDirection.lengthSq() <= 0.000001) {
       return;
@@ -878,12 +941,16 @@ export class EnemyCannonShip {
     this.moveDirection.normalize();
     this.flightController.step(deltaTime, {
       desiredHeadingWorld: this.moveDirection,
-      desiredForwardSpeed: speed,
+      desiredForwardSpeed: adjustedSpeed,
       desiredStrafe: 0
     });
   }
 
   private coastForward(deltaTime: number, speed: number): void {
+    if (this.status.isCryofrozen()) {
+      return;
+    }
+    const adjustedSpeed = Math.max(0, speed * this.status.getMoveSpeedMultiplier());
     this.root.getWorldDirection(this.worldForward);
     this.worldForward.setY(0);
     if (this.worldForward.lengthSq() <= 0.000001) {
@@ -893,13 +960,17 @@ export class EnemyCannonShip {
     }
     this.flightController.step(deltaTime, {
       desiredHeadingWorld: this.worldForward,
-      desiredForwardSpeed: speed,
+      desiredForwardSpeed: adjustedSpeed,
       desiredStrafe: 0
     });
   }
 
   private moveAlongDirection(direction: THREE.Vector3, speed: number, deltaTime: number): void {
-    if (speed <= 0 || deltaTime <= 0 || direction.lengthSq() <= 0.000001) {
+    if (this.status.isCryofrozen()) {
+      return;
+    }
+    const adjustedSpeed = Math.max(0, speed * this.status.getMoveSpeedMultiplier());
+    if (adjustedSpeed <= 0 || deltaTime <= 0 || direction.lengthSq() <= 0.000001) {
       this.flightController.step(deltaTime, {
         desiredHeadingWorld: this.worldForward.set(0, 0, 0),
         desiredForwardSpeed: 0,
@@ -909,7 +980,7 @@ export class EnemyCannonShip {
     }
     this.flightController.step(deltaTime, {
       desiredHeadingWorld: direction,
-      desiredForwardSpeed: speed,
+      desiredForwardSpeed: adjustedSpeed,
       desiredStrafe: 0
     });
   }

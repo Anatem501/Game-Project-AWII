@@ -6,10 +6,17 @@ export type CollisionArea = {
   localOffset?: THREE.Vector3;
 };
 
+export type StatusPayload =
+  | {
+      kind: "cryo_buildup";
+      amount: number;
+    };
+
 export type DamagePacket = {
   amount: number;
   damageType: DamageType;
   segments?: readonly DamagePacketSegment[];
+  statusPayloads?: readonly StatusPayload[];
   sourceId?: string;
   sourceFaction?: string | null;
 };
