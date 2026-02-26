@@ -15,6 +15,7 @@ type PlayerRigParams = {
 export type PlayerRig = {
   gunHardpoints: THREE.Object3D[];
   playerRoot: THREE.Group;
+  dispose: () => void;
 };
 
 export type ShipRigParams = PlayerRigParams;
@@ -29,6 +30,7 @@ const DEFAULT_GUN_HARDPOINT_LOCAL_OFFSETS: readonly THREE.Vector3[] = [
   new THREE.Vector3(-0.8, 0.24, -2.1),
   new THREE.Vector3(0.8, 0.24, -2.1)
 ];
+const SOCKET_INDEX_PATTERN_CACHE = new Map<string, RegExp>();
 
 export function createPlayerRig(
   scene: THREE.Scene,
@@ -43,6 +45,7 @@ export function createPlayerRig(
     onMissileCellSocketsResolved
   }: PlayerRigParams
 ): PlayerRig {
+  let disposed = false;
   const playerRoot = new THREE.Group();
   scene.add(playerRoot);
 
@@ -68,10 +71,23 @@ export function createPlayerRig(
     modelLocalOffset,
     shouldAutoAlignGunHardpoints,
     onThrusterSocketsResolved,
-    onMissileCellSocketsResolved
+    onMissileCellSocketsResolved,
+    () => disposed
   );
 
-  return { gunHardpoints, playerRoot };
+  return {
+    gunHardpoints,
+    playerRoot,
+    dispose: () => {
+      if (disposed) {
+        return;
+      }
+      disposed = true;
+      disposeObjectResources(playerRoot);
+      playerRoot.removeFromParent();
+      playerRoot.clear();
+    }
+  };
 }
 
 export const createShipRig = createPlayerRig;
@@ -89,12 +105,17 @@ function loadPlayerModel(
     | undefined,
   onMissileCellSocketsResolved:
     | ((missileCellSockets: MissileCellSocketLocalOffset[]) => void)
-    | undefined
+    | undefined,
+  isDisposed: () => boolean
 ): void {
   const loader = new GLTFLoader();
   loader.load(
     modelUrl,
     (gltf) => {
+      if (isDisposed()) {
+        disposeObjectResources(gltf.scene);
+        return;
+      }
       const model = gltf.scene;
       model.rotation.y = modelYawOffset;
 
@@ -213,6 +234,32 @@ function tuneMaterial(material: THREE.Material): void {
   material.metalness = Math.min(material.metalness, 0.1);
 }
 
+function disposeObjectResources(root: THREE.Object3D): void {
+  const geometries = new Set<THREE.BufferGeometry>();
+  const materials = new Set<THREE.Material>();
+
+  root.traverse((node) => {
+    if (!(node instanceof THREE.Mesh)) {
+      return;
+    }
+    geometries.add(node.geometry);
+    if (Array.isArray(node.material)) {
+      for (const material of node.material) {
+        materials.add(material);
+      }
+      return;
+    }
+    materials.add(node.material);
+  });
+
+  for (const geometry of geometries) {
+    geometry.dispose();
+  }
+  for (const material of materials) {
+    material.dispose();
+  }
+}
+
 function extractSocketLocalOffsets(
   playerRoot: THREE.Object3D,
   model: THREE.Object3D,
@@ -309,8 +356,13 @@ function findMissileCellSocketNodes(
 
 function parseSocketIndex(name: string, socketPrefix: string): number | null {
   const compactName = name.replace(/\s+/g, "");
-  const escapedPrefix = escapeRegex(socketPrefix.trim());
-  const pattern = new RegExp(`^${escapedPrefix}(?:[_-])?(\\d+)(?:\\.\\d+)?$`, "i");
+  const normalizedPrefix = socketPrefix.trim().toLowerCase();
+  let pattern = SOCKET_INDEX_PATTERN_CACHE.get(normalizedPrefix);
+  if (!pattern) {
+    const escapedPrefix = escapeRegex(normalizedPrefix);
+    pattern = new RegExp(`^${escapedPrefix}(?:[_-])?(\\d+)(?:\\.\\d+)?$`, "i");
+    SOCKET_INDEX_PATTERN_CACHE.set(normalizedPrefix, pattern);
+  }
   const match = compactName.match(pattern);
   if (!match) {
     return null;

@@ -54,3 +54,5 @@ export function createEnemyMissileRegroupState(): StateDefinition<EnemyShipAiCon
     }
   };
 }
+
+export const createEnemyMissileFleeState = createEnemyMissileRegroupState;

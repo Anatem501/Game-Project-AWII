@@ -1,7 +1,7 @@
 import type { StateDefinition } from "../../../../ai/StateMachine";
 import type { EnemyShipAiContext, EnemyShipAiStateId } from "../../EnemyShipAiTypes";
 
-export function createEnemyMissileCircleState(): StateDefinition<EnemyShipAiContext, EnemyShipAiStateId> {
+export function createEnemyMissileCoastState(): StateDefinition<EnemyShipAiContext, EnemyShipAiStateId> {
   let circleTimeRemaining = 0;
 
   return {
@@ -45,3 +45,5 @@ export function createEnemyMissileCircleState(): StateDefinition<EnemyShipAiCont
     }
   };
 }
+
+export const createEnemyMissileCircleState = createEnemyMissileCoastState;

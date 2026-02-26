@@ -11,7 +11,7 @@ import { createEnemyDeadState } from "./ai/states/CreateEnemyDeadState";
 import { createEnemyEvadeState } from "./ai/states/CreateEnemyEvadeState";
 import { createEnemySpawnState } from "./ai/states/CreateEnemySpawnState";
 import { createEnemyMissileAttackState } from "./ai/states/missile/CreateEnemyMissileAttackState";
-import { createEnemyMissileCircleState } from "./ai/states/missile/CreateEnemyMissileCoastState";
+import { createEnemyMissileCoastState } from "./ai/states/missile/CreateEnemyMissileCoastState";
 import { createEnemyMissilePatrolState } from "./ai/states/missile/CreateEnemyMissilePatrolState";
 import { createEnemyMissileSearchState } from "./ai/states/missile/CreateEnemyMissileSearchState";
 
@@ -54,7 +54,7 @@ export class EnemyMissileShipController {
       [
         createEnemySpawnState(),
         createEnemyMissilePatrolState(),
-        createEnemyMissileCircleState(),
+        createEnemyMissileCoastState(),
         createEnemyMissileAttackState(),
         createEnemyEvadeState(),
         createEnemyMissileSearchState(),

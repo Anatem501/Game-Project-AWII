@@ -26,6 +26,8 @@ export type CannonProjectileFactoryResolverConfig = {
   assets?: CannonProjectileFactoryAssets;
 };
 
+const warnedGenericFallbackComponentIds = new Set<string>();
+
 export function createCannonPrimaryProjectileFactory(
   componentId: CannonPrimaryComponentId,
   config: CannonProjectileFactoryResolverConfig
@@ -275,6 +277,12 @@ export function createCannonPrimaryProjectileFactory(
     });
   }
 
+  if (import.meta.env.DEV && !warnedGenericFallbackComponentIds.has(componentId)) {
+    warnedGenericFallbackComponentIds.add(componentId);
+    console.warn(
+      `[CannonProjectileFactoryResolver] Using generic laser bolt fallback for cannon component '${componentId}'.`
+    );
+  }
   return createLaserBoltFactory({
     faction: config.faction,
     ...component.projectile

@@ -180,7 +180,7 @@ export function createIonBoltFactory(options: IonBoltFactoryOptions = {}): Proje
     3,
     1
   );
-  const ionMaterial = new THREE.ShaderMaterial({
+  const ionMaterialTemplate = new THREE.ShaderMaterial({
     vertexShader: ION_VERTEX_SHADER,
     fragmentShader: ION_FRAGMENT_SHADER,
     uniforms: {
@@ -278,10 +278,11 @@ export function createIonBoltFactory(options: IonBoltFactoryOptions = {}): Proje
     shotQuaternion.setFromUnitVectors(PROJECTILE_FORWARD, projectileDirection);
     projectileGroup.quaternion.copy(shotQuaternion);
 
+    const coreIonMaterial = ionMaterialTemplate.clone();
     const coreVisual = modelTemplate
       ? modelTemplate.clone(true)
-      : new THREE.Mesh(fallbackGeometry, ionMaterial);
-    assignMaterialToMeshes(coreVisual, ionMaterial);
+      : new THREE.Mesh(fallbackGeometry, coreIonMaterial);
+    assignMaterialToMeshes(coreVisual, coreIonMaterial);
     coreVisual.scale.multiplyScalar(modelScale);
     coreVisual.rotateY(modelYawOffsetRadians);
     projectileGroup.add(coreVisual);
@@ -378,6 +379,7 @@ export function createIonBoltFactory(options: IonBoltFactoryOptions = {}): Proje
       sourceFaction: faction
     });
     let lifeRemaining = lifetimeSeconds;
+    let ageSeconds = 0;
 
     return {
       object: projectileGroup,
@@ -385,8 +387,9 @@ export function createIonBoltFactory(options: IonBoltFactoryOptions = {}): Proje
       update: (deltaTime: number): boolean => {
         lifeRemaining -= deltaTime;
         projectileGroup.position.addScaledVector(velocity, deltaTime);
-        const timeSeconds = performance.now() * 0.001;
-        ionMaterial.uniforms.uTime.value = timeSeconds;
+        ageSeconds += Math.max(0, deltaTime);
+        const timeSeconds = ageSeconds;
+        coreIonMaterial.uniforms.uTime.value = timeSeconds;
 
         const innerPulse = 0.84 + 0.24 * Math.sin(timeSeconds * 13.5 + pulseOffset);
         const outerPulse = 0.78 + 0.28 * Math.sin(timeSeconds * 9.8 + pulseOffset * 1.31);
@@ -471,6 +474,7 @@ export function createIonBoltFactory(options: IonBoltFactoryOptions = {}): Proje
         return lifeRemaining > 0;
       },
       dispose: () => {
+        coreIonMaterial.dispose();
         innerGlowMaterial.dispose();
         outerGlowMaterial.dispose();
         for (const orbitShard of orbitShards) {
@@ -493,7 +497,7 @@ export function createIonBoltFactory(options: IonBoltFactoryOptions = {}): Proje
       fallbackGeometry.dispose();
       orbitShardGeometry.dispose();
       trailEnergyGeometry.dispose();
-      ionMaterial.dispose();
+      ionMaterialTemplate.dispose();
       innerGlowMaterialTemplate.dispose();
       outerGlowMaterialTemplate.dispose();
       orbitShardMaterialTemplate.dispose();

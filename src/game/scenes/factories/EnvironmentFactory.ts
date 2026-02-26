@@ -39,6 +39,7 @@ export function createEnvironment(scene: THREE.Scene, params: EnvironmentParams)
   const ownedGeometries: THREE.BufferGeometry[] = [];
   const ownedMaterials: THREE.Material[] = [];
   const ownedTextures: THREE.Texture[] = [];
+  const previousFog = scene.fog;
 
   const addToScene: AddToSceneFn = <T extends THREE.Object3D>(object: T): T => {
     scene.add(object);
@@ -73,6 +74,7 @@ export function createEnvironment(scene: THREE.Scene, params: EnvironmentParams)
     for (const texture of ownedTextures) {
       texture.dispose();
     }
+    scene.fog = previousFog;
   };
 
   if (params.mapId === "rogue_pilot_map") {
@@ -134,7 +136,8 @@ function createTestMapEnvironment(
     params.gridDivisions,
     params.gridLineThickness,
     params.gridTileRadius,
-    gridMaterial
+    gridMaterial,
+    trackGeometry
   );
   gridRoot.position.y = params.gridY;
   addToScene(gridRoot);
@@ -424,29 +427,22 @@ function createDebrisLayer(
 function createThickGrid(
   size: number,
   divisions: number,
-  lineThickness: number,
+  xLineGeometry: THREE.BufferGeometry,
+  zLineGeometry: THREE.BufferGeometry,
   gridMaterial: THREE.Material
 ): THREE.Group {
   const grid = new THREE.Group();
   const halfSize = size / 2;
   const step = size / divisions;
-  const lineHeight = 0.02;
-  const uniformThickness = lineThickness * 1.35;
 
   for (let i = 0; i <= divisions; i += 1) {
     const offset = -halfSize + i * step;
 
-    const xLine = new THREE.Mesh(
-      new THREE.BoxGeometry(size, lineHeight, uniformThickness),
-      gridMaterial
-    );
+    const xLine = new THREE.Mesh(xLineGeometry, gridMaterial);
     xLine.position.set(0, 0, offset);
     grid.add(xLine);
 
-    const zLine = new THREE.Mesh(
-      new THREE.BoxGeometry(uniformThickness, lineHeight, size),
-      gridMaterial
-    );
+    const zLine = new THREE.Mesh(zLineGeometry, gridMaterial);
     zLine.position.set(offset, 0, 0);
     grid.add(zLine);
   }
@@ -459,13 +455,22 @@ function createInfiniteGrid(
   divisions: number,
   lineThickness: number,
   tileRadius: number,
-  gridMaterial: THREE.Material
+  gridMaterial: THREE.Material,
+  trackGeometry: TrackGeometryFn
 ): THREE.Group {
   const root = new THREE.Group();
+  const lineHeight = 0.02;
+  const uniformThickness = lineThickness * 1.35;
+  const xLineGeometry = trackGeometry(
+    new THREE.BoxGeometry(tileSize, lineHeight, uniformThickness)
+  );
+  const zLineGeometry = trackGeometry(
+    new THREE.BoxGeometry(uniformThickness, lineHeight, tileSize)
+  );
 
   for (let z = -tileRadius; z <= tileRadius; z += 1) {
     for (let x = -tileRadius; x <= tileRadius; x += 1) {
-      const tile = createThickGrid(tileSize, divisions, lineThickness, gridMaterial);
+      const tile = createThickGrid(tileSize, divisions, xLineGeometry, zLineGeometry, gridMaterial);
       tile.position.set(x * tileSize, 0, z * tileSize);
       root.add(tile);
     }

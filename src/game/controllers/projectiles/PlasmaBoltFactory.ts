@@ -539,6 +539,7 @@ export function createPlasmaBoltFactory(
       maxHits: maxPierceHits
     });
     let lifeRemaining = lifetimeSeconds;
+    let elapsedSeconds = 0;
 
     return {
       object: projectileGroup,
@@ -548,8 +549,9 @@ export function createPlasmaBoltFactory(
       update: (deltaTime: number): boolean => {
         lifeRemaining -= deltaTime;
         projectileGroup.position.addScaledVector(velocity, deltaTime);
-        const nowSeconds = performance.now() * 0.001;
-        const ageSeconds = Math.max(0, lifetimeSeconds - lifeRemaining);
+        elapsedSeconds += Math.max(0, deltaTime);
+        const ageSeconds = elapsedSeconds;
+        const nowSeconds = ageSeconds;
         let visualAlpha = 1;
         if (usesVisualFade && ageSeconds > fadeStartSeconds) {
           const fadeT = THREE.MathUtils.clamp(
@@ -559,7 +561,7 @@ export function createPlasmaBoltFactory(
           );
           visualAlpha = 1 - fadeT;
         }
-        corePlasmaMaterial.uniforms.uTime.value = nowSeconds;
+        corePlasmaMaterial.uniforms.uTime.value = ageSeconds;
         corePlasmaMaterial.uniforms.uAlpha.value = visualAlpha;
         if (glowVisualMaterial) {
           glowVisualMaterial.opacity = glowOpacity * visualAlpha;

@@ -12,11 +12,16 @@ export function createPlayerBuiltInEquipmentAbility({
   shipDefinition,
   shipController
 }: CreatePlayerBuiltInEquipmentAbilityParams): PlayerBuiltInEquipmentAbility | null {
-  switch (shipDefinition.builtInEquipmentAbilityId) {
+  const abilityId = shipDefinition.builtInEquipmentAbilityId;
+  switch (abilityId) {
     case "aerobatic_roll":
       return createAerobaticRollBuiltInAbility({ shipController });
     default:
+      if (import.meta.env.DEV && abilityId !== null && abilityId !== undefined) {
+        console.warn(
+          `[PlayerBuiltInEquipmentAbilityFactory] Unknown built-in ability '${abilityId}' for ship '${shipDefinition.id}'.`
+        );
+      }
       return null;
   }
 }
-

@@ -120,7 +120,6 @@ type TrailSeed = {
   flowRate: number;
 };
 
-const SIZE_SEQUENCE = [1, 1, 1] as const;
 const ARC_BASE_FORWARD_SCALE = 0.66;
 const ARC_BASE_HEIGHT_SCALE = 1.02;
 const ARC_BASE_WIDTH_SCALE = 1.24;
@@ -249,7 +248,7 @@ export function createIonArcFactory(options: IonArcFactoryOptions = {}): Project
     );
   }
 
-  const spawn = ({ direction, origin, patternStepIndex = 0 }: ProjectileSpawnParams): ProjectileInstance => {
+  const spawn = ({ direction, origin }: ProjectileSpawnParams): ProjectileInstance => {
     const projectileGroup = new THREE.Group();
     const projectileDirection = direction.clone();
     if (projectileDirection.lengthSq() <= 0.000001) {
@@ -262,7 +261,7 @@ export function createIonArcFactory(options: IonArcFactoryOptions = {}): Project
     shotQuaternion.setFromUnitVectors(PROJECTILE_FORWARD, projectileDirection);
     projectileGroup.quaternion.copy(shotQuaternion);
 
-    const sizeScale = SIZE_SEQUENCE[Math.abs(patternStepIndex) % SIZE_SEQUENCE.length] ?? 1;
+    const sizeScale = 1;
     const surfaceMaterial = createIonSurfaceMaterial(coreColor, arcColor, rimColor);
 
     const coreVisual = modelTemplate

@@ -2,6 +2,7 @@ import * as THREE from "three";
 import basicEnemyCannonShipModelUrl from "../../../assets/models/Basic-Enemy-Cannon-Ship-v02.glb?url";
 import plasmaboltModelUrl from "../../../assets/models/Plasmabolt-v01.glb?url";
 import type { HurtboxComponent } from "../../components/combat/HurtboxComponent";
+import type { ProjectileFactory } from "../../controllers/projectiles/ProjectileTypes";
 import { EnemyCannonShip } from "../../entities/EnemyCannonShip";
 import { EnemyCannonShipController } from "../../enemies/EnemyCannonShipController";
 import {
@@ -11,6 +12,7 @@ import {
 } from "../../enemies/data/EnemyCannonShipStats";
 import { createCannonPrimaryProjectileFactory } from "../../weapons/CannonProjectileFactoryResolver";
 import { getCannonPrimaryComponentDefinition } from "../../weapons/WeaponComponentCatalog";
+import { resolveOppositeHalfEdgeSpawnPosition } from "./EnemySpawnFactoryUtils";
 
 const enemyLaserboltPrimaryComponent = getCannonPrimaryComponentDefinition("repeating_laserbolt_fire");
 const enemyPlasmaboltPrimaryComponent = getCannonPrimaryComponentDefinition("repeating_plasmabolt_fire");
@@ -23,15 +25,7 @@ export const ROGUE_PILOT_PLASMA_CANNON_SHIP_ARCHETYPE = createPlasmaCannonEnemyS
   basicEnemyCannonShipModelUrl,
   enemyPlasmaboltPrimaryComponent.projectile
 );
-const enemyPlasmaCannonProjectileFactory = createCannonPrimaryProjectileFactory(
-  "repeating_plasmabolt_fire",
-  {
-    faction: "enemy",
-    assets: {
-      plasmaboltModelUrl
-    }
-  }
-);
+let enemyPlasmaCannonProjectileFactory: ProjectileFactory | null = null;
 
 export function createRoguePilotEnemyCannonShip(
   scene: THREE.Scene,
@@ -114,16 +108,13 @@ function createRoguePilotEnemyCannonShipFromArchetype(
       resourceConfig: archetype.resource,
       playerTarget,
       targetHurtboxes,
-      projectileFactory: isPlasmaVariant ? enemyPlasmaCannonProjectileFactory : undefined,
+      projectileFactory: isPlasmaVariant ? getEnemyPlasmaCannonProjectileFactory() : undefined,
       projectileOptions: archetype.combat.projectile,
       muzzleTelegraphOuterColorHex: archetype.combat.projectile.color,
       muzzleTelegraphInnerBaseColorHex:
         archetype.combat.projectile.emissive ?? archetype.combat.projectile.color,
       muzzleTelegraphInnerPeakColorHex: archetype.combat.projectile.color,
-      shieldBubbleEffectOptions:
-        archetype.id === ROGUE_PILOT_PLASMA_CANNON_SHIP_ARCHETYPE.id
-          ? { circularizeXZ: true }
-          : undefined,
+      shieldBubbleEffectOptions: isPlasmaVariant ? { circularizeXZ: true } : undefined,
       modelUrl: archetype.visual.modelUrl,
       modelYawOffset: archetype.visual.modelYawOffset,
       modelDesiredSize: archetype.visual.modelDesiredSize,
@@ -138,50 +129,24 @@ function createRoguePilotEnemyCannonShipFromArchetype(
   });
 }
 
-function resolveOppositeHalfEdgeSpawnPosition(
-  playerTarget: THREE.Object3D,
-  options: {
-  arenaCenter: THREE.Vector3;
-  arenaEdgeRadius: number;
-  playerManeuverSpeed: number;
-  }
-): THREE.Vector3 {
-  const playerWorldPosition = new THREE.Vector3();
-  const playerForward = new THREE.Vector3();
-  playerTarget.getWorldPosition(playerWorldPosition);
-  const toPlayer = new THREE.Vector3(
-    playerWorldPosition.x - options.arenaCenter.x,
-    0,
-    playerWorldPosition.z - options.arenaCenter.z
-  );
-
-  let referenceAngle: number;
-  if (toPlayer.lengthSq() > 0.000001) {
-    referenceAngle = Math.atan2(toPlayer.x, toPlayer.z);
-  } else {
-    // If the player is at the center, use facing direction as the reference side.
-    playerTarget.getWorldDirection(playerForward);
-    playerForward.setY(0);
-    if (playerForward.lengthSq() <= 0.000001) {
-      referenceAngle = Math.random() * Math.PI * 2;
-    } else {
-      playerForward.normalize();
-      referenceAngle = Math.atan2(playerForward.x, playerForward.z);
-    }
-  }
-
-  const oppositeCenterAngle = referenceAngle + Math.PI;
-  const spawnAngle = oppositeCenterAngle + randomRange(-Math.PI * 0.5, Math.PI * 0.5);
-  return new THREE.Vector3(
-    options.arenaCenter.x + Math.sin(spawnAngle) * options.arenaEdgeRadius,
-    playerWorldPosition.y,
-    options.arenaCenter.z + Math.cos(spawnAngle) * options.arenaEdgeRadius
-  );
+export function disposeEnemyCannonShipFactoryResources(): void {
+  enemyPlasmaCannonProjectileFactory?.dispose?.();
+  enemyPlasmaCannonProjectileFactory = null;
 }
 
-function randomRange(min: number, max: number): number {
-  if (max <= min) {
-    return min;
+function getEnemyPlasmaCannonProjectileFactory(): ProjectileFactory {
+  if (enemyPlasmaCannonProjectileFactory) {
+    return enemyPlasmaCannonProjectileFactory;
   }
-  return min + Math.random() * (max - min);
+
+  enemyPlasmaCannonProjectileFactory = createCannonPrimaryProjectileFactory(
+    "repeating_plasmabolt_fire",
+    {
+      faction: "enemy",
+      assets: {
+        plasmaboltModelUrl
+      }
+    }
+  );
+  return enemyPlasmaCannonProjectileFactory;
 }

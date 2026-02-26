@@ -8,6 +8,7 @@ type ReticleParams = {
 export type ReticleObjects = {
   inputAimReticle: THREE.Group;
   trueAimReticle: THREE.Group;
+  dispose: () => void;
 };
 
 export function createReticles(
@@ -22,7 +23,16 @@ export function createReticles(
   inputAimReticle.position.set(0, reticleHeight, 0);
   scene.add(inputAimReticle);
 
-  return { inputAimReticle, trueAimReticle };
+  return {
+    inputAimReticle,
+    trueAimReticle,
+    dispose: () => {
+      disposeObject3DResources(inputAimReticle);
+      disposeObject3DResources(trueAimReticle);
+      inputAimReticle.removeFromParent();
+      trueAimReticle.removeFromParent();
+    }
+  };
 }
 
 function createTrueAimReticle(): THREE.Group {
@@ -118,4 +128,30 @@ function createInputAimReticle(): THREE.Group {
   reticle.add(west);
 
   return reticle;
+}
+
+function disposeObject3DResources(root: THREE.Object3D): void {
+  const geometries = new Set<THREE.BufferGeometry>();
+  const materials = new Set<THREE.Material>();
+
+  root.traverse((node) => {
+    if (!(node instanceof THREE.Mesh)) {
+      return;
+    }
+    geometries.add(node.geometry);
+    if (Array.isArray(node.material)) {
+      for (const material of node.material) {
+        materials.add(material);
+      }
+      return;
+    }
+    materials.add(node.material);
+  });
+
+  for (const geometry of geometries) {
+    geometry.dispose();
+  }
+  for (const material of materials) {
+    material.dispose();
+  }
 }

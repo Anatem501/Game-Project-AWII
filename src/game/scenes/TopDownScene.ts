@@ -58,6 +58,7 @@ import { createBurstPhaseTimerHud } from "../ui/BurstPhaseTimerHud";
 import { createEnemyAiDebugPanel } from "../ui/EnemyAiDebugPanel";
 import { createEnvironment } from "./factories/EnvironmentFactory";
 import {
+  disposeEnemyCannonShipFactoryResources,
   createRoguePilotEnemyCannonShip,
   createRoguePilotEnemyPlasmaCannonShip,
   ROGUE_PILOT_CANNON_SHIP_ARCHETYPE,
@@ -252,7 +253,7 @@ export function setupTopDownScene(
     rebuildMissileBayLaunchers(bayLocalOffsets);
   };
 
-  const { gunHardpoints, playerRoot } = createShipRig(scene, {
+  const { gunHardpoints, playerRoot, dispose: disposePlayerRig } = createShipRig(scene, {
     autoAlignGunHardpointsToModel: selectedShip.autoAlignGunHardpointsToModel,
     gunHardpointLocalOffsets: selectedShip.gunHardpointLocalOffsets,
     modelLocalOffset: selectedShip.modelLocalOffset,
@@ -294,7 +295,7 @@ export function setupTopDownScene(
   );
   cannonOverheatSteamEffect = createCannonOverheatSteamEffect(scene, gunHardpoints);
 
-  const { inputAimReticle, trueAimReticle } = createReticles(scene, {
+  const { inputAimReticle, trueAimReticle, dispose: disposeReticles } = createReticles(scene, {
     maxDistanceFromShip: RETICLE_MAX_DISTANCE_FROM_SHIP,
     reticleHeight: RETICLE_HEIGHT
   });
@@ -1576,6 +1577,7 @@ export function setupTopDownScene(
     for (let i = 0; i < rogueEnemyMissileShips.length; i += 1) {
       despawnRogueEnemyMissileShip(i);
     }
+    disposeEnemyCannonShipFactoryResources();
     playerThrusterEffect?.dispose();
     playerThrusterEffect = null;
     playerShieldBubbleEffect?.dispose();
@@ -1584,6 +1586,8 @@ export function setupTopDownScene(
     playerNotificationMissileIncomingLabel.dispose();
     playerNotificationOverheatedLabel.dispose();
     playerNotificationLowEnergyLabel.dispose();
+    disposeReticles();
+    disposePlayerRig();
     environment.dispose();
     playerHealthHud.dispose();
     burstPhaseTimerHud.dispose();

@@ -123,11 +123,16 @@ export function createEnemyMissileProjectileFactory(
   const explosionFlashGeometry = new THREE.SphereGeometry(EXPLOSION_FLASH_BASE_RADIUS, 14, 12);
 
   let projectileModelTemplate: THREE.Object3D | null = null;
+  let disposed = false;
   if (options.modelUrl) {
     const loader = new GLTFLoader();
     loader.load(
       options.modelUrl,
       (gltf) => {
+        if (disposed) {
+          disposeObjectResources(gltf.scene);
+          return;
+        }
         const model = gltf.scene;
         alignModelLongestAxisToForward(model, PROJECTILE_FORWARD);
         model.rotation.y += options.modelYawOffset ?? 0;
@@ -672,6 +677,7 @@ export function createEnemyMissileProjectileFactory(
   return {
     spawn,
     dispose: () => {
+      disposed = true;
       missileBodyGeometry.dispose();
       missileBodyMaterial.dispose();
       missileNoseGeometry.dispose();
