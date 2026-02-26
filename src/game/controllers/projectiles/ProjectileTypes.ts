@@ -9,6 +9,12 @@ export type ProjectileSpawnParams = {
   homingTargetHurtbox?: HurtboxComponent | null;
 };
 
+export type ProjectileSelfMergePayload = {
+  damageAmount: number;
+  scaleMultiplier: number;
+  velocity: THREE.Vector3;
+};
+
 export type ProjectileInstance = {
   object: THREE.Object3D;
   hitbox?: HitboxComponent;
@@ -19,6 +25,11 @@ export type ProjectileInstance = {
   explosionDamageAmount?: number;
   suppressMuzzleFx?: boolean;
   suppressHitFx?: boolean;
+  selfMergeGroupId?: string;
+  getSelfMergeWorldCenter?: (out: THREE.Vector3) => THREE.Vector3;
+  getSelfMergeRadius?: () => number;
+  getSelfMergePayload?: () => ProjectileSelfMergePayload | null;
+  absorbSelfMergePayload?: (payload: ProjectileSelfMergePayload) => boolean;
   update: (deltaTime: number) => boolean;
   beginDestroy?: (reason: "collision" | "expired") => boolean;
   dispose?: () => void;

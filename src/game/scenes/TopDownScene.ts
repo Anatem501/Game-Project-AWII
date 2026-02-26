@@ -14,6 +14,7 @@ import arcV01ModelUrl from "../../assets/models/Arc-v01.glb?url";
 import arcV02ModelUrl from "../../assets/models/Arc-v02.glb?url";
 import cryoshardModelUrl from "../../assets/models/Cryoshard-v01.glb?url";
 import orbModelUrl from "../../assets/models/Orb-v01.glb?url";
+import orbV02ModelUrl from "../../assets/models/Orb-v02.glb?url";
 import { createCameraController } from "../controllers/CameraController";
 import { createGunController } from "../controllers/GunController";
 import {
@@ -54,7 +55,6 @@ import {
   type HudBoundarySnapshot,
   type HudMinimapSnapshot
 } from "../ui/PlayerHealthHud";
-import { createBurstPhaseTimerHud } from "../ui/BurstPhaseTimerHud";
 import { createEnemyAiDebugPanel } from "../ui/EnemyAiDebugPanel";
 import { createEnvironment } from "./factories/EnvironmentFactory";
 import {
@@ -413,6 +413,7 @@ export function setupTopDownScene(
       cryoshardModelUrl: cryoshardModelUrl,
       ionboltModelUrl: ionboltModelUrl,
       orbModelUrl: orbModelUrl,
+      orbV02ModelUrl: orbV02ModelUrl,
       plasmaboltModelUrl: plasmaboltModelUrl
     }
   });
@@ -875,23 +876,6 @@ export function setupTopDownScene(
   const primaryFireIntervalSequenceSeconds = (primaryComponent.fireIntervalSequenceSeconds ?? []).map(
     (interval) => Math.max(0.001, interval)
   );
-  const useAzureArrowBurstIonArcBurstAlternation =
-    selectedShip.id === "test_fighter" &&
-    selectedCannonPrimaryComponentId === "burst_ion_arc_fire" &&
-    gunHardpoints.length >= 4;
-  const azureArrowBurstIonArcSecondPhaseOffsetSeconds = useAzureArrowBurstIonArcBurstAlternation
-    ? (() => {
-        const sequence = primaryFireIntervalSequenceSeconds;
-        if (sequence.length <= 0) {
-          return Math.max(0, primaryFireIntervalSeconds * 0.5);
-        }
-        const burstGapInterval = sequence[sequence.length - 1] ?? primaryFireIntervalSeconds;
-        const burstShotsDuration = sequence
-          .slice(0, Math.max(0, sequence.length - 1))
-          .reduce((sum, step) => sum + step, 0);
-        return Math.max(0, burstShotsDuration + burstGapInterval * 0.5);
-      })()
-    : 0;
   const primaryPhaseOffsets = resolveCannonPrimaryPhaseOffsets(
     selectedShip.id,
     selectedCannonPrimaryComponentId,
@@ -920,15 +904,13 @@ export function setupTopDownScene(
         fireIntervalSeconds: primaryFireIntervalSeconds,
         fireIntervalSequenceSeconds: primaryFireIntervalSequenceSeconds,
         fireIntervalMultiplierScope: primaryComponent.fireIntervalMultiplierScope ?? "all_steps",
+        completeBurstOnRelease: primaryComponent.completeBurstOnRelease ?? false,
         reloadAfterShots: primaryComponent.reloadAfterShots,
         reloadDurationSeconds: primaryComponent.reloadDurationSeconds,
+        shareReloadAcrossHardpoints: primaryComponent.shareReloadAcrossHardpoints ?? true,
         burstPhaseGroupId: undefined,
         burstPhaseGroupPattern: undefined,
-        phaseOffsetSeconds: useAzureArrowBurstIonArcBurstAlternation
-          ? hardpointIndex >= 2 && hardpointIndex < 4
-            ? azureArrowBurstIonArcSecondPhaseOffsetSeconds
-            : 0
-          : (primaryPhaseOffsets[hardpointIndex] ?? 0),
+        phaseOffsetSeconds: primaryPhaseOffsets[hardpointIndex] ?? 0,
         projectileFactory: primaryHitscanPulseConfig
           ? undefined
           : primaryCannonProjectileFactoryResolver.resolve(selectedCannonPrimaryComponentId),
@@ -990,9 +972,6 @@ export function setupTopDownScene(
   const hudRoot = canvas.parentElement ?? document.body;
   const playerHealthHud = createPlayerHealthHud(hudRoot);
   const enemyAiDebugPanel = createEnemyAiDebugPanel(hudRoot);
-  const burstPhaseTimerHud = createBurstPhaseTimerHud(hudRoot);
-  let burstPhaseTimerCycleSeconds = 0;
-  let burstPhaseTimerWasActive = false;
   const missileWarningLabelStyle = {
     color: "#ffbf86",
     secondaryColor: "#fff0dd",
@@ -1077,44 +1056,6 @@ export function setupTopDownScene(
       !playerIsDestroyed ? playerController.getTemporaryManeuverCameraLockYaw() : null
     );
     gunController.update(deltaTime, playerState);
-    const isAzureBurstIonArcPhaseTimerActive = useAzureArrowBurstIonArcBurstAlternation;
-    if (isAzureBurstIonArcPhaseTimerActive) {
-      const primaryFireActive = gunController.isPrimaryFireInputActive();
-      const burstSequence = primaryFireIntervalSequenceSeconds;
-      const baseBurstGapInterval =
-        burstSequence.length > 0
-          ? (burstSequence[burstSequence.length - 1] ?? primaryFireIntervalSeconds)
-          : primaryFireIntervalSeconds;
-      const burstShotsDuration = burstSequence
-        .slice(0, Math.max(0, burstSequence.length - 1))
-        .reduce((sum, step) => sum + step, 0);
-      const lowPowerMultiplier = Math.max(1, playerResources.getWeaponFireIntervalMultiplier());
-      const effectiveBurstGapInterval = baseBurstGapInterval * lowPowerMultiplier;
-      const currentCycleSeconds = Math.max(0.001, burstShotsDuration + effectiveBurstGapInterval);
-      if (primaryFireActive) {
-        if (!burstPhaseTimerWasActive) {
-          burstPhaseTimerCycleSeconds = 0;
-        } else {
-          burstPhaseTimerCycleSeconds = THREE.MathUtils.euclideanModulo(
-            burstPhaseTimerCycleSeconds + deltaTime,
-            currentCycleSeconds
-          );
-        }
-      }
-      burstPhaseTimerWasActive = primaryFireActive;
-      burstPhaseTimerHud.update({
-        cycleSeconds: currentCycleSeconds,
-        cycleTimeSeconds: burstPhaseTimerCycleSeconds,
-        phaseASeconds: 0,
-        phaseBSeconds: burstShotsDuration + effectiveBurstGapInterval * 0.5,
-        isFiringActive: primaryFireActive,
-        lowPowerMultiplier
-      });
-    } else {
-      burstPhaseTimerWasActive = false;
-      burstPhaseTimerCycleSeconds = 0;
-      burstPhaseTimerHud.update(null);
-    }
     rogueEnemyCannonShip?.setPlayerPrimaryFireActive(gunController.isPrimaryFireInputActive());
     rogueEnemyPlasmaCannonShip?.setPlayerPrimaryFireActive(gunController.isPrimaryFireInputActive());
     for (const missileShip of rogueEnemyMissileShips) {
@@ -1590,7 +1531,6 @@ export function setupTopDownScene(
     disposePlayerRig();
     environment.dispose();
     playerHealthHud.dispose();
-    burstPhaseTimerHud.dispose();
     enemyAiDebugPanel.dispose();
   };
 

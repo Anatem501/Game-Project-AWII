@@ -22,6 +22,8 @@ export type HitboxComponent = {
   readonly damageAmount: number;
   readonly damageType: DamageType;
   readonly collisionArea: Readonly<CollisionArea>;
+  setDamageAmount: (damageAmount: number) => void;
+  setCollisionRadius: (radius: number) => void;
   setEnabled: (enabled: boolean) => void;
   isEnabled: () => boolean;
   canStillDealDamage: () => boolean;
@@ -41,7 +43,7 @@ export function createHitboxComponent(config: HitboxConfig): HitboxComponent {
   };
   const sourceFaction = config.sourceFaction ?? null;
   const maxHits = Math.max(1, Math.floor(config.maxHits ?? 1));
-  const damageAmount = Math.max(0, config.damageAmount);
+  let damageAmount = Math.max(0, config.damageAmount);
   const damageType = config.damageType ?? DEFAULT_DAMAGE_TYPE;
   const hitTargets = new Set<string>();
   const additionalDamageSegments =
@@ -67,9 +69,17 @@ export function createHitboxComponent(config: HitboxConfig): HitboxComponent {
     owner: config.owner,
     sourceFaction,
     sourceId: config.sourceId,
-    damageAmount,
+    get damageAmount() {
+      return damageAmount;
+    },
     damageType,
     collisionArea,
+    setDamageAmount: (value: number) => {
+      damageAmount = Math.max(0, value);
+    },
+    setCollisionRadius: (value: number) => {
+      collisionArea.radius = Math.max(0, value);
+    },
     setEnabled: (value: boolean) => {
       enabled = value;
     },

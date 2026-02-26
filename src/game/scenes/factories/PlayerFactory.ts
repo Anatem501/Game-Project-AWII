@@ -137,19 +137,15 @@ function loadPlayerModel(
       tunePlayerMaterials(model);
       playerRoot.add(model);
 
-      const cannonSocketOffsets = extractSocketLocalOffsets(playerRoot, model, "cannon");
-      if (cannonSocketOffsets.length > 0) {
-        applySocketOffsetsToHardpoints(gunHardpoints, cannonSocketOffsets);
+      const socketData = collectModelSocketData(playerRoot, model);
+      if (socketData.cannonOffsets.length > 0) {
+        applySocketOffsetsToHardpoints(gunHardpoints, socketData.cannonOffsets);
       } else if (autoAlignGunHardpointsToModel) {
         alignGunHardpointsToModel(playerRoot, gunHardpoints, model);
       }
 
-      const thrusterSocketOffsets = extractSocketLocalOffsets(playerRoot, model, "thruster");
-      const thrusterSocketSizeScales = extractSocketSizeScales(model, "thruster");
-      onThrusterSocketsResolved?.(thrusterSocketOffsets, thrusterSocketSizeScales);
-
-      const missileCellSocketOffsets = extractMissileCellSocketLocalOffsets(playerRoot, model);
-      onMissileCellSocketsResolved?.(missileCellSocketOffsets);
+      onThrusterSocketsResolved?.(socketData.thrusterOffsets, socketData.thrusterSizeScales);
+      onMissileCellSocketsResolved?.(socketData.missileCellSockets);
     },
     undefined,
     (error) => {
@@ -260,88 +256,101 @@ function disposeObjectResources(root: THREE.Object3D): void {
   }
 }
 
-function extractSocketLocalOffsets(
+type IndexedSocketNode = { index: number; node: THREE.Object3D };
+type MissileCellSocketNode = { bayIndex: number; cellIndex: number; node: THREE.Object3D };
+type CollectedModelSocketData = {
+  cannonOffsets: THREE.Vector3[];
+  thrusterOffsets: THREE.Vector3[];
+  thrusterSizeScales: number[];
+  missileCellSockets: MissileCellSocketLocalOffset[];
+};
+
+function collectModelSocketData(
   playerRoot: THREE.Object3D,
-  model: THREE.Object3D,
-  socketPrefix: string
-): THREE.Vector3[] {
-  const socketNodes = findSocketNodes(model, socketPrefix);
+  model: THREE.Object3D
+): CollectedModelSocketData {
+  const cannonNodes: IndexedSocketNode[] = [];
+  const thrusterNodes: IndexedSocketNode[] = [];
+  const missileCellNodes: MissileCellSocketNode[] = [];
+
+  model.traverse((node) => {
+    const cannonIndex = parseSocketIndex(node.name, "cannon");
+    if (cannonIndex !== null) {
+      cannonNodes.push({ index: cannonIndex, node });
+    }
+
+    const thrusterIndex = parseSocketIndex(node.name, "thruster");
+    if (thrusterIndex !== null) {
+      thrusterNodes.push({ index: thrusterIndex, node });
+    }
+
+    const missileCell = parseMissileCellSocketName(node.name);
+    if (missileCell) {
+      missileCellNodes.push({
+        bayIndex: missileCell.bayIndex,
+        cellIndex: missileCell.cellIndex,
+        node
+      });
+    }
+  });
+
+  sortIndexedSocketNodes(cannonNodes);
+  sortIndexedSocketNodes(thrusterNodes);
+  sortMissileCellSocketNodes(missileCellNodes);
+
+  playerRoot.updateMatrixWorld(true);
+
   const worldPosition = new THREE.Vector3();
-  return socketNodes.map((socketNode) => {
-    socketNode.getWorldPosition(worldPosition);
+  const cannonOffsets = cannonNodes.map(({ node }) => {
+    node.getWorldPosition(worldPosition);
     return playerRoot.worldToLocal(worldPosition.clone());
   });
-}
+  const thrusterOffsets = thrusterNodes.map(({ node }) => {
+    node.getWorldPosition(worldPosition);
+    return playerRoot.worldToLocal(worldPosition.clone());
+  });
 
-function extractSocketSizeScales(model: THREE.Object3D, socketPrefix: string): number[] {
-  const socketNodes = findSocketNodes(model, socketPrefix);
   const modelWorldScale = new THREE.Vector3();
   model.getWorldScale(modelWorldScale);
   const modelAverageScale =
     (Math.abs(modelWorldScale.x) + Math.abs(modelWorldScale.y) + Math.abs(modelWorldScale.z)) / 3;
   const normalizedModelScale = Math.max(0.001, modelAverageScale);
   const worldScale = new THREE.Vector3();
-  return socketNodes.map((socketNode) => {
-    socketNode.getWorldScale(worldScale);
+  const thrusterSizeScales = thrusterNodes.map(({ node }) => {
+    node.getWorldScale(worldScale);
     const averageScale =
       (Math.abs(worldScale.x) + Math.abs(worldScale.y) + Math.abs(worldScale.z)) / 3;
     return Math.max(0.5, averageScale / normalizedModelScale);
   });
-}
 
-function extractMissileCellSocketLocalOffsets(
-  playerRoot: THREE.Object3D,
-  model: THREE.Object3D
-): MissileCellSocketLocalOffset[] {
-  const socketNodes = findMissileCellSocketNodes(model);
-  const worldPosition = new THREE.Vector3();
-  return socketNodes.map((socketNode) => {
-    socketNode.node.getWorldPosition(worldPosition);
+  const missileCellSockets = missileCellNodes.map(({ bayIndex, cellIndex, node }) => {
+    node.getWorldPosition(worldPosition);
     return {
-      bayIndex: socketNode.bayIndex,
-      cellIndex: socketNode.cellIndex,
+      bayIndex,
+      cellIndex,
       localOffset: playerRoot.worldToLocal(worldPosition.clone())
     };
   });
+
+  return {
+    cannonOffsets,
+    thrusterOffsets,
+    thrusterSizeScales,
+    missileCellSockets
+  };
 }
 
-function findSocketNodes(model: THREE.Object3D, socketPrefix: string): THREE.Object3D[] {
-  const matched: Array<{ index: number; node: THREE.Object3D }> = [];
-  model.traverse((node) => {
-    const socketIndex = parseSocketIndex(node.name, socketPrefix);
-    if (socketIndex === null) {
-      return;
-    }
-    matched.push({ index: socketIndex, node });
-  });
-
-  matched.sort((a, b) => {
+function sortIndexedSocketNodes(nodes: IndexedSocketNode[]): void {
+  nodes.sort((a, b) => {
     if (a.index !== b.index) {
       return a.index - b.index;
     }
     return a.node.name.localeCompare(b.node.name);
   });
-  return matched.map((entry) => entry.node);
 }
 
-function findMissileCellSocketNodes(
-  model: THREE.Object3D
-): Array<{ bayIndex: number; cellIndex: number; node: THREE.Object3D }> {
-  const matched: Array<{ bayIndex: number; cellIndex: number; node: THREE.Object3D }> = [];
-  model.traverse((node) => {
-    const parsed = parseMissileCellSocketName(node.name);
-    if (!parsed) {
-      return;
-    }
-
-    matched.push({
-      bayIndex: parsed.bayIndex,
-      cellIndex: parsed.cellIndex,
-      node
-    });
-  });
-
-  matched.sort((a, b) => {
+function sortMissileCellSocketNodes(nodes: MissileCellSocketNode[]): void {
+  nodes.sort((a, b) => {
     if (a.bayIndex !== b.bayIndex) {
       return a.bayIndex - b.bayIndex;
     }
@@ -350,8 +359,6 @@ function findMissileCellSocketNodes(
     }
     return a.node.name.localeCompare(b.node.name);
   });
-
-  return matched;
 }
 
 function parseSocketIndex(name: string, socketPrefix: string): number | null {

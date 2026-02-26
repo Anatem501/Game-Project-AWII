@@ -73,8 +73,8 @@ export const GLOBAL_DAMAGE_MULTIPLIERS: DamageMultiplierMap = {
   Plasma: { shield: 1.1, armor: 0.7, hull: 1.1 },
   Solar: { shield: 1.1, armor: 0.6, hull: 1 },
   Cryo: { shield: 0.75, armor: 0.7, hull: 1.0 },
-  Void: { shield: 1, armor: 1, hull: 1 },
-  Acid: { shield: 0.0, armor: 1.5, hull: 1.5 },
+  Void: { shield: .8, armor: .8, hull: .8 },
+  Acid: { shield: 0.0, armor: 1.25, hull: 1.25 },
   Kinetic: { shield: 0.75, armor: 0.6, hull: 1.25 },
   Concussive: { shield: 0.75, armor: 0.8, hull: 1 }
 };

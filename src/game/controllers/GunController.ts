@@ -103,8 +103,10 @@ type GunFireModeDefinition = {
   fireIntervalSeconds?: number;
   fireIntervalSequenceSeconds?: readonly number[];
   fireIntervalMultiplierScope?: "all_steps" | "burst_gap_only";
+  completeBurstOnRelease?: boolean;
   reloadAfterShots?: number;
   reloadDurationSeconds?: number;
+  shareReloadAcrossHardpoints?: boolean;
   burstPhaseGroupId?: number;
   burstPhaseGroupPattern?: readonly number[];
   phaseOffsetSeconds?: number;
@@ -127,8 +129,10 @@ type NormalizedGunDefinition = {
     fireIntervalSeconds: number;
     fireIntervalSequenceSeconds: number[];
     fireIntervalMultiplierScope: "all_steps" | "burst_gap_only";
+    completeBurstOnRelease: boolean;
     reloadAfterShots: number | null;
     reloadDurationSeconds: number;
+    shareReloadAcrossHardpoints: boolean;
     burstPhaseGroupId: number | null;
     burstPhaseGroupPattern: number[];
     phaseOffsetSeconds: number;
@@ -193,6 +197,8 @@ export function createGunController({
   const beamHitPoint = new THREE.Vector3();
   const hurtboxCenter = new THREE.Vector3();
   const rayToCenter = new THREE.Vector3();
+  const projectileMergeCenterA = new THREE.Vector3();
+  const projectileMergeCenterB = new THREE.Vector3();
   const unitCylinderAxis = new THREE.Vector3(0, 1, 0);
   const beamOrientation = new THREE.Quaternion();
   const projectiles: ProjectileInstance[] = [];
@@ -216,6 +222,17 @@ export function createGunController({
     pointSizeScale: 1.45,
     coreColor: 0xffb06c,
     glowColor: 0xe13a26
+  });
+  const acidHitSparkExplosions = createLaserHitSparkExplosionSystem(scene, {
+    sparkCount: 24,
+    lifetimeSeconds: 0.24,
+    speedMin: 1.2,
+    speedMax: 4.6,
+    spreadRadians: THREE.MathUtils.degToRad(46),
+    pointSizeScale: 1.35,
+    opacityScale: 0.78,
+    coreColor: 0xf8ff9a,
+    glowColor: 0xb5ee2f
   });
   const railgunBlueSparkBursts = createLaserHitSparkExplosionSystem(scene, {
     sparkCount: 26,
@@ -287,6 +304,20 @@ export function createGunController({
   const ionHitBursts = createIonHitElectricBurstSystem(scene);
   const frostHitBursts = createFrostHitCrystalBurstSystem(scene);
   const plasmaHitImplosions = createPlasmaHitImplosionSystem(scene);
+  const acidHitSplashes = createPlasmaMuzzleGlobBurstSystem(scene, {
+    globCountPerBurst: 28,
+    burstLifetimeSeconds: 0.42,
+    speedMin: 0.04,
+    speedMax: 0.72,
+    spreadRadians: THREE.MathUtils.degToRad(52),
+    forwardVelocityBias: 0.04,
+    motionHoldSeconds: 0.03,
+    pointSizeScale: 3.5,
+    opacityScale: 0.92,
+    deepColor: 0x8ead14,
+    coreColor: 0xfbff82,
+    blending: THREE.NormalBlending
+  });
   const explosiveShellHitImplosions = createPlasmaHitImplosionSystem(scene, {
     opacityScale: 0.16,
     globCount: 8,
@@ -303,6 +334,18 @@ export function createGunController({
     smokeDragPerSecond: 1.45
   });
   const plasmaMuzzleGlobs = createPlasmaMuzzleGlobBurstSystem(scene);
+  const acidMuzzleGlobs = createPlasmaMuzzleGlobBurstSystem(scene, {
+    globCountPerBurst: 18,
+    burstLifetimeSeconds: 0.22,
+    speedMin: 0.22,
+    speedMax: 1.1,
+    spreadRadians: THREE.MathUtils.degToRad(18),
+    forwardVelocityBias: 1.35,
+    motionHoldSeconds: 0.01,
+    pointSizeScale: 1.15,
+    deepColor: 0x72c218,
+    coreColor: 0xecff84
+  });
   const voidMuzzleGlobs = createPlasmaMuzzleGlobBurstSystem(scene, {
     globCountPerBurst: 14,
     burstLifetimeSeconds: 0.2,
@@ -414,6 +457,7 @@ export function createGunController({
   const primaryCooldowns = [...primaryInitialCooldowns];
   const primaryCooldownStepIndices = normalizedGuns.map(() => 0);
   const primaryBurstPhasePatternIndices = normalizedGuns.map(() => 0);
+  const primaryBurstContinueUntilWrap = normalizedGuns.map(() => false);
   const primaryReloadGroupIds = (() => {
     const groupIds = normalizedGuns.map(() => -1);
     const groupIdsByKey = new Map<string, number>();
@@ -422,10 +466,13 @@ export function createGunController({
       const gun = normalizedGuns[i];
       const reloadAfterShots = gun.primary.reloadAfterShots;
       const reloadDurationSeconds = gun.primary.reloadDurationSeconds;
+      const shareReloadAcrossHardpoints = gun.primary.shareReloadAcrossHardpoints;
       if (reloadAfterShots === null || reloadAfterShots <= 0 || reloadDurationSeconds <= 0) {
         continue;
       }
-      const key = `${reloadAfterShots}:${reloadDurationSeconds}`;
+      const key = shareReloadAcrossHardpoints
+        ? `${reloadAfterShots}:${reloadDurationSeconds}`
+        : `gun:${i}:${reloadAfterShots}:${reloadDurationSeconds}`;
       const existingGroupId = groupIdsByKey.get(key);
       if (existingGroupId !== undefined) {
         groupIds[i] = existingGroupId;
@@ -455,10 +502,81 @@ export function createGunController({
       primaryCooldowns[i] = primaryInitialCooldowns[i] ?? 0;
       primaryCooldownStepIndices[i] = 0;
       primaryBurstPhasePatternIndices[i] = 0;
+      primaryBurstContinueUntilWrap[i] = false;
     }
     for (let i = 0; i < primaryReloadGroupShotsFired.length; i += 1) {
       primaryReloadGroupShotsFired[i] = 0;
       primaryReloadGroupRemainingSeconds[i] = 0;
+    }
+  };
+
+  const removeProjectileAtIndex = (index: number): void => {
+    const projectile = projectiles[index];
+    if (!projectile) {
+      return;
+    }
+    projectilesRoot.remove(projectile.object);
+    projectile.dispose?.();
+    projectiles.splice(index, 1);
+  };
+
+  const mergeTouchingPlayerProjectiles = (): void => {
+    for (let i = 0; i < projectiles.length; i += 1) {
+      const receiver = projectiles[i];
+      const receiverGroupId = receiver.selfMergeGroupId;
+      if (
+        !receiverGroupId ||
+        !receiver.getSelfMergeWorldCenter ||
+        !receiver.getSelfMergeRadius ||
+        !receiver.absorbSelfMergePayload
+      ) {
+        continue;
+      }
+
+      let receiverRadius = Math.max(0, receiver.getSelfMergeRadius());
+      if (receiverRadius <= 0) {
+        continue;
+      }
+      receiver.getSelfMergeWorldCenter(projectileMergeCenterA);
+
+      for (let j = projectiles.length - 1; j > i; j -= 1) {
+        const other = projectiles[j];
+        if (
+          other.selfMergeGroupId !== receiverGroupId ||
+          !other.getSelfMergeWorldCenter ||
+          !other.getSelfMergeRadius ||
+          !other.getSelfMergePayload
+        ) {
+          continue;
+        }
+
+        const otherRadius = Math.max(0, other.getSelfMergeRadius());
+        if (otherRadius <= 0) {
+          continue;
+        }
+        other.getSelfMergeWorldCenter(projectileMergeCenterB);
+        const combinedRadius = receiverRadius + otherRadius;
+        if (
+          projectileMergeCenterA.distanceToSquared(projectileMergeCenterB) >
+          combinedRadius * combinedRadius
+        ) {
+          continue;
+        }
+
+        const payload = other.getSelfMergePayload();
+        if (!payload) {
+          continue;
+        }
+        const merged = receiver.absorbSelfMergePayload(payload);
+        if (!merged) {
+          continue;
+        }
+
+        other.beginDestroy?.("collision");
+        removeProjectileAtIndex(j);
+        receiver.getSelfMergeWorldCenter(projectileMergeCenterA);
+        receiverRadius = Math.max(0, receiver.getSelfMergeRadius());
+      }
     }
   };
 
@@ -955,6 +1073,8 @@ export function createGunController({
     const effectScale = Math.max(0.1, projectile.effectScale ?? 1);
     if (projectile.muzzleEffectId === "voidseeker_shadow_burst") {
       voidSeekerMuzzleShadowBursts.spawnBurst(muzzleWorld, aimDirection);
+    } else if (projectile.muzzleEffectId === "acid_splash") {
+      acidMuzzleGlobs.spawnBurst(muzzleWorld, aimDirection, estimatedShipVelocity);
     } else if (projectile.muzzleEffectId === "chaingun_muzzle_sparks_smoke") {
       chaingunMuzzleSparkFlashes.spawnExplosion(muzzleWorld, aimDirection);
       chaingunMuzzleSmokeBursts.spawnBurst(muzzleWorld, aimDirection);
@@ -964,6 +1084,8 @@ export function createGunController({
     if (!projectile.suppressMuzzleFx) {
       if (damageType === "Plasma") {
         plasmaMuzzleGlobs.spawnBurst(muzzleWorld, aimDirection);
+      } else if (damageType === "Acid" && projectile.muzzleEffectId !== "acid_splash") {
+        acidMuzzleGlobs.spawnBurst(muzzleWorld, aimDirection, estimatedShipVelocity);
       } else if (damageType === "Void") {
         voidMuzzleGlobs.spawnBurst(muzzleWorld, aimDirection);
       } else if (damageType === "Frost" || damageType === "Cryo") {
@@ -1016,9 +1138,14 @@ export function createGunController({
       );
     }
 
-    if (lastPrimaryFireInputActive) {
+    const hasCommittedPrimaryBurstFire = primaryBurstContinueUntilWrap.some(Boolean);
+    if (lastPrimaryFireInputActive || hasCommittedPrimaryBurstFire) {
       for (let i = 0; i < normalizedGuns.length; i += 1) {
         const gun = normalizedGuns[i];
+        const gunFireRequested = lastPrimaryFireInputActive || (primaryBurstContinueUntilWrap[i] ?? false);
+        if (!gunFireRequested) {
+          continue;
+        }
         const reloadGroupId = primaryReloadGroupIds[i] ?? -1;
         if (
           reloadGroupId >= 0 &&
@@ -1053,6 +1180,13 @@ export function createGunController({
 
             if (consumedCost) {
               firePrimaryShot(gun, playerState, patternStepIndex);
+              if (
+                gun.primary.completeBurstOnRelease &&
+                sequence.length > 1 &&
+                currentStepIndex === 0
+              ) {
+                primaryBurstContinueUntilWrap[i] = true;
+              }
               const reloadAfterShots = gun.primary.reloadAfterShots;
               if (reloadAfterShots !== null && reloadAfterShots > 0) {
                 const activeReloadGroupId = primaryReloadGroupIds[i] ?? -1;
@@ -1088,6 +1222,13 @@ export function createGunController({
           );
           const nextPatternStepIndex = sequence.length > 0 ? (patternStepIndex + 1) % sequence.length : 0;
           primaryCooldownStepIndices[i] = nextPatternStepIndex;
+          if (
+            gun.primary.completeBurstOnRelease &&
+            sequence.length > 0 &&
+            nextPatternStepIndex === 0
+          ) {
+            primaryBurstContinueUntilWrap[i] = false;
+          }
           if (burstPhasePattern.length > 0 && sequence.length > 0 && nextPatternStepIndex === 0) {
             primaryBurstPhasePatternIndices[i] =
               (burstPhasePatternIndex + 1) % Math.max(1, burstPhasePattern.length);
@@ -1120,6 +1261,8 @@ export function createGunController({
         primaryCooldowns[i] = Math.max(0, primaryCooldowns[i] - recoverStep);
       }
     }
+
+    mergeTouchingPlayerProjectiles();
 
     for (let i = projectiles.length - 1; i >= 0; i -= 1) {
       const projectile = projectiles[i];
@@ -1167,6 +1310,15 @@ export function createGunController({
               chaingunHitYellowSparks.spawnExplosion(projectile.object.position, fallbackForward);
             } else if (damageType === "Ion") {
               ionHitBursts.spawnBurst(projectile.object.position, fallbackForward, effectScale);
+            } else if (hitEffectId === "acid_splash" || damageType === "Acid") {
+              acidHitSparkExplosions.spawnExplosion(projectile.object.position, fallbackForward);
+              acidHitSplashes.spawnBurst(
+                projectile.object.position,
+                fallbackForward,
+                fallbackForward.clone().multiplyScalar(
+                  Math.max(0, projectile.hitbox?.collisionArea.radius ?? 0) * 0.8
+                )
+              );
             } else if (damageType === "Solar") {
               solarHitFlashes.spawnFlash(projectile.object.position, effectScale);
           } else if (damageType === "Frost" || damageType === "Cryo") {
@@ -1194,9 +1346,7 @@ export function createGunController({
         if (!shouldDestroy) {
           continue;
         }
-        projectilesRoot.remove(projectile.object);
-        projectile.dispose?.();
-        projectiles.splice(i, 1);
+        removeProjectileAtIndex(i);
         removedOnCollision = true;
         break;
       }
@@ -1209,9 +1359,7 @@ export function createGunController({
       }
       projectile.beginDestroy?.("expired");
 
-      projectilesRoot.remove(projectile.object);
-      projectile.dispose?.();
-      projectiles.splice(i, 1);
+      removeProjectileAtIndex(i);
     }
 
     for (let i = activeHitscanBeamPulses.length - 1; i >= 0; i -= 1) {
@@ -1276,12 +1424,14 @@ export function createGunController({
     sparkBursts.update(deltaTime);
     ionMuzzleBursts.update(deltaTime);
     plasmaMuzzleGlobs.update(deltaTime);
+    acidMuzzleGlobs.update(deltaTime);
     voidMuzzleGlobs.update(deltaTime);
     voidSeekerMuzzleShadowBursts.update(deltaTime);
     chaingunMuzzleSmokeBursts.update(deltaTime);
     frostMuzzleGlobs.update(deltaTime);
     hitSparkExplosions.update(deltaTime);
     plasmaArcHitSparkExplosions.update(deltaTime);
+    acidHitSparkExplosions.update(deltaTime);
     railgunBlueSparkBursts.update(deltaTime);
     railgunImpactBlueSparkBursts.update(deltaTime);
     explosiveShellMuzzleOrangeSparks.update(deltaTime);
@@ -1292,6 +1442,7 @@ export function createGunController({
     ionHitBursts.update(deltaTime);
     frostHitBursts.update(deltaTime);
     plasmaHitImplosions.update(deltaTime);
+    acidHitSplashes.update(deltaTime);
     explosiveShellHitImplosions.update(deltaTime);
     explosiveShellMissileExplosionBursts.update(deltaTime);
     solarHitFlashes.update(deltaTime);
@@ -1322,12 +1473,14 @@ export function createGunController({
     sparkBursts.dispose();
     ionMuzzleBursts.dispose();
     plasmaMuzzleGlobs.dispose();
+    acidMuzzleGlobs.dispose();
     voidMuzzleGlobs.dispose();
     voidSeekerMuzzleShadowBursts.dispose();
     chaingunMuzzleSmokeBursts.dispose();
     frostMuzzleGlobs.dispose();
     hitSparkExplosions.dispose();
     plasmaArcHitSparkExplosions.dispose();
+    acidHitSparkExplosions.dispose();
     railgunBlueSparkBursts.dispose();
     railgunImpactBlueSparkBursts.dispose();
     explosiveShellMuzzleOrangeSparks.dispose();
@@ -1338,6 +1491,7 @@ export function createGunController({
     ionHitBursts.dispose();
     frostHitBursts.dispose();
     plasmaHitImplosions.dispose();
+    acidHitSplashes.dispose();
     explosiveShellHitImplosions.dispose();
     explosiveShellMissileExplosionBursts.dispose();
     solarHitFlashes.dispose();
@@ -1429,6 +1583,7 @@ function normalizeGunDefinitions(guns: readonly GunDefinition[]): NormalizedGunD
               Math.max(0.001, interval)
             ),
           fireIntervalMultiplierScope: primaryProfile.fireIntervalMultiplierScope ?? "all_steps",
+          completeBurstOnRelease: primaryProfile.completeBurstOnRelease ?? false,
           reloadAfterShots:
             typeof primaryProfile.reloadAfterShots === "number" &&
             Number.isFinite(primaryProfile.reloadAfterShots) &&
@@ -1436,6 +1591,7 @@ function normalizeGunDefinitions(guns: readonly GunDefinition[]): NormalizedGunD
               ? Math.max(1, Math.floor(primaryProfile.reloadAfterShots))
               : null,
           reloadDurationSeconds: Math.max(0, primaryProfile.reloadDurationSeconds ?? 0),
+          shareReloadAcrossHardpoints: primaryProfile.shareReloadAcrossHardpoints ?? true,
           burstPhaseGroupId:
             typeof primaryProfile.burstPhaseGroupId === "number"
               ? Math.floor(primaryProfile.burstPhaseGroupId)

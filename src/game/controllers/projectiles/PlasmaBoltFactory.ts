@@ -6,6 +6,7 @@ import type { LaserBoltFactoryOptions } from "./LaserBoltFactory";
 import type {
   ProjectileFactory,
   ProjectileInstance,
+  ProjectileSelfMergePayload,
   ProjectileSpawnParams
 } from "./ProjectileTypes";
 
@@ -93,6 +94,14 @@ export type PlasmaBoltFactoryOptions = LaserBoltFactoryOptions & {
   trailingModelScaleStep?: number;
   trailingModelOpacity?: number;
   hitEffectId?: string;
+  muzzleEffectId?: string;
+  selfMergeGroupId?: string;
+  maxSelfMergeScaleMultiplier?: number;
+  selfMergeScaleStepMultiplier?: number;
+  selfMergeForwardVisualScaleStepMultiplier?: number;
+  selfMergeRadialVisualScaleStepMultiplier?: number;
+  visualForwardScaleMultiplier?: number;
+  visualRadialScaleMultiplier?: number;
   glowLayerStyle?: "shell" | "outline" | "none";
   coreColor?: number;
   hotColor?: number;
@@ -239,6 +248,25 @@ export function createPlasmaBoltFactory(
     0,
     options.orbitShardTrailLengthMultiplier ?? 1
   );
+  const selfMergeGroupId = options.selfMergeGroupId?.trim() || null;
+  const maxSelfMergeScaleMultiplier = Math.max(
+    1,
+    options.maxSelfMergeScaleMultiplier ?? 4
+  );
+  const selfMergeScaleStepMultiplier = Math.max(
+    1,
+    options.selfMergeScaleStepMultiplier ?? 2
+  );
+  const selfMergeForwardVisualScaleStepMultiplier = Math.max(
+    1,
+    options.selfMergeForwardVisualScaleStepMultiplier ?? selfMergeScaleStepMultiplier
+  );
+  const selfMergeRadialVisualScaleStepMultiplier = Math.max(
+    1,
+    options.selfMergeRadialVisualScaleStepMultiplier ?? selfMergeScaleStepMultiplier
+  );
+  const visualForwardScaleMultiplier = Math.max(0.01, options.visualForwardScaleMultiplier ?? 1);
+  const visualRadialScaleMultiplier = Math.max(0.01, options.visualRadialScaleMultiplier ?? 1);
   const orbitStartLengthOffset = length * 0.3;
   const orbitShardSizeMultiplier = 1.14;
   const orbitShardThicknessMultiplier = 1.2;
@@ -337,6 +365,9 @@ export function createPlasmaBoltFactory(
   const shardHelperAxisB = new THREE.Vector3(1, 0, 0);
   const shardOrbitPlanar = new THREE.Vector3();
   const shardOrbitPosition = new THREE.Vector3();
+  const currentMergeDirection = new THREE.Vector3();
+  const incomingMergeDirection = new THREE.Vector3();
+  const mergedDirection = new THREE.Vector3();
   let modelTemplate: THREE.Object3D | null = null;
   let disposed = false;
 
@@ -381,13 +412,26 @@ export function createPlasmaBoltFactory(
     if (Math.abs(modelYawRadians) > 0.000001) {
       coreVisual.rotateY(modelYawRadians);
     }
+    if (
+      Math.abs(visualForwardScaleMultiplier - 1) > 0.000001 ||
+      Math.abs(visualRadialScaleMultiplier - 1) > 0.000001
+    ) {
+      coreVisual.scale.multiply(
+        new THREE.Vector3(
+          visualRadialScaleMultiplier,
+          visualRadialScaleMultiplier,
+          visualForwardScaleMultiplier
+        )
+      );
+    }
     assignMaterialToMeshes(coreVisual, corePlasmaMaterial);
     projectileGroup.add(coreVisual);
 
     let glowVisualMaterial: THREE.MeshBasicMaterial | null = null;
+    let glowVisual: THREE.Object3D | null = null;
     if (hasGlowLayer) {
       glowVisualMaterial = glowMaterial.clone();
-      const glowVisual = coreVisual.clone(true);
+      glowVisual = coreVisual.clone(true);
       assignMaterialToMeshes(glowVisual, glowVisualMaterial);
       glowVisual.scale.multiplyScalar(glowScale);
       projectileGroup.add(glowVisual);
@@ -529,9 +573,10 @@ export function createPlasmaBoltFactory(
     }
 
     const velocity = projectileDirection.multiplyScalar(speed);
+    const baseCollisionRadius = collisionRadius;
     const hitbox = createHitboxComponent({
       owner: projectileGroup,
-      collisionArea: { radius: collisionRadius },
+      collisionArea: { radius: baseCollisionRadius },
       damageAmount: damage,
       damageType,
       additionalDamageSegments: options.additionalDamageSegments,
@@ -540,11 +585,105 @@ export function createPlasmaBoltFactory(
     });
     let lifeRemaining = lifetimeSeconds;
     let elapsedSeconds = 0;
+    let currentDamageAmount = damage;
+    let currentScaleMultiplier = 1;
+    let currentVisualForwardScaleMultiplier = 1;
+    let currentVisualRadialScaleMultiplier = 1;
+    const coreVisualBaseScale = coreVisual.scale.clone();
+    const glowVisualBaseScale = glowVisual?.scale.clone() ?? null;
 
-    return {
+    const setMergedScaleMultiplier = (nextScaleMultiplier: number): void => {
+      currentScaleMultiplier = THREE.MathUtils.clamp(nextScaleMultiplier, 1, maxSelfMergeScaleMultiplier);
+      hitbox.setCollisionRadius(baseCollisionRadius * currentScaleMultiplier);
+      projectileInstance.effectScale = currentScaleMultiplier;
+    };
+
+    const setMergedVisualScaleMultipliers = (
+      nextRadialScaleMultiplier: number,
+      nextForwardScaleMultiplier: number
+    ): void => {
+      currentVisualRadialScaleMultiplier = THREE.MathUtils.clamp(
+        nextRadialScaleMultiplier,
+        1,
+        maxSelfMergeScaleMultiplier
+      );
+      currentVisualForwardScaleMultiplier = THREE.MathUtils.clamp(
+        nextForwardScaleMultiplier,
+        1,
+        maxSelfMergeScaleMultiplier
+      );
+      const mergedScale = new THREE.Vector3(
+        currentVisualRadialScaleMultiplier,
+        currentVisualRadialScaleMultiplier,
+        currentVisualForwardScaleMultiplier
+      );
+      coreVisual.scale.copy(coreVisualBaseScale).multiply(mergedScale);
+      if (glowVisual && glowVisualBaseScale) {
+        glowVisual.scale.copy(glowVisualBaseScale).multiply(mergedScale);
+      }
+    };
+
+    const projectileInstance: ProjectileInstance = {
       object: projectileGroup,
       hitbox,
       hitEffectId: options.hitEffectId,
+      muzzleEffectId: options.muzzleEffectId,
+      effectScale: 1,
+      selfMergeGroupId: selfMergeGroupId ?? undefined,
+      getSelfMergeWorldCenter: selfMergeGroupId
+        ? (out) => hitbox.getWorldCenter(out)
+        : undefined,
+      getSelfMergeRadius: selfMergeGroupId
+        ? () => Math.max(0, hitbox.collisionArea.radius)
+        : undefined,
+      getSelfMergePayload: selfMergeGroupId
+        ? (): ProjectileSelfMergePayload => ({
+            damageAmount: currentDamageAmount,
+            scaleMultiplier: currentScaleMultiplier,
+            velocity: velocity.clone()
+          })
+        : undefined,
+      absorbSelfMergePayload: selfMergeGroupId
+        ? (payload: ProjectileSelfMergePayload): boolean => {
+            if (!payload || payload.damageAmount <= 0) {
+              return false;
+            }
+
+            const incomingVelocity = payload.velocity;
+            if (incomingVelocity.lengthSq() > 0.000001) {
+              currentMergeDirection.copy(velocity);
+              if (currentMergeDirection.lengthSq() <= 0.000001) {
+                currentMergeDirection.copy(PROJECTILE_FORWARD);
+              } else {
+                currentMergeDirection.normalize();
+              }
+              incomingMergeDirection.copy(incomingVelocity);
+              if (incomingMergeDirection.lengthSq() <= 0.000001) {
+                incomingMergeDirection.copy(currentMergeDirection);
+              } else {
+                incomingMergeDirection.normalize();
+              }
+              mergedDirection.copy(currentMergeDirection).add(incomingMergeDirection);
+              if (mergedDirection.lengthSq() <= 0.000001) {
+                mergedDirection.copy(currentMergeDirection);
+              } else {
+                mergedDirection.normalize();
+              }
+              velocity.copy(mergedDirection).multiplyScalar(speed);
+              shotQuaternion.setFromUnitVectors(PROJECTILE_FORWARD, mergedDirection);
+              projectileGroup.quaternion.copy(shotQuaternion);
+            }
+
+            currentDamageAmount += Math.max(0, payload.damageAmount);
+            hitbox.setDamageAmount(currentDamageAmount);
+            setMergedScaleMultiplier(currentScaleMultiplier * selfMergeScaleStepMultiplier);
+            setMergedVisualScaleMultipliers(
+              currentVisualRadialScaleMultiplier * selfMergeRadialVisualScaleStepMultiplier,
+              currentVisualForwardScaleMultiplier * selfMergeForwardVisualScaleStepMultiplier
+            );
+            return true;
+          }
+        : undefined,
       beginDestroy: (reason) => (reason === "collision" ? !pierceOnCollision : true),
       update: (deltaTime: number): boolean => {
         lifeRemaining -= deltaTime;
@@ -705,6 +844,7 @@ export function createPlasmaBoltFactory(
         bridgePointsMaterial?.dispose();
       }
     };
+    return projectileInstance;
   };
 
   return {

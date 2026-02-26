@@ -15,6 +15,7 @@ export const CANNON_PRIMARY_COMPONENT_OPTIONS = [
   "repeating_cryoshard_fire",
   "plasma_arc_shots",
   "burst_ion_arc_fire",
+  "burst_acid_fire",
   "cryowave_fire"
 ] as const;
 
@@ -55,8 +56,10 @@ export type CannonPrimaryComponentDefinition = WeaponComponentPresentation & {
   fireIntervalSeconds?: number;
   fireIntervalSequenceSeconds?: readonly number[];
   fireIntervalMultiplierScope?: "all_steps" | "burst_gap_only";
+  completeBurstOnRelease?: boolean;
   reloadAfterShots?: number;
   reloadDurationSeconds?: number;
+  shareReloadAcrossHardpoints?: boolean;
   hitscanPulse?: {
     pulseDurationSeconds: number;
     maxDistance: number;
@@ -210,6 +213,9 @@ const CANNON_PRIMARY_COMPONENTS: Record<
     fireType: "Primary",
     damageType: "Concussive",
     fireIntervalSeconds: 1.2,
+    reloadAfterShots: 5,
+    reloadDurationSeconds: 4,
+    shareReloadAcrossHardpoints: false,
     description:
       "Fast artillery shell projectile that detonates on impact and deals concussive blast damage in a small area.",
     projectile: {
@@ -227,7 +233,7 @@ const CANNON_PRIMARY_COMPONENTS: Record<
   },
   solar_seeker_shots: {
     id: "solar_seeker_shots",
-    name: "Solarseeker Shots",
+    name: "Solarseeker Fire",
     weaponType: "Cannons",
     fireType: "Primary",
     damageType: "Solar",
@@ -283,6 +289,7 @@ const CANNON_PRIMARY_COMPONENTS: Record<
     fireIntervalSeconds: 0.1,
     reloadAfterShots: RAPID_CHAINGUN_SHOTS_PER_BELT,
     reloadDurationSeconds: RAPID_CHAINGUN_RELOAD_SECONDS,
+    shareReloadAcrossHardpoints: true,
     description:
       "High-rate kinetic chaingun stream with compact gray bullets, hot tracer tails, bright muzzle sparks, and yellow impact sparks.",
     projectile: {
@@ -424,6 +431,7 @@ const CANNON_PRIMARY_COMPONENTS: Record<
     fireIntervalSeconds: 0.5,
     fireIntervalSequenceSeconds: [0.1, 0.1, 1.5],
     fireIntervalMultiplierScope: "burst_gap_only",
+    completeBurstOnRelease: true,
     description:
       "Burst-fired ion arc emitter that launches widening ion arcs with piercing ion discharge.",
     projectile: {
@@ -437,6 +445,33 @@ const CANNON_PRIMARY_COMPONENTS: Record<
       damage: 8,
       damageType: "Ion",
       collisionRadius: 0.15
+    }
+  },
+  burst_acid_fire: {
+    id: "burst_acid_fire",
+    name: "Rapid Acid Fire",
+    weaponType: "Cannons",
+    fireType: "Primary",
+    damageType: "Acid",
+    heatCost: 1,
+    energyCost: 0,
+    fireIntervalSeconds: 0.4,
+    reloadAfterShots: 20,
+    reloadDurationSeconds: 2,
+    shareReloadAcrossHardpoints: false,
+    description:
+      "Acid glob launcher with a steady 400ms cadence and a short reload cycle after 20 corrosive shots.",
+    projectile: {
+      color: 0xc8ff52,
+      emissive: 0x7dff32,
+      emissiveIntensity: 2.8,
+      speed: 14,
+      lifetimeSeconds: 2.2,
+      length: 0.1265625,
+      thickness: 0.031640625,
+      damage: 6,
+      damageType: "Acid",
+      collisionRadius: 0.038671875
     }
   },
   cryowave_fire: {
