@@ -4,8 +4,10 @@ import type { LaserBoltFactoryOptions } from "../controllers/projectiles/LaserBo
 export const CANNON_PRIMARY_COMPONENT_OPTIONS = [
   "repeating_laserbolt_fire",
   "laserbeam_pulse_fire",
+  "electromagnetic_railgun",
   "solar_seeker_shots",
   "void_seeker_fire",
+  "rapid_chaingun_fire",
   "repeating_plasmabolt_fire",
   "repeating_voidbolt_fire",
   "repeating_ionbolt_fire",
@@ -34,6 +36,9 @@ export const DEFAULT_MISSILE_BAY_COMPONENT_ID: MissileBayComponentId = "concussi
 export const DEFAULT_ENERGY_LAUNCHER_COMPONENT_ID: EnergyLauncherComponentId =
   "arc_plasma_emitter";
 
+const RAPID_CHAINGUN_SHOTS_PER_BELT = 200;
+const RAPID_CHAINGUN_RELOAD_SECONDS = 5;
+
 type WeaponComponentPresentation = {
   name: string;
   weaponType: string;
@@ -49,12 +54,18 @@ export type CannonPrimaryComponentDefinition = WeaponComponentPresentation & {
   fireIntervalSeconds?: number;
   fireIntervalSequenceSeconds?: readonly number[];
   fireIntervalMultiplierScope?: "all_steps" | "burst_gap_only";
+  reloadAfterShots?: number;
+  reloadDurationSeconds?: number;
   hitscanPulse?: {
     pulseDurationSeconds: number;
     maxDistance: number;
     beamThickness: number;
     damage: number;
+    damageType?: string;
     hitSparkIntervalSeconds?: number;
+    beamColor?: number;
+    beamCoreColor?: number;
+    effectStyle?: "default" | "electromagnetic_railgun";
   };
   projectile: LaserBoltFactoryOptions;
 };
@@ -155,6 +166,40 @@ const CANNON_PRIMARY_COMPONENTS: Record<
       collisionRadius: 0.08
     }
   },
+  electromagnetic_railgun: {
+    id: "electromagnetic_railgun",
+    name: "Electromagnic Railgun Shot",
+    weaponType: "Cannons",
+    fireType: "Primary",
+    damageType: "Kinetic",
+    energyCost: 10,
+    fireIntervalSeconds: 1.35,
+    description:
+      "High-impact electromagnetic railgun shot. Fires a thin white kinetic beam with dark blue underlayer and electrical discharge along the beam path.",
+    hitscanPulse: {
+      pulseDurationSeconds: 0.28,
+      maxDistance: 320,
+      beamThickness: 0.04,
+      damage: 34,
+      damageType: "Kinetic",
+      beamColor: 0x0d2f8f,
+      beamCoreColor: 0xf4fbff,
+      effectStyle: "electromagnetic_railgun",
+      hitSparkIntervalSeconds: 0.08
+    },
+    projectile: {
+      color: 0xe6f7ff,
+      emissive: 0xaed8ff,
+      emissiveIntensity: 1.5,
+      speed: 20,
+      lifetimeSeconds: 1,
+      length: 0.2,
+      thickness: 0.04,
+      damage: 34,
+      damageType: "Kinetic",
+      collisionRadius: 0.04
+    }
+  },
   solar_seeker_shots: {
     id: "solar_seeker_shots",
     name: "Solarseeker Shots",
@@ -201,6 +246,31 @@ const CANNON_PRIMARY_COMPONENTS: Record<
       damage: 14,
       damageType: "Void",
       collisionRadius: 0.12
+    }
+  },
+  rapid_chaingun_fire: {
+    id: "rapid_chaingun_fire",
+    name: "Rapid Chaingun Fire",
+    weaponType: "Cannons",
+    fireType: "Primary",
+    damageType: "Kinetic",
+    heatCost: 1,
+    fireIntervalSeconds: 0.1,
+    reloadAfterShots: RAPID_CHAINGUN_SHOTS_PER_BELT,
+    reloadDurationSeconds: RAPID_CHAINGUN_RELOAD_SECONDS,
+    description:
+      "High-rate kinetic chaingun stream with compact gray bullets, hot tracer tails, bright muzzle sparks, and yellow impact sparks.",
+    projectile: {
+      color: 0xa0a0a0,
+      emissive: 0x141414,
+      emissiveIntensity: 0.35,
+      speed: 36,
+      lifetimeSeconds: 1.15,
+      length: 0.08,
+      thickness: 0.02,
+      damage: 2,
+      damageType: "Kinetic",
+      collisionRadius: 0.02
     }
   },
   repeating_plasmabolt_fire: {

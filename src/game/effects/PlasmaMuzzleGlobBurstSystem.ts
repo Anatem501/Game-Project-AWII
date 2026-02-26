@@ -24,6 +24,7 @@ type PlasmaMuzzleGlobBurstSystemConfig = {
   pointSizeScale?: number;
   deepColor?: number;
   coreColor?: number;
+  blending?: THREE.Blending;
 };
 
 const DEFAULT_GLOB_COUNT = 20;
@@ -106,6 +107,7 @@ export function createPlasmaMuzzleGlobBurstSystem(
   const pointSizeScale = Math.max(0.1, config.pointSizeScale ?? 1);
   const deepColor = new THREE.Color(config.deepColor ?? 0xe0081f);
   const coreColor = new THREE.Color(config.coreColor ?? 0xff292b);
+  const blending = config.blending ?? THREE.AdditiveBlending;
 
   const bursts: GlobBurst[] = [];
   const root = new THREE.Group();
@@ -173,7 +175,7 @@ export function createPlasmaMuzzleGlobBurstSystem(
       fragmentShader: GLOB_FRAGMENT_SHADER,
       transparent: true,
       depthWrite: false,
-      blending: THREE.AdditiveBlending,
+      blending,
       uniforms: {
         uAge: { value: 0 },
         uLifetime: { value: burstLifetimeSeconds },

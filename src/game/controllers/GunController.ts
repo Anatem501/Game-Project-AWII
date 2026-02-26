@@ -45,6 +45,8 @@ type WeaponResourceCost = {
   heatCost: number;
 };
 
+type HitscanPulseEffectStyle = "default" | "electromagnetic_railgun";
+
 type HitscanPulseFireModeDefinition = {
   maxDistance?: number;
   pulseDurationSeconds?: number;
@@ -56,6 +58,7 @@ type HitscanPulseFireModeDefinition = {
   hitSparkIntervalSeconds?: number;
   beamColor?: number;
   beamCoreColor?: number;
+  effectStyle?: HitscanPulseEffectStyle;
 };
 
 type NormalizedHitscanPulseFireModeDefinition = {
@@ -69,20 +72,33 @@ type NormalizedHitscanPulseFireModeDefinition = {
   hitSparkIntervalSeconds: number;
   beamColor: number;
   beamCoreColor: number;
+  effectStyle: HitscanPulseEffectStyle;
 };
 
 type ActiveHitscanBeamPulse = {
   age: number;
   duration: number;
   root: THREE.Group;
+  outlineMaterial: THREE.MeshBasicMaterial | null;
+  outlineBaseOpacity: number;
   outerMaterial: THREE.MeshBasicMaterial;
+  outerBaseOpacity: number;
   innerMaterial: THREE.MeshBasicMaterial;
+  innerBaseOpacity: number;
+  railSlugCoreMaterial: THREE.MeshBasicMaterial | null;
+  railSlugShellMaterial: THREE.MeshBasicMaterial | null;
+  railSlugCoreMesh: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial> | null;
+  railSlugShellMesh: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial> | null;
+  railSlugBeamDistance: number;
+  railSlugTravelDuration: number;
 };
 
 type GunFireModeDefinition = {
   fireIntervalSeconds?: number;
   fireIntervalSequenceSeconds?: readonly number[];
   fireIntervalMultiplierScope?: "all_steps" | "burst_gap_only";
+  reloadAfterShots?: number;
+  reloadDurationSeconds?: number;
   burstPhaseGroupId?: number;
   burstPhaseGroupPattern?: readonly number[];
   phaseOffsetSeconds?: number;
@@ -105,6 +121,8 @@ type NormalizedGunDefinition = {
     fireIntervalSeconds: number;
     fireIntervalSequenceSeconds: number[];
     fireIntervalMultiplierScope: "all_steps" | "burst_gap_only";
+    reloadAfterShots: number | null;
+    reloadDurationSeconds: number;
     burstPhaseGroupId: number | null;
     burstPhaseGroupPattern: number[];
     phaseOffsetSeconds: number;
@@ -193,6 +211,46 @@ export function createGunController({
     coreColor: 0xffb06c,
     glowColor: 0xe13a26
   });
+  const railgunBlueSparkBursts = createLaserHitSparkExplosionSystem(scene, {
+    sparkCount: 26,
+    lifetimeSeconds: 0.13,
+    speedMin: 2.8,
+    speedMax: 8.8,
+    spreadRadians: THREE.MathUtils.degToRad(24),
+    pointSizeScale: 0.85,
+    coreColor: 0xcfeeff,
+    glowColor: 0x2f8fff
+  });
+  const railgunImpactBlueSparkBursts = createLaserHitSparkExplosionSystem(scene, {
+    sparkCount: 34,
+    lifetimeSeconds: 0.17,
+    speedMin: 3.4,
+    speedMax: 10.6,
+    spreadRadians: THREE.MathUtils.degToRad(34),
+    pointSizeScale: 0.95,
+    coreColor: 0xdbf2ff,
+    glowColor: 0x3a9dff
+  });
+  const chaingunHitYellowSparks = createLaserHitSparkExplosionSystem(scene, {
+    sparkCount: 20,
+    lifetimeSeconds: 0.16,
+    speedMin: 3.8,
+    speedMax: 9.2,
+    spreadRadians: THREE.MathUtils.degToRad(30),
+    pointSizeScale: 0.6,
+    coreColor: 0xffe7a2,
+    glowColor: 0xd99a16
+  });
+  const chaingunMuzzleSparkFlashes = createLaserHitSparkExplosionSystem(scene, {
+    sparkCount: 20,
+    lifetimeSeconds: 0.07,
+    speedMin: 2.2,
+    speedMax: 7.1,
+    spreadRadians: THREE.MathUtils.degToRad(18),
+    pointSizeScale: 0.58,
+    coreColor: 0xffdfa8,
+    glowColor: 0xc97b2a
+  });
   const ionMuzzleBursts = createIonHitElectricBurstSystem(scene, {
     burstCount: ION_MUZZLE_BURST_COUNT,
     lifetimeSeconds: ION_MUZZLE_BURST_LIFETIME_SECONDS,
@@ -224,6 +282,19 @@ export function createGunController({
     deepColor: 0x08060d,
     coreColor: 0xf1ecff
   });
+  const chaingunMuzzleSmokeBursts = createPlasmaMuzzleGlobBurstSystem(scene, {
+    globCountPerBurst: 12,
+    burstLifetimeSeconds: 0.14,
+    speedMin: 0.05,
+    speedMax: 0.55,
+    spreadRadians: THREE.MathUtils.degToRad(24),
+    forwardVelocityBias: 0.18,
+    motionHoldSeconds: 0.012,
+    pointSizeScale: 1.25,
+    deepColor: 0x050505,
+    coreColor: 0x303030,
+    blending: THREE.NormalBlending
+  });
   const frostMuzzleGlobs = createPlasmaMuzzleGlobBurstSystem(scene, {
     globCountPerBurst: 18,
     burstLifetimeSeconds: 0.26,
@@ -242,6 +313,7 @@ export function createGunController({
   const hitscanBeamPulsesRoot = new THREE.Group();
   const hitscanBeamOuterGeometry = new THREE.CylinderGeometry(1, 1, 1, 10, 1, true);
   const hitscanBeamInnerGeometry = new THREE.CylinderGeometry(1, 1, 1, 8, 1, true);
+  const railSlugGeometry = new THREE.SphereGeometry(1, 12, 10);
   const normalizedGuns = normalizeGunDefinitions(guns);
   const primaryInitialCooldowns = normalizedGuns.map((gun) => {
     const sequence = gun.primary.fireIntervalSequenceSeconds;
@@ -255,6 +327,38 @@ export function createGunController({
   const primaryCooldowns = [...primaryInitialCooldowns];
   const primaryCooldownStepIndices = normalizedGuns.map(() => 0);
   const primaryBurstPhasePatternIndices = normalizedGuns.map(() => 0);
+  const primaryReloadGroupIds = (() => {
+    const groupIds = normalizedGuns.map(() => -1);
+    const groupIdsByKey = new Map<string, number>();
+    let nextGroupId = 0;
+    for (let i = 0; i < normalizedGuns.length; i += 1) {
+      const gun = normalizedGuns[i];
+      const reloadAfterShots = gun.primary.reloadAfterShots;
+      const reloadDurationSeconds = gun.primary.reloadDurationSeconds;
+      if (reloadAfterShots === null || reloadAfterShots <= 0 || reloadDurationSeconds <= 0) {
+        continue;
+      }
+      const key = `${reloadAfterShots}:${reloadDurationSeconds}`;
+      const existingGroupId = groupIdsByKey.get(key);
+      if (existingGroupId !== undefined) {
+        groupIds[i] = existingGroupId;
+        continue;
+      }
+      const groupId = nextGroupId;
+      nextGroupId += 1;
+      groupIdsByKey.set(key, groupId);
+      groupIds[i] = groupId;
+    }
+    return groupIds;
+  })();
+  const primaryReloadGroupShotsFired = Array.from(
+    { length: Math.max(0, ...primaryReloadGroupIds) + 1 },
+    () => 0
+  );
+  const primaryReloadGroupRemainingSeconds = Array.from(
+    { length: Math.max(0, ...primaryReloadGroupIds) + 1 },
+    () => 0
+  );
   const maxAimClampRadians = THREE.MathUtils.clamp(maxAimAngleRadians, 0, Math.PI);
   scene.add(projectilesRoot);
   scene.add(hitscanBeamPulsesRoot);
@@ -264,6 +368,10 @@ export function createGunController({
       primaryCooldowns[i] = primaryInitialCooldowns[i] ?? 0;
       primaryCooldownStepIndices[i] = 0;
       primaryBurstPhasePatternIndices[i] = 0;
+    }
+    for (let i = 0; i < primaryReloadGroupShotsFired.length; i += 1) {
+      primaryReloadGroupShotsFired[i] = 0;
+      primaryReloadGroupRemainingSeconds[i] = 0;
     }
   };
 
@@ -334,7 +442,14 @@ export function createGunController({
     origin: THREE.Vector3,
     direction: THREE.Vector3
   ): void => {
-    sparkBursts.spawnBurst(origin, direction);
+    const isElectromagneticRailgun = hitscanPulse.effectStyle === "electromagnetic_railgun";
+
+    if (isElectromagneticRailgun) {
+      railgunBlueSparkBursts.spawnExplosion(origin, direction);
+      ionMuzzleBursts.spawnBurst(origin, direction, 0.6);
+    } else {
+      sparkBursts.spawnBurst(origin, direction);
+    }
 
     let nearestHurtbox: HurtboxComponent | null = null;
     let nearestHitDistance = Math.max(0.01, hitscanPulse.maxDistance);
@@ -397,7 +512,29 @@ export function createGunController({
         sourceFaction: hitscanPulse.sourceFaction
       });
       if (hitResult) {
-        hitSparkExplosions.spawnExplosion(beamHitPoint, direction);
+        if (isElectromagneticRailgun) {
+          const impactOffsetDistance = Math.min(0.3, Math.max(0.08, beamDistance * 0.012));
+          beamEndPoint.copy(beamHitPoint).addScaledVector(direction, impactOffsetDistance);
+          beamMidpoint.copy(beamHitPoint).addScaledVector(direction, -impactOffsetDistance);
+          railgunImpactBlueSparkBursts.spawnExplosion(beamEndPoint, direction);
+          railgunImpactBlueSparkBursts.spawnExplosion(beamMidpoint, direction.clone().multiplyScalar(-1));
+          ionHitBursts.spawnBurst(beamHitPoint, direction, 0.95);
+        } else {
+          hitSparkExplosions.spawnExplosion(beamHitPoint, direction);
+        }
+      }
+    }
+
+    if (isElectromagneticRailgun) {
+      const beamParticleCount = THREE.MathUtils.clamp(Math.floor(beamDistance / 18), 3, 8);
+      for (let i = 0; i < beamParticleCount; i += 1) {
+        const t = (i + 1) / (beamParticleCount + 1);
+        beamMidpoint.copy(origin).lerp(beamEndPoint, t);
+        const beamJitterScale = 0.02;
+        beamMidpoint.x += (Math.random() - 0.5) * beamJitterScale;
+        beamMidpoint.y += (Math.random() - 0.5) * beamJitterScale;
+        beamMidpoint.z += (Math.random() - 0.5) * beamJitterScale;
+        ionHitBursts.spawnBurst(beamMidpoint, direction, 0.35);
       }
     }
 
@@ -406,11 +543,14 @@ export function createGunController({
     beamMidpoint.copy(origin).addScaledVector(direction, beamDistance * 0.5);
     beamRoot.position.copy(beamMidpoint);
     beamRoot.quaternion.copy(beamOrientation);
+    const railgunOutlineColor = 0x4fb6ff;
+    const outerOpacity = isElectromagneticRailgun ? 0.44 : HITSCAN_BEAM_OUTER_OPACITY;
+    const innerOpacity = isElectromagneticRailgun ? 0.96 : HITSCAN_BEAM_INNER_OPACITY;
 
     const outerMaterial = new THREE.MeshBasicMaterial({
       color: hitscanPulse.beamColor,
       transparent: true,
-      opacity: HITSCAN_BEAM_OUTER_OPACITY,
+      opacity: outerOpacity,
       depthWrite: false,
       toneMapped: false,
       blending: THREE.AdditiveBlending
@@ -418,14 +558,82 @@ export function createGunController({
     const innerMaterial = new THREE.MeshBasicMaterial({
       color: hitscanPulse.beamCoreColor,
       transparent: true,
-      opacity: HITSCAN_BEAM_INNER_OPACITY,
+      opacity: innerOpacity,
       depthWrite: false,
       toneMapped: false,
       blending: THREE.AdditiveBlending
     });
+    const outlineMaterial = isElectromagneticRailgun
+      ? new THREE.MeshBasicMaterial({
+          color: railgunOutlineColor,
+          transparent: true,
+          opacity: 0.32,
+          depthWrite: false,
+          toneMapped: false,
+          blending: THREE.AdditiveBlending
+        })
+      : null;
+    const outlineBaseOpacity = outlineMaterial?.opacity ?? 0;
+    const railSlugCoreMaterial = isElectromagneticRailgun
+      ? new THREE.MeshBasicMaterial({
+          color: 0x070a12,
+          transparent: true,
+          opacity: 0.96,
+          depthWrite: false,
+          toneMapped: false,
+          blending: THREE.NormalBlending
+        })
+      : null;
+    const railSlugShellMaterial = isElectromagneticRailgun
+      ? new THREE.MeshBasicMaterial({
+          color: 0x6bc2ff,
+          transparent: true,
+          opacity: 0.46,
+          depthWrite: false,
+          toneMapped: false,
+          blending: THREE.AdditiveBlending,
+          side: THREE.BackSide
+        })
+      : null;
+    const railSlugRadius = Math.max(hitscanPulse.beamThickness * 0.58, 0.018);
+    const railSlugLength = Math.max(hitscanPulse.beamThickness * 3.6, 0.1);
+    const railSlugCoreMesh =
+      railSlugCoreMaterial ? new THREE.Mesh(railSlugGeometry, railSlugCoreMaterial) : null;
+    const railSlugShellMesh =
+      railSlugShellMaterial ? new THREE.Mesh(railSlugGeometry, railSlugShellMaterial) : null;
+    const railSlugTravelDuration = isElectromagneticRailgun
+      ? Math.max(0.02, Math.min(0.08, hitscanPulse.pulseDurationSeconds * 0.4))
+      : 0;
+    if (railSlugCoreMesh) {
+      railSlugCoreMesh.scale.set(railSlugRadius, railSlugLength, railSlugRadius);
+      railSlugCoreMesh.position.y = -beamDistance * 0.5;
+      railSlugCoreMesh.renderOrder = 14;
+      railSlugCoreMesh.frustumCulled = false;
+      beamRoot.add(railSlugCoreMesh);
+    }
+    if (railSlugShellMesh) {
+      railSlugShellMesh.scale.set(
+        railSlugRadius * 1.55,
+        railSlugLength * 1.06,
+        railSlugRadius * 1.55
+      );
+      railSlugShellMesh.position.y = -beamDistance * 0.5;
+      railSlugShellMesh.renderOrder = 15;
+      railSlugShellMesh.frustumCulled = false;
+      beamRoot.add(railSlugShellMesh);
+    }
 
+    const outlineBeam =
+      outlineMaterial ? new THREE.Mesh(hitscanBeamOuterGeometry, outlineMaterial) : null;
     const outerBeam = new THREE.Mesh(hitscanBeamOuterGeometry, outerMaterial);
     const innerBeam = new THREE.Mesh(hitscanBeamInnerGeometry, innerMaterial);
+    if (outlineBeam) {
+      outlineBeam.scale.set(
+        hitscanPulse.beamThickness * 1.55,
+        beamDistance,
+        hitscanPulse.beamThickness * 1.55
+      );
+    }
     outerBeam.scale.set(
       hitscanPulse.beamThickness * HITSCAN_BEAM_OUTER_RADIUS_MULTIPLIER,
       beamDistance,
@@ -436,6 +644,11 @@ export function createGunController({
       beamDistance,
       hitscanPulse.beamThickness * HITSCAN_BEAM_INNER_RADIUS_MULTIPLIER
     );
+    if (outlineBeam) {
+      outlineBeam.renderOrder = 11;
+      outlineBeam.frustumCulled = false;
+      beamRoot.add(outlineBeam);
+    }
     outerBeam.renderOrder = 12;
     innerBeam.renderOrder = 13;
     outerBeam.frustumCulled = false;
@@ -448,8 +661,18 @@ export function createGunController({
       age: 0,
       duration: hitscanPulse.pulseDurationSeconds,
       root: beamRoot,
+      outlineMaterial,
+      outlineBaseOpacity,
       outerMaterial,
-      innerMaterial
+      outerBaseOpacity: outerOpacity,
+      innerMaterial,
+      innerBaseOpacity: innerOpacity,
+      railSlugCoreMaterial,
+      railSlugShellMaterial,
+      railSlugCoreMesh,
+      railSlugShellMesh,
+      railSlugBeamDistance: beamDistance,
+      railSlugTravelDuration
     });
   };
 
@@ -529,6 +752,9 @@ export function createGunController({
     const effectScale = Math.max(0.1, projectile.effectScale ?? 1);
     if (projectile.muzzleEffectId === "voidseeker_shadow_burst") {
       voidSeekerMuzzleShadowBursts.spawnBurst(muzzleWorld, aimDirection);
+    } else if (projectile.muzzleEffectId === "chaingun_muzzle_sparks_smoke") {
+      chaingunMuzzleSparkFlashes.spawnExplosion(muzzleWorld, aimDirection);
+      chaingunMuzzleSmokeBursts.spawnBurst(muzzleWorld, aimDirection);
     }
     if (!projectile.suppressMuzzleFx) {
       if (damageType === "Plasma") {
@@ -578,9 +804,23 @@ export function createGunController({
 
     lastPrimaryFireInputActive = enabled && (primaryFireHeld || gamepadPrimaryFireHeld);
 
+    for (let i = 0; i < primaryReloadGroupRemainingSeconds.length; i += 1) {
+      primaryReloadGroupRemainingSeconds[i] = Math.max(
+        0,
+        (primaryReloadGroupRemainingSeconds[i] ?? 0) - deltaTime
+      );
+    }
+
     if (lastPrimaryFireInputActive) {
       for (let i = 0; i < normalizedGuns.length; i += 1) {
         const gun = normalizedGuns[i];
+        const reloadGroupId = primaryReloadGroupIds[i] ?? -1;
+        if (
+          reloadGroupId >= 0 &&
+          (primaryReloadGroupRemainingSeconds[reloadGroupId] ?? 0) > 0
+        ) {
+          continue;
+        }
         primaryCooldowns[i] -= deltaTime;
         while (primaryCooldowns[i] <= 0) {
           const patternStepIndex = primaryCooldownStepIndices[i] ?? 0;
@@ -608,6 +848,32 @@ export function createGunController({
 
             if (consumedCost) {
               firePrimaryShot(gun, playerState, patternStepIndex);
+              const reloadAfterShots = gun.primary.reloadAfterShots;
+              if (reloadAfterShots !== null && reloadAfterShots > 0) {
+                const activeReloadGroupId = primaryReloadGroupIds[i] ?? -1;
+                const useSharedReloadGroup = activeReloadGroupId >= 0;
+                const shotsFired = useSharedReloadGroup
+                  ? (primaryReloadGroupShotsFired[activeReloadGroupId] ?? 0) + 1
+                  : 1;
+                if (useSharedReloadGroup) {
+                  primaryReloadGroupShotsFired[activeReloadGroupId] = shotsFired;
+                }
+                if (shotsFired >= reloadAfterShots) {
+                  const reloadDurationSeconds = Math.max(0, gun.primary.reloadDurationSeconds ?? 0);
+                  if (useSharedReloadGroup) {
+                    primaryReloadGroupShotsFired[activeReloadGroupId] = 0;
+                    primaryReloadGroupRemainingSeconds[activeReloadGroupId] = reloadDurationSeconds;
+                    for (let gunIndex = 0; gunIndex < normalizedGuns.length; gunIndex += 1) {
+                      if ((primaryReloadGroupIds[gunIndex] ?? -1) !== activeReloadGroupId) {
+                        continue;
+                      }
+                      primaryCooldowns[gunIndex] = 0;
+                    }
+                  } else {
+                    primaryCooldowns[i] = 0;
+                  }
+                }
+              }
             }
           }
 
@@ -629,6 +895,12 @@ export function createGunController({
             ? Math.max(1, getPrimaryFireIntervalMultiplier?.() ?? 1)
             : 1;
           primaryCooldowns[i] += currentStepInterval * intervalMultiplier;
+          if (
+            reloadGroupId >= 0 &&
+            (primaryReloadGroupRemainingSeconds[reloadGroupId] ?? 0) > 0
+          ) {
+            break;
+          }
         }
       }
     } else {
@@ -668,7 +940,9 @@ export function createGunController({
             }
           } else {
             projectile.object.getWorldDirection(fallbackForward);
-            if (damageType === "Ion") {
+            if (hitEffectId === "chaingun_yellow_sparks") {
+              chaingunHitYellowSparks.spawnExplosion(projectile.object.position, fallbackForward);
+            } else if (damageType === "Ion") {
               ionHitBursts.spawnBurst(projectile.object.position, fallbackForward, effectScale);
             } else if (damageType === "Solar") {
               solarHitFlashes.spawnFlash(projectile.object.position, effectScale);
@@ -727,14 +1001,50 @@ export function createGunController({
         t <= fadeStartT ? 0 : THREE.MathUtils.clamp((t - fadeStartT) / Math.max(0.0001, 1 - fadeStartT), 0, 1);
       const fade = 1 - fadeT;
       const flicker = 0.92 + 0.08 * Math.sin((pulse.age / Math.max(0.0001, pulse.duration)) * 22);
-      pulse.outerMaterial.opacity = Math.max(0, HITSCAN_BEAM_OUTER_OPACITY * fade * fade * flicker);
-      pulse.innerMaterial.opacity = Math.max(0, HITSCAN_BEAM_INNER_OPACITY * fade * flicker);
+      if (pulse.outlineMaterial) {
+        pulse.outlineMaterial.opacity = Math.max(
+          0,
+          pulse.outlineBaseOpacity * fade * fade * (0.94 + flicker * 0.08)
+        );
+      }
+      pulse.outerMaterial.opacity = Math.max(0, pulse.outerBaseOpacity * fade * fade * flicker);
+      pulse.innerMaterial.opacity = Math.max(0, pulse.innerBaseOpacity * fade * flicker);
+      if (pulse.railSlugCoreMesh && pulse.railSlugShellMesh) {
+        const travelDuration = Math.max(0.0001, pulse.railSlugTravelDuration);
+        const travelT = THREE.MathUtils.clamp(pulse.age / travelDuration, 0, 1);
+        const easedTravelT = 1 - Math.pow(1 - travelT, 3);
+        const slugY = THREE.MathUtils.lerp(
+          -pulse.railSlugBeamDistance * 0.5,
+          pulse.railSlugBeamDistance * 0.5,
+          easedTravelT
+        );
+        pulse.railSlugCoreMesh.position.y = slugY;
+        pulse.railSlugShellMesh.position.y = slugY;
+
+        const postTravelFade =
+          travelT < 1
+            ? 1
+            : 1 -
+              THREE.MathUtils.clamp(
+                (pulse.age - travelDuration) / Math.max(0.0001, pulse.duration - travelDuration),
+                0,
+                1
+              );
+        pulse.railSlugCoreMaterial!.opacity = Math.max(0, 0.92 * fade * postTravelFade);
+        pulse.railSlugShellMaterial!.opacity = Math.max(
+          0,
+          0.46 * fade * (0.9 + flicker * 0.08) * postTravelFade
+        );
+      }
 
       if (pulse.age < pulse.duration) {
         continue;
       }
 
       pulse.root.removeFromParent();
+      pulse.railSlugCoreMaterial?.dispose();
+      pulse.railSlugShellMaterial?.dispose();
+      pulse.outlineMaterial?.dispose();
       pulse.outerMaterial.dispose();
       pulse.innerMaterial.dispose();
       activeHitscanBeamPulses.splice(i, 1);
@@ -745,9 +1055,14 @@ export function createGunController({
     plasmaMuzzleGlobs.update(deltaTime);
     voidMuzzleGlobs.update(deltaTime);
     voidSeekerMuzzleShadowBursts.update(deltaTime);
+    chaingunMuzzleSmokeBursts.update(deltaTime);
     frostMuzzleGlobs.update(deltaTime);
     hitSparkExplosions.update(deltaTime);
     plasmaArcHitSparkExplosions.update(deltaTime);
+    railgunBlueSparkBursts.update(deltaTime);
+    railgunImpactBlueSparkBursts.update(deltaTime);
+    chaingunMuzzleSparkFlashes.update(deltaTime);
+    chaingunHitYellowSparks.update(deltaTime);
     ionHitBursts.update(deltaTime);
     frostHitBursts.update(deltaTime);
     plasmaHitImplosions.update(deltaTime);
@@ -766,6 +1081,9 @@ export function createGunController({
     }
     for (const pulse of activeHitscanBeamPulses) {
       pulse.root.removeFromParent();
+      pulse.railSlugCoreMaterial?.dispose();
+      pulse.railSlugShellMaterial?.dispose();
+      pulse.outlineMaterial?.dispose();
       pulse.outerMaterial.dispose();
       pulse.innerMaterial.dispose();
     }
@@ -775,9 +1093,14 @@ export function createGunController({
     plasmaMuzzleGlobs.dispose();
     voidMuzzleGlobs.dispose();
     voidSeekerMuzzleShadowBursts.dispose();
+    chaingunMuzzleSmokeBursts.dispose();
     frostMuzzleGlobs.dispose();
     hitSparkExplosions.dispose();
     plasmaArcHitSparkExplosions.dispose();
+    railgunBlueSparkBursts.dispose();
+    railgunImpactBlueSparkBursts.dispose();
+    chaingunMuzzleSparkFlashes.dispose();
+    chaingunHitYellowSparks.dispose();
     ionHitBursts.dispose();
     frostHitBursts.dispose();
     plasmaHitImplosions.dispose();
@@ -790,6 +1113,7 @@ export function createGunController({
     scene.remove(hitscanBeamPulsesRoot);
     hitscanBeamOuterGeometry.dispose();
     hitscanBeamInnerGeometry.dispose();
+    railSlugGeometry.dispose();
 
     const uniqueFactories = new Set<ProjectileFactory>();
     for (const gun of normalizedGuns) {
@@ -866,6 +1190,13 @@ function normalizeGunDefinitions(guns: readonly GunDefinition[]): NormalizedGunD
               Math.max(0.001, interval)
             ),
           fireIntervalMultiplierScope: primaryProfile.fireIntervalMultiplierScope ?? "all_steps",
+          reloadAfterShots:
+            typeof primaryProfile.reloadAfterShots === "number" &&
+            Number.isFinite(primaryProfile.reloadAfterShots) &&
+            primaryProfile.reloadAfterShots > 0
+              ? Math.max(1, Math.floor(primaryProfile.reloadAfterShots))
+              : null,
+          reloadDurationSeconds: Math.max(0, primaryProfile.reloadDurationSeconds ?? 0),
           burstPhaseGroupId:
             typeof primaryProfile.burstPhaseGroupId === "number"
               ? Math.floor(primaryProfile.burstPhaseGroupId)
@@ -906,7 +1237,8 @@ function normalizeGunDefinitions(guns: readonly GunDefinition[]): NormalizedGunD
                     DEFAULT_HITSCAN_BEAM_HIT_SPARK_INTERVAL_SECONDS
                 ),
                 beamColor: primaryProfile.hitscanPulse.beamColor ?? 0x40ff6b,
-                beamCoreColor: primaryProfile.hitscanPulse.beamCoreColor ?? 0xeefff4
+                beamCoreColor: primaryProfile.hitscanPulse.beamCoreColor ?? 0xeefff4,
+                effectStyle: primaryProfile.hitscanPulse.effectStyle ?? "default"
               }
             : null,
           heatCost: Math.max(0, primaryProfile.heatCost ?? 0),

@@ -4,6 +4,7 @@ import { createLaserBoltFactory } from "../controllers/projectiles/LaserBoltFact
 import { createPlasmaBoltFactory } from "../controllers/projectiles/PlasmaBoltFactory";
 import { createSolarSeekerFactory } from "../controllers/projectiles/SolarSeekerFactory";
 import { createVoidSeekerFactory } from "../controllers/projectiles/VoidSeekerFactory";
+import { createChaingunBulletFactory } from "../controllers/projectiles/ChaingunBulletFactory";
 import type { ProjectileFactory } from "../controllers/projectiles/ProjectileTypes";
 import {
   getCannonPrimaryComponentDefinition,
@@ -44,6 +45,25 @@ export function createCannonPrimaryProjectileFactory(
       faction: config.faction,
       modelUrl: config.assets?.orbModelUrl,
       ...component.projectile
+    });
+  }
+
+  if (componentId === "rapid_chaingun_fire") {
+    return createChaingunBulletFactory({
+      faction: config.faction,
+      speed: component.projectile.speed,
+      lifetimeSeconds: component.projectile.lifetimeSeconds,
+      damage: component.projectile.damage,
+      damageType: component.projectile.damageType,
+      collisionRadius: 0.06,
+      bulletLength: 0.315,
+      bulletRadius: 0.054,
+      bulletColor: 0xf0c35a,
+      tailLength: 0.4,
+      tailWidth: 0.082,
+      tailHeadColor: 0xffe662,
+      tailTipColor: 0xff3a1a,
+      tailOpacity: 0.86
     });
   }
 
