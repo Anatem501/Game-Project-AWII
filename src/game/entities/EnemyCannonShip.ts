@@ -20,6 +20,8 @@ import { createCannonOverheatSteamEffect } from "../effects/CannonOverheatSteamE
 import { createPlayerThrusterEffect } from "../effects/PlayerThrusterEffect";
 import { createShieldBubbleEffect, type ShieldBubbleEffectOptions } from "../effects/ShieldBubbleEffect";
 import { createShipCryoFreezeSurfaceEffect } from "../effects/ShipCryoFreezeSurfaceEffect";
+import { createShipElectroshockArcEmitterEffect } from "../effects/ShipElectroshockArcEmitterEffect";
+import { createShipElectroshockSurfaceEffect } from "../effects/ShipElectroshockSurfaceEffect";
 import { createShipGunSparkBurstSystem } from "../effects/ShipGunSparkBurstSystem";
 import type {
   ProjectileFactory
@@ -139,6 +141,8 @@ export class EnemyCannonShip {
   private thrusterEffect: ReturnType<typeof createPlayerThrusterEffect> | null = null;
   private readonly centerPassPatrolPlanner: CenterPassEdgePatrolPlanner | null;
   private readonly cryoSurfaceEffect: ReturnType<typeof createShipCryoFreezeSurfaceEffect>;
+  private readonly electroshockSurfaceEffect: ReturnType<typeof createShipElectroshockSurfaceEffect>;
+  private readonly electroshockArcEmitterEffect: ReturnType<typeof createShipElectroshockArcEmitterEffect>;
 
   private readonly patrolCenter: THREE.Vector3;
   private readonly patrolPattern: "orbit" | "center_pass_edge";
@@ -250,6 +254,8 @@ export class EnemyCannonShip {
     this.root.position.copy(config.position ?? new THREE.Vector3());
     this.scene.add(this.root);
     this.cryoSurfaceEffect = createShipCryoFreezeSurfaceEffect(this.root);
+    this.electroshockSurfaceEffect = createShipElectroshockSurfaceEffect(this.root);
+    this.electroshockArcEmitterEffect = createShipElectroshockArcEmitterEffect(this.root);
     this.resources?.setHeatAddedListener((amount) => {
       this.status.applyHeatGain(amount);
     });
@@ -341,6 +347,9 @@ export class EnemyCannonShip {
       transformIncomingDamagePacket: (damagePacket) =>
         this.status.transformIncomingDamagePacket(damagePacket),
       onHit: (event) => {
+        if (event.worldHitPosition) {
+          this.electroshockSurfaceEffect.registerImpact(event.worldHitPosition);
+        }
         this.resources?.applyIncomingDamageHeat(
           event.damagePacket.damageType,
           event.breakdown.incomingBaseDamage
@@ -374,7 +383,7 @@ export class EnemyCannonShip {
     }
     this.status.syncMotionSample(this.worldForward, this.frameVelocity);
     this.status.update(deltaTime);
-    if (this.status.isCryofrozen()) {
+    if (!this.status.canControlFlight()) {
       const driftVelocity = this.status.getFrozenDriftVelocity(this.frameVelocity);
       if (driftVelocity) {
         this.root.position.addScaledVector(driftVelocity, deltaTime);
@@ -383,6 +392,7 @@ export class EnemyCannonShip {
 
     this.projectileRuntime.update(deltaTime);
     this.muzzleSparkBursts.update(deltaTime);
+    this.health.setShieldRechargeRateMultiplier(this.status.getShieldRechargeRateMultiplier());
     this.health.update(deltaTime);
     this.resources?.update(deltaTime);
     this.perception.update(deltaTime);
@@ -418,6 +428,16 @@ export class EnemyCannonShip {
       deltaTime,
       this.status.getCryoVisualIntensity01(),
       this.status.isCryofrozen()
+    );
+    this.electroshockSurfaceEffect.update(
+      deltaTime,
+      this.status.getElectroshockVisualIntensity01(),
+      this.status.isElectroshocked()
+    );
+    this.electroshockArcEmitterEffect.update(
+      deltaTime,
+      this.status.getElectroshockVisualIntensity01(),
+      this.status.isElectroshocked()
     );
     this.updateThrusterEffect(deltaTime);
   }
@@ -463,7 +483,7 @@ export class EnemyCannonShip {
   }
 
   faceTarget(deltaTime: number): boolean {
-    if (this.status.isCryofrozen()) {
+    if (!this.status.canControlFlight()) {
       return false;
     }
     if (!this.perception.predictAimTarget(
@@ -618,7 +638,7 @@ export class EnemyCannonShip {
   }
 
   updateEvadeMovement(deltaTime: number, strafeSign: 1 | -1): void {
-    if (this.status.isCryofrozen()) {
+    if (!this.status.canControlFlight()) {
       return;
     }
     if (!this.perception.tryCopyCurrentTargetWorld(this.targetWorld)) {
@@ -659,7 +679,7 @@ export class EnemyCannonShip {
   }
 
   canStartPrimaryAttack(): boolean {
-    if (this.status.isCryofrozen()) {
+    if (!this.status.canFireWeapons()) {
       return false;
     }
     if (this.resources && !this.resources.canFireCannons()) {
@@ -673,7 +693,7 @@ export class EnemyCannonShip {
   }
 
   tryExecutePrimaryAttack(): void {
-    if (this.status.isCryofrozen()) {
+    if (!this.status.canFireWeapons()) {
       return;
     }
     const wasActive = this.primaryAttackLoadout.isAttackActionActive();
@@ -772,6 +792,8 @@ export class EnemyCannonShip {
     this.cannonOverheatSteamEffect?.dispose();
     this.cannonOverheatSteamEffect = null;
     this.cryoSurfaceEffect.dispose();
+    this.electroshockSurfaceEffect.dispose();
+    this.electroshockArcEmitterEffect.dispose();
     this.resources?.setHeatAddedListener(null);
     this.thrusterEffect?.dispose();
     this.thrusterEffect = null;
@@ -783,7 +805,7 @@ export class EnemyCannonShip {
   }
 
   private spawnLaserBurstShot(): boolean {
-    if (this.status.isCryofrozen()) {
+    if (!this.status.canFireWeapons()) {
       return false;
     }
     const muzzles = this.muzzleRig.muzzles;
@@ -892,7 +914,7 @@ export class EnemyCannonShip {
     deltaTime: number,
     stopDistance: number
   ): void {
-    if (this.status.isCryofrozen()) {
+    if (!this.status.canControlFlight()) {
       return;
     }
     const adjustedSpeed = Math.max(0, speed * this.status.getMoveSpeedMultiplier());
@@ -930,7 +952,7 @@ export class EnemyCannonShip {
     speed: number,
     deltaTime: number
   ): void {
-    if (this.status.isCryofrozen()) {
+    if (!this.status.canControlFlight()) {
       return;
     }
     const adjustedSpeed = Math.max(0, speed * this.status.getMoveSpeedMultiplier());
@@ -947,7 +969,7 @@ export class EnemyCannonShip {
   }
 
   private coastForward(deltaTime: number, speed: number): void {
-    if (this.status.isCryofrozen()) {
+    if (!this.status.canControlFlight()) {
       return;
     }
     const adjustedSpeed = Math.max(0, speed * this.status.getMoveSpeedMultiplier());
@@ -966,7 +988,7 @@ export class EnemyCannonShip {
   }
 
   private moveAlongDirection(direction: THREE.Vector3, speed: number, deltaTime: number): void {
-    if (this.status.isCryofrozen()) {
+    if (!this.status.canControlFlight()) {
       return;
     }
     const adjustedSpeed = Math.max(0, speed * this.status.getMoveSpeedMultiplier());

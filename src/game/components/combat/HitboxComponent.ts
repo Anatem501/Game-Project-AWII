@@ -61,12 +61,27 @@ export function createHitboxComponent(config: HitboxConfig): HitboxComponent {
       .filter((segment) => segment.amount > 0) ?? [];
   const statusPayloads =
     config.statusPayloads
-      ?.map((payload) =>
-        payload.kind === "cryo_buildup"
-          ? { kind: payload.kind, amount: Math.max(0, payload.amount) }
-          : payload
-      )
-      .filter((payload) => payload.kind !== "cryo_buildup" || payload.amount > 0) ?? [];
+      ?.map((payload) => {
+        if (payload.kind === "cryo_buildup") {
+          return { kind: payload.kind, amount: Math.max(0, payload.amount) };
+        }
+        if (payload.kind === "electroshock_on_hit") {
+          return {
+            kind: payload.kind,
+            chance01: THREE.MathUtils.clamp(payload.chance01, 0, 1)
+          };
+        }
+        return payload;
+      })
+      .filter((payload) => {
+        if (payload.kind === "cryo_buildup") {
+          return payload.amount > 0;
+        }
+        if (payload.kind === "electroshock_on_hit") {
+          return payload.chance01 > 0;
+        }
+        return false;
+      }) ?? [];
 
   let enabled = config.enabled ?? true;
   let hitCount = 0;

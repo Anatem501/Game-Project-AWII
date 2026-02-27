@@ -10,6 +10,10 @@ export type StatusPayload =
   | {
       kind: "cryo_buildup";
       amount: number;
+    }
+  | {
+      kind: "electroshock_on_hit";
+      chance01: number;
     };
 
 export type DamagePacket = {

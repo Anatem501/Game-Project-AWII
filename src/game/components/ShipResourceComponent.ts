@@ -1,4 +1,4 @@
-import { normalizeDamageTypeKey, type DamageType } from "./combat/DamageTypes";
+/*import { normalizeDamageTypeKey, type DamageType } from "./combat/DamageTypes";
 
 const DEFAULT_MIN_ENERGY_RATIO = 0.5;
 const DEFAULT_PLASMA_HEAT_PER_DAMAGE = 0.6;

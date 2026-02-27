@@ -9,6 +9,8 @@ export type HitboxCollisionEvent = {
 
 const hitboxCenter = new THREE.Vector3();
 const hurtboxCenter = new THREE.Vector3();
+const impactDirection = new THREE.Vector3();
+const impactPoint = new THREE.Vector3();
 
 export function resolveHitboxAgainstHurtboxes(
   hitbox: HitboxComponent | undefined,
@@ -46,7 +48,18 @@ export function resolveHitboxAgainstHurtboxes(
       continue;
     }
 
-    const hitResult = hurtbox.receiveDamage(hitbox.getDamagePacket());
+    impactDirection.subVectors(hitboxCenter, hurtboxCenter);
+    if (impactDirection.lengthSq() <= 0.000001) {
+      impactPoint.copy(hurtboxCenter);
+    } else {
+      impactPoint
+        .copy(impactDirection)
+        .normalize()
+        .multiplyScalar(Math.max(0, hurtbox.collisionArea.radius))
+        .add(hurtboxCenter);
+    }
+
+    const hitResult = hurtbox.receiveDamage(hitbox.getDamagePacket(), impactPoint);
     if (!hitResult) {
       continue;
     }

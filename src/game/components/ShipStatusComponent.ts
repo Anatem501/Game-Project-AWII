@@ -4,6 +4,7 @@ import type { DamagePacket } from "./combat/CombatTypes";
 import { normalizeDamageTypeKey } from "./combat/DamageTypes";
 
 const CRYO_DAMAGE_TYPE_KEY = normalizeDamageTypeKey("Cryo");
+const ION_DAMAGE_TYPE_KEY = normalizeDamageTypeKey("Ion");
 const PLASMA_DAMAGE_TYPE_KEY = normalizeDamageTypeKey("Plasma");
 const VOID_DAMAGE_TYPE_KEY = normalizeDamageTypeKey("Void");
 
@@ -16,6 +17,10 @@ const DEFAULT_CRYO_POST_FROZEN_GAIN_LOCKOUT_SECONDS = 5;
 const DEFAULT_PLASMA_DAMAGE_TAKEN_MULTIPLIER_WHEN_FROZEN = 1.4;
 const DEFAULT_CRYO_DAMAGE_TAKEN_MULTIPLIER_WHEN_FROZEN = 1.2;
 const DEFAULT_VOID_DAMAGE_TAKEN_MULTIPLIER_WHEN_FROZEN = 1.2;
+const DEFAULT_ELECTROSHOCK_INTERRUPT_DURATION_SECONDS = 0.4;
+const DEFAULT_ELECTROSHOCK_IMMUNITY_SECONDS = 10;
+const ELECTROSHOCK_IMMUNITY_TRIGGER_HIT_COUNT = 4;
+const ELECTROSHOCK_IMMUNITY_TRIGGER_WINDOW_SECONDS = 4;
 
 export type ShipStatusConfig = {
   cryoCapacity?: number;
@@ -27,6 +32,8 @@ export type ShipStatusConfig = {
   plasmaDamageTakenMultiplierWhenCryofrozen?: number;
   cryoDamageTakenMultiplierWhenCryofrozen?: number;
   voidDamageTakenMultiplierWhenCryofrozen?: number;
+  electroshockInterruptDurationSeconds?: number;
+  electroshockImmunitySeconds?: number;
 };
 
 export type ShipCryoStatusSnapshot = {
@@ -44,8 +51,31 @@ export type ShipCryoStatusSnapshot = {
   voidDamageTakenMultiplier: number;
 };
 
+export type ShipElectroshockStatusSnapshot = {
+  meter: number;
+  capacity: number;
+  ratio01: number;
+  electroshocked: boolean;
+  canGainBuildup: boolean;
+  passiveClearDelaySecondsRemaining: number;
+  activeSecondsRemaining: number;
+  immunitySecondsRemaining: number;
+  interruptSecondsRemaining: number;
+  shieldRechargeRateMultiplier: number;
+  controlDisabled: boolean;
+  fireDisabled: boolean;
+  equipmentDisabled: boolean;
+};
+
+export type ShipInterruptionSnapshot = {
+  active: boolean;
+  secondsRemaining: number;
+};
+
 export type ShipStatusSnapshot = {
   cryo: ShipCryoStatusSnapshot;
+  electroshock: ShipElectroshockStatusSnapshot;
+  interruption: ShipInterruptionSnapshot;
 };
 
 export type ShipStatusComponent = {
@@ -58,6 +88,15 @@ export type ShipStatusComponent = {
   isCryofrozen: () => boolean;
   getCryofreezeMeter: () => number;
   getCryoVisualIntensity01: () => number;
+  isElectroshocked: () => boolean;
+  getElectroshockMeter: () => number;
+  getElectroshockVisualIntensity01: () => number;
+  isInterrupted: () => boolean;
+  getInterruptSecondsRemaining: () => number;
+  canControlFlight: () => boolean;
+  canFireWeapons: () => boolean;
+  canUseEquipment: () => boolean;
+  getShieldRechargeRateMultiplier: () => number;
   getMoveSpeedMultiplier: () => number;
   getTurnRateMultiplier: () => number;
   getLockedAimForward: (out: THREE.Vector3) => THREE.Vector3 | null;
@@ -103,6 +142,14 @@ export function createShipStatusComponent(config: ShipStatusConfig = {}): ShipSt
     config.voidDamageTakenMultiplierWhenCryofrozen ??
       DEFAULT_VOID_DAMAGE_TAKEN_MULTIPLIER_WHEN_FROZEN
   );
+  const electroshockInterruptDurationSeconds = Math.max(
+    0,
+    config.electroshockInterruptDurationSeconds ?? DEFAULT_ELECTROSHOCK_INTERRUPT_DURATION_SECONDS
+  );
+  const electroshockImmunitySeconds = Math.max(
+    0,
+    config.electroshockImmunitySeconds ?? DEFAULT_ELECTROSHOCK_IMMUNITY_SECONDS
+  );
 
   const motionForwardSample = new THREE.Vector3(0, 0, -1);
   const motionVelocitySample = new THREE.Vector3();
@@ -113,11 +160,28 @@ export function createShipStatusComponent(config: ShipStatusConfig = {}): ShipSt
   let cryofrozen = false;
   let timeSinceCryoGainSeconds = Number.POSITIVE_INFINITY;
   let cryoPostFrozenGainLockoutSecondsRemaining = 0;
+  let electroshocked = false;
+  let electroshockImmunitySecondsRemaining = 0;
+  let interruptSecondsRemaining = 0;
+  const electroshockInterruptHitAgesSeconds: number[] = [];
 
   const getCryoRatio01 = (): number => THREE.MathUtils.clamp(cryoMeter / cryoCapacity, 0, 1);
+  const getElectroshockRatio01 = (): number => (electroshocked ? 1 : 0);
 
   const canGainCryoBuildup = (): boolean =>
     !cryofrozen && cryoPostFrozenGainLockoutSecondsRemaining <= 0;
+
+  const canApplyElectroshockProc = (): boolean => electroshockImmunitySecondsRemaining <= 0;
+
+  const isInterrupted = (): boolean => interruptSecondsRemaining > 0;
+
+  const canControlFlight = (): boolean => !cryofrozen;
+
+  const canFireWeapons = (): boolean => !cryofrozen && !isInterrupted();
+
+  const canUseEquipment = (): boolean => !cryofrozen;
+
+  const getShieldRechargeRateMultiplier = (): number => 1;
 
   const captureFrozenMotion = (): void => {
     frozenDriftVelocity.copy(motionVelocitySample);
@@ -173,6 +237,26 @@ export function createShipStatusComponent(config: ShipStatusConfig = {}): ShipSt
       enterCryofrozen();
     }
     return cryoMeter - before;
+  };
+
+  const pruneElectroshockInterruptHistory = (): void => {
+    for (let i = electroshockInterruptHitAgesSeconds.length - 1; i >= 0; i -= 1) {
+      if (electroshockInterruptHitAgesSeconds[i] > ELECTROSHOCK_IMMUNITY_TRIGGER_WINDOW_SECONDS) {
+        electroshockInterruptHitAgesSeconds.splice(i, 1);
+      }
+    }
+  };
+
+  const triggerElectroshockInterrupt = (): void => {
+    electroshocked = true;
+    interruptSecondsRemaining = electroshockInterruptDurationSeconds;
+    electroshockInterruptHitAgesSeconds.push(0);
+    pruneElectroshockInterruptHistory();
+    if (electroshockInterruptHitAgesSeconds.length <= ELECTROSHOCK_IMMUNITY_TRIGGER_HIT_COUNT) {
+      return;
+    }
+    electroshockImmunitySecondsRemaining = electroshockImmunitySeconds;
+    electroshockInterruptHitAgesSeconds.length = 0;
   };
 
   const transformIncomingDamagePacket = (damagePacket: DamagePacket): DamagePacket => {
@@ -250,29 +334,39 @@ export function createShipStatusComponent(config: ShipStatusConfig = {}): ShipSt
           cryoPostFrozenGainLockoutSecondsRemaining - deltaTime
         );
       }
+      if (electroshockImmunitySecondsRemaining > 0) {
+        electroshockImmunitySecondsRemaining = Math.max(
+          0,
+          electroshockImmunitySecondsRemaining - deltaTime
+        );
+      }
+      interruptSecondsRemaining = Math.max(0, interruptSecondsRemaining - deltaTime);
+      for (let i = 0; i < electroshockInterruptHitAgesSeconds.length; i += 1) {
+        electroshockInterruptHitAgesSeconds[i] += deltaTime;
+      }
+      pruneElectroshockInterruptHistory();
 
       if (cryoMeter <= 0) {
         timeSinceCryoGainSeconds = Number.POSITIVE_INFINITY;
-        return;
-      }
-
-      if (cryofrozen) {
+      } else if (cryofrozen) {
         removeCryoMeter(cryoFrozenClearPerSecond * deltaTime);
-        return;
+      } else {
+        timeSinceCryoGainSeconds += deltaTime;
+        if (timeSinceCryoGainSeconds >= cryoPassiveClearDelaySeconds) {
+          removeCryoMeter(cryoPassiveClearPerSecond * deltaTime);
+        }
       }
-
-      timeSinceCryoGainSeconds += deltaTime;
-      if (timeSinceCryoGainSeconds < cryoPassiveClearDelaySeconds) {
-        return;
-      }
-
-      removeCryoMeter(cryoPassiveClearPerSecond * deltaTime);
+      electroshocked = interruptSecondsRemaining > 0;
     },
     reset: (): void => {
       cryoMeter = 0;
       cryofrozen = false;
       timeSinceCryoGainSeconds = Number.POSITIVE_INFINITY;
       cryoPostFrozenGainLockoutSecondsRemaining = 0;
+      electroshocked = false;
+      electroshockImmunitySecondsRemaining = 0;
+      interruptSecondsRemaining = 0;
+      electroshockInterruptHitAgesSeconds.length = 0;
       frozenDriftVelocity.set(0, 0, 0);
       frozenLockedAimForward.set(0, 0, -1);
       motionForwardSample.set(0, 0, -1);
@@ -289,43 +383,73 @@ export function createShipStatusComponent(config: ShipStatusConfig = {}): ShipSt
     },
     applyHeatGain: (amount: number): number => removeCryoMeter(amount),
     applyHitStatusPayloads: (damagePacket: DamagePacket, breakdown: DamageBreakdown): void => {
-      if (!damagePacket.statusPayloads || damagePacket.statusPayloads.length <= 0) {
-        return;
-      }
       const totalLandedDamage = Math.max(
         0,
         breakdown.toShield + breakdown.toArmor + breakdown.toHull
       );
-      const cryoEligibleLandedDamage = Math.max(0, breakdown.toArmor + breakdown.toHull);
-      const nonShieldRatio =
-        totalLandedDamage > 0 ? cryoEligibleLandedDamage / totalLandedDamage : 0;
-      if (nonShieldRatio <= 0) {
+      if (totalLandedDamage <= 0) {
         return;
       }
 
+      if (!damagePacket.statusPayloads || damagePacket.statusPayloads.length <= 0) {
+        return;
+      }
+
+      const cryoEligibleLandedDamage = Math.max(0, breakdown.toArmor + breakdown.toHull);
+      const nonShieldRatio =
+        totalLandedDamage > 0 ? cryoEligibleLandedDamage / totalLandedDamage : 0;
+      const electroshockEligibleLandedDamage = cryoEligibleLandedDamage;
+      const canAttemptElectroshockProc =
+        canApplyElectroshockProc() &&
+        breakdown.toShield <= 0 &&
+        electroshockEligibleLandedDamage > 0;
+
       let cryoBuildupToApply = 0;
+      let shouldApplyElectroshock = false;
       for (const payload of damagePacket.statusPayloads) {
-        if (payload.kind !== "cryo_buildup") {
+        if (payload.kind === "cryo_buildup") {
+          if (nonShieldRatio > 0) {
+            cryoBuildupToApply += Math.max(0, payload.amount) * nonShieldRatio;
+          }
           continue;
         }
-        cryoBuildupToApply += Math.max(0, payload.amount) * nonShieldRatio;
+        if (payload.kind === "electroshock_on_hit" && canAttemptElectroshockProc) {
+          const chance01 = THREE.MathUtils.clamp(payload.chance01, 0, 1);
+          if (Math.random() < chance01) {
+            shouldApplyElectroshock = true;
+            break;
+          }
+        }
       }
       if (cryoBuildupToApply > 0) {
         addCryoMeter(cryoBuildupToApply);
+      }
+      if (shouldApplyElectroshock) {
+        triggerElectroshockInterrupt();
       }
     },
     transformIncomingDamagePacket,
     isCryofrozen: (): boolean => cryofrozen,
     getCryofreezeMeter: (): number => cryoMeter,
     getCryoVisualIntensity01: (): number => getCryoRatio01(),
+    isElectroshocked: (): boolean => electroshocked,
+    getElectroshockMeter: (): number => (electroshocked ? 1 : 0),
+    getElectroshockVisualIntensity01: (): number => getElectroshockRatio01(),
+    isInterrupted,
+    getInterruptSecondsRemaining: (): number =>
+      isInterrupted() ? interruptSecondsRemaining : 0,
+    canControlFlight,
+    canFireWeapons,
+    canUseEquipment,
+    getShieldRechargeRateMultiplier,
     getMoveSpeedMultiplier: (): number => {
-      if (cryofrozen) {
+      if (!canControlFlight()) {
         return 0;
       }
       return 1 - getCryoRatio01() * cryoMaxSpeedReduction;
     },
     getTurnRateMultiplier: (): number => {
-      if (cryofrozen) {
+      if (!canControlFlight()) {
         return 0;
       }
       return 1 - getCryoRatio01() * cryoMaxSpeedReduction;
@@ -344,9 +468,11 @@ export function createShipStatusComponent(config: ShipStatusConfig = {}): ShipSt
     },
     getSnapshot: (): ShipStatusSnapshot => {
       const ratio01 = getCryoRatio01();
+      const electroshockRatio01 = getElectroshockRatio01();
       const passiveClearDelaySecondsRemaining = cryofrozen
         ? 0
         : Math.max(0, cryoPassiveClearDelaySeconds - timeSinceCryoGainSeconds);
+      const interruptionSecondsRemaining = isInterrupted() ? interruptSecondsRemaining : 0;
 
       return {
         cryo: {
@@ -366,6 +492,25 @@ export function createShipStatusComponent(config: ShipStatusConfig = {}): ShipSt
             : 1,
           cryoDamageTakenMultiplier: cryofrozen ? cryoDamageTakenMultiplierWhenCryofrozen : 1,
           voidDamageTakenMultiplier: cryofrozen ? voidDamageTakenMultiplierWhenCryofrozen : 1
+        },
+        electroshock: {
+          meter: electroshocked ? 1 : 0,
+          capacity: 1,
+          ratio01: electroshockRatio01,
+          electroshocked,
+          canGainBuildup: canApplyElectroshockProc(),
+          passiveClearDelaySecondsRemaining: 0,
+          activeSecondsRemaining: electroshocked ? interruptSecondsRemaining : 0,
+          immunitySecondsRemaining: electroshockImmunitySecondsRemaining,
+          interruptSecondsRemaining: interruptionSecondsRemaining,
+          shieldRechargeRateMultiplier: getShieldRechargeRateMultiplier(),
+          controlDisabled: !canControlFlight(),
+          fireDisabled: !canFireWeapons(),
+          equipmentDisabled: !canUseEquipment()
+        },
+        interruption: {
+          active: interruptionSecondsRemaining > 0,
+          secondsRemaining: interruptionSecondsRemaining
         }
       };
     }
@@ -381,6 +526,17 @@ export function damagePacketHasCryoBuildupPayload(damagePacket: DamagePacket): b
   );
 }
 
+export function damagePacketHasElectroshockOnHitPayload(damagePacket: DamagePacket): boolean {
+  if (!damagePacket.statusPayloads || damagePacket.statusPayloads.length <= 0) {
+    return false;
+  }
+  return damagePacket.statusPayloads.some(
+    (payload) =>
+      payload.kind === "electroshock_on_hit" &&
+      THREE.MathUtils.clamp(payload.chance01, 0, 1) > 0
+  );
+}
+
 export function damagePacketIsCryoDamage(damagePacket: DamagePacket): boolean {
   if (normalizeDamageTypeKey(damagePacket.damageType) === CRYO_DAMAGE_TYPE_KEY) {
     return true;
@@ -389,6 +545,18 @@ export function damagePacketIsCryoDamage(damagePacket: DamagePacket): boolean {
     damagePacket.segments?.some(
       (segment) =>
         segment.amount > 0 && normalizeDamageTypeKey(segment.damageType) === CRYO_DAMAGE_TYPE_KEY
+    ) ?? false
+  );
+}
+
+export function damagePacketIsIonDamage(damagePacket: DamagePacket): boolean {
+  if (normalizeDamageTypeKey(damagePacket.damageType) === ION_DAMAGE_TYPE_KEY) {
+    return true;
+  }
+  return (
+    damagePacket.segments?.some(
+      (segment) =>
+        segment.amount > 0 && normalizeDamageTypeKey(segment.damageType) === ION_DAMAGE_TYPE_KEY
     ) ?? false
   );
 }

@@ -14,6 +14,7 @@ export type HurtboxHitResult = {
 
 export type HurtboxHitEvent = HurtboxHitResult & {
   hurtboxId: string;
+  worldHitPosition?: THREE.Vector3;
 };
 
 export type HurtboxConfig = {
@@ -38,7 +39,10 @@ export type HurtboxComponent = {
   isEnabled: () => boolean;
   canReceiveDamage: () => boolean;
   getWorldCenter: (out: THREE.Vector3) => THREE.Vector3;
-  receiveDamage: (damagePacket: DamagePacket) => HurtboxHitResult | null;
+  receiveDamage: (
+    damagePacket: DamagePacket,
+    worldHitPosition?: THREE.Vector3
+  ) => HurtboxHitResult | null;
 };
 
 let nextHurtboxId = 0;
@@ -60,7 +64,10 @@ export function createHurtboxComponent(config: HurtboxConfig): HurtboxComponent 
     return out.copy(localOffset).applyMatrix4(config.owner.matrixWorld);
   };
 
-  const receiveDamage = (damagePacket: DamagePacket): HurtboxHitResult | null => {
+  const receiveDamage = (
+    damagePacket: DamagePacket,
+    worldHitPosition?: THREE.Vector3
+  ): HurtboxHitResult | null => {
     if (!enabled) {
       return null;
     }
@@ -103,7 +110,8 @@ export function createHurtboxComponent(config: HurtboxConfig): HurtboxComponent 
       breakdown,
       damagePacket: transformedDamagePacket,
       snapshot,
-      hurtboxId: id
+      hurtboxId: id,
+      worldHitPosition: worldHitPosition?.clone()
     };
     config.onHit?.(event);
     return { breakdown, damagePacket: transformedDamagePacket, snapshot };

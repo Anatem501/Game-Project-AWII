@@ -34,6 +34,7 @@ type PlayerControllerParams = {
   trueAimReticle: THREE.Object3D;
   builtInEquipmentAbility?: PlayerBuiltInEquipmentAbility | null;
   getLockedAimForward?: (out: THREE.Vector3) => THREE.Vector3 | null;
+  canUseBuiltInEquipment?: () => boolean;
 };
 
 export type PlayerControllerState = ShipControllerState;
@@ -55,7 +56,8 @@ export function createPlayerController({
   inputAimReticle,
   trueAimReticle,
   builtInEquipmentAbility = null,
-  getLockedAimForward
+  getLockedAimForward,
+  canUseBuiltInEquipment
 }: PlayerControllerParams): PlayerController {
   const pressedKeys = new Set<string>();
   const pointerNdc = new THREE.Vector2(0, 0);
@@ -81,6 +83,11 @@ export function createPlayerController({
   const onKeyDown = (event: KeyboardEvent): void => {
     const key = event.key.toLowerCase();
     if (builtInEquipmentAbility && key === BUILT_IN_EQUIPMENT_TRIGGER_KEY) {
+      if (canUseBuiltInEquipment && !canUseBuiltInEquipment()) {
+        builtInEquipmentAbility.onInputsCleared();
+        event.preventDefault();
+        return;
+      }
       builtInEquipmentAbility.onTriggerPressed({ pressedKeys, repeat: event.repeat });
       event.preventDefault();
       return;
@@ -160,6 +167,9 @@ export function createPlayerController({
 
   const update = (deltaTime: number, camera: THREE.PerspectiveCamera): PlayerControllerState => {
     const currentShipState = shipController.getState();
+    if (builtInEquipmentAbility && canUseBuiltInEquipment && !canUseBuiltInEquipment()) {
+      builtInEquipmentAbility.onInputsCleared();
+    }
     builtInEquipmentAbility?.update(Math.max(0, deltaTime));
 
     if (deltaTime <= 0) {

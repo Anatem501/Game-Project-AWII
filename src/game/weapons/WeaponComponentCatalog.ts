@@ -223,7 +223,7 @@ const CANNON_PRIMARY_COMPONENTS: Record<
       emissive: 0xa8601f,
       emissiveIntensity: 0.82,
       speed: 58,
-      lifetimeSeconds: 1.35,
+      lifetimeSeconds: 1.5,
       length: 0.28,
       thickness: 0.09,
       damage: 20,
@@ -357,7 +357,7 @@ const CANNON_PRIMARY_COMPONENTS: Record<
     weaponType: "Cannons",
     fireType: "Primary",
     damageType: "Ion",
-    energyCost: 4,
+    energyCost: 2,
     description:
       "Electrified ionbolt stream with layered glow and animated electrical arcs for sustained suppression.",
     projectile: {
@@ -370,6 +370,7 @@ const CANNON_PRIMARY_COMPONENTS: Record<
       thickness: 0.06,
       damage: 8,
       damageType: "Ion",
+      statusPayloads: [{ kind: "electroshock_on_hit", chance01: 0.1 }],
       collisionRadius: 0.08
     }
   },
@@ -445,6 +446,7 @@ const CANNON_PRIMARY_COMPONENTS: Record<
       thickness: 0.12,
       damage: 8,
       damageType: "Ion",
+      statusPayloads: [{ kind: "electroshock_on_hit", chance01: 0.1 }],
       collisionRadius: 0.15
     }
   },
@@ -457,7 +459,7 @@ const CANNON_PRIMARY_COMPONENTS: Record<
     heatCost: 1,
     energyCost: 0,
     fireIntervalSeconds: 0.4,
-    reloadAfterShots: 20,
+    reloadAfterShots: 8,
     reloadDurationSeconds: 2,
     shareReloadAcrossHardpoints: false,
     description:
@@ -470,7 +472,7 @@ const CANNON_PRIMARY_COMPONENTS: Record<
       lifetimeSeconds: 2.2,
       length: 0.1265625,
       thickness: 0.031640625,
-      damage: 6,
+      damage: 4,
       damageType: "Acid",
       collisionRadius: 0.038671875
     }
