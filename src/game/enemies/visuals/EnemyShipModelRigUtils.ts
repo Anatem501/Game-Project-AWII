@@ -208,6 +208,17 @@ function parseMissileCellSocketName(
   name: string
 ): { bayIndex: number; cellIndex: number } | null {
   const compactName = name.replace(/\s+/g, "").replace(/\.\d+$/, "");
+  const normalizedAlnumName = compactName.replace(/[^a-zA-Z0-9]/g, "");
+
+  // Explicit support for names like: MissileBay01-Cell02
+  const explicitDashDelimitedMatch = compactName.match(/^MissileBay(\d+)-Cell(\d+)$/i);
+  if (explicitDashDelimitedMatch) {
+    const bayIndex = Number.parseInt(explicitDashDelimitedMatch[1], 10);
+    const cellIndex = Number.parseInt(explicitDashDelimitedMatch[2], 10);
+    if (Number.isFinite(bayIndex) && Number.isFinite(cellIndex)) {
+      return { bayIndex, cellIndex };
+    }
+  }
 
   const bayCellMatch = compactName.match(
     /^Missile(?:[_-])?Bay(?:[_-])?(\d+)(?:[_-])?Cell(?:[_-])?(\d+)$/i
@@ -215,6 +226,17 @@ function parseMissileCellSocketName(
   if (bayCellMatch) {
     const bayIndex = Number.parseInt(bayCellMatch[1], 10);
     const cellIndex = Number.parseInt(bayCellMatch[2], 10);
+    if (Number.isFinite(bayIndex) && Number.isFinite(cellIndex)) {
+      return { bayIndex, cellIndex };
+    }
+  }
+
+  // Separator-insensitive fallback for variants like:
+  // MissileBay01_Cell02, MissileBay01Cell02, MissileBay01-Cell02-Socket
+  const normalizedBayCellMatch = normalizedAlnumName.match(/^MissileBay(\d+)Cell(\d+)$/i);
+  if (normalizedBayCellMatch) {
+    const bayIndex = Number.parseInt(normalizedBayCellMatch[1], 10);
+    const cellIndex = Number.parseInt(normalizedBayCellMatch[2], 10);
     if (Number.isFinite(bayIndex) && Number.isFinite(cellIndex)) {
       return { bayIndex, cellIndex };
     }
@@ -228,9 +250,25 @@ function parseMissileCellSocketName(
     }
   }
 
+  const normalizedCellOnlyMatch = normalizedAlnumName.match(/^MissileCell(\d+)$/i);
+  if (normalizedCellOnlyMatch) {
+    const cellIndex = Number.parseInt(normalizedCellOnlyMatch[1], 10);
+    if (Number.isFinite(cellIndex)) {
+      return { bayIndex: 1, cellIndex };
+    }
+  }
+
   const missileOnlyMatch = compactName.match(/^Missile(?:[_-])?(\d+)$/i);
   if (missileOnlyMatch) {
     const cellIndex = Number.parseInt(missileOnlyMatch[1], 10);
+    if (Number.isFinite(cellIndex)) {
+      return { bayIndex: 1, cellIndex };
+    }
+  }
+
+  const normalizedMissileOnlyMatch = normalizedAlnumName.match(/^Missile(\d+)$/i);
+  if (normalizedMissileOnlyMatch) {
+    const cellIndex = Number.parseInt(normalizedMissileOnlyMatch[1], 10);
     if (Number.isFinite(cellIndex)) {
       return { bayIndex: 1, cellIndex };
     }
