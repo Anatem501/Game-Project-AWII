@@ -128,7 +128,7 @@ const CANNON_PRIMARY_COMPONENTS: Record<
     weaponType: "Cannons",
     fireType: "Primary",
     damageType: "Laser",
-    energyCost: 3,
+    energyCost: 1,
     description:
       "Standard green laserbolt stream used by current ship loadouts. Reliable baseline primary fire.",
     projectile: {
