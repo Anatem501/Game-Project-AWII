@@ -13,6 +13,8 @@ import vagabondM2ShipModelUrl from "../../assets/models/Vagabond-m2-Ship-V01.glb
 import azureArrowV2ShipModelUrl from "../../assets/models/Azure-Arrow-V2-ship-v02.glb?url";
 import bearclawMk2ShipModelUrl from "../../assets/models/AC-Bearclaw-mkII-Ship-V01.glb?url";
 import mx4LancerShipModelUrl from "../../assets/models/Mx4-Lancer-Ship-v01.glb?url";
+import b2SparrowhawkShipModelUrl from "../../assets/models/B2-Sparrowhawk-Ship-v01.glb?url";
+import haulerT2ShipModelUrl from "../../assets/models/Hauler-T-2-Ship-v01.glb?url";
 
 export type ShipMissileBayDefinition = {
   id: string;
@@ -123,6 +125,48 @@ const MX4_LANCER_MISSILE_BAYS: readonly ShipMissileBayDefinition[] = [
     displayName: "Missile Bay 4",
     defaultPayloadComponentId: "concussive_swarm_missiles",
     maxCells: 6
+  }
+] as const;
+
+const B2_SPARROWHAWK_GUN_HARDPOINTS: readonly THREE.Vector3[] = [
+  new THREE.Vector3(0, 0, 0),
+  new THREE.Vector3(0, 0, 0),
+  new THREE.Vector3(0, 0, 0)
+];
+
+const B2_SPARROWHAWK_CANNON_MOUNTS: readonly ShipCannonMountDefinition[] = [
+  {
+    id: "cannon_mount_1",
+    displayName: "Cannons Primary Fire 1",
+    defaultPrimaryComponentId: DEFAULT_CANNON_PRIMARY_COMPONENT_ID
+  },
+  {
+    id: "cannon_mount_2",
+    displayName: "Cannons Primary Fire 2",
+    defaultPrimaryComponentId: DEFAULT_CANNON_PRIMARY_COMPONENT_ID
+  },
+  {
+    id: "cannon_mount_3",
+    displayName: "Cannons Primary Fire 3",
+    defaultPrimaryComponentId: DEFAULT_CANNON_PRIMARY_COMPONENT_ID
+  }
+] as const;
+
+const HAULER_T2_GUN_HARDPOINTS: readonly THREE.Vector3[] = [
+  new THREE.Vector3(0, 0, 0),
+  new THREE.Vector3(0, 0, 0)
+];
+
+const HAULER_T2_CANNON_MOUNTS: readonly ShipCannonMountDefinition[] = [
+  {
+    id: "cannon_mount_1",
+    displayName: "Cannons Primary Fire 1",
+    defaultPrimaryComponentId: DEFAULT_CANNON_PRIMARY_COMPONENT_ID
+  },
+  {
+    id: "cannon_mount_2",
+    displayName: "Cannons Primary Fire 2",
+    defaultPrimaryComponentId: DEFAULT_CANNON_PRIMARY_COMPONENT_ID
   }
 ] as const;
 
@@ -342,10 +386,83 @@ const MX4_LANCER: ShipDefinition = {
   }
 };
 
+const B2_SPARROWHAWK: ShipDefinition = {
+  id: "b2_sparrowhawk",
+  displayName: "B2-Sparrowhawk",
+  description: "Triple-cannon strike fighter built around high-precision hardpoint sockets.",
+  previewTintHex: 0xcd8fff,
+  modelUrl: b2SparrowhawkShipModelUrl,
+  modelYawOffset: 0,
+  modelSizeMultiplier: 1.6,
+  gunHardpointLocalOffsets: B2_SPARROWHAWK_GUN_HARDPOINTS,
+  autoAlignGunHardpointsToModel: false,
+  cannonMounts: B2_SPARROWHAWK_CANNON_MOUNTS,
+  thrusterVisualPreset: "purple_rectangular",
+  thrusterEffectScale: 0.4698,
+  thrusterTrailLengthScale: 0.24,
+  defaultGunFireIntervalSeconds: 0.2,
+  defaultLoadout: ["Tri Laser Cannons", "Target Assist Link", "Combat Stabilizers"],
+  handling: {
+    topManeuveringSpeed: 6.2,
+    thrustSpeed: 7.9,
+    acceleration: 11.2,
+    deceleration: 4.3,
+    strafeAcceleration: 21.4,
+    strafeDeceleration: 16.2
+  },
+  health: {
+    maxShield: 45,
+    maxArmor: 15,
+    maxHull: 95,
+    shieldChargeRate: 2.1,
+    shieldRechargeDelaySeconds: 3,
+    hullRepairRate: 0,
+    armorRepairRate: 0,
+    armorRepairEfficiency: 0.5
+  }
+};
+
+const HAULER_T2: ShipDefinition = {
+  id: "hauler_t2",
+  displayName: "Hauler T-2",
+  description: "Durable utility frame with twin cannon sockets and broad rear thruster spread.",
+  previewTintHex: 0x9cc4ff,
+  modelUrl: haulerT2ShipModelUrl,
+  modelYawOffset: Math.PI * 0.5,
+  modelSizeMultiplier: 1.8,
+  gunHardpointLocalOffsets: HAULER_T2_GUN_HARDPOINTS,
+  autoAlignGunHardpointsToModel: false,
+  cannonMounts: HAULER_T2_CANNON_MOUNTS,
+  thrusterEffectScale: 0.54,
+  thrusterTrailLengthScale: 0.27,
+  defaultGunFireIntervalSeconds: 0.24,
+  defaultLoadout: ["Utility Twin Cannons", "Cargo Stabilizer Grid", "Reinforced Plating"],
+  handling: {
+    topManeuveringSpeed: 5.1,
+    thrustSpeed: 6.6,
+    acceleration: 9.2,
+    deceleration: 4.4,
+    strafeAcceleration: 16.8,
+    strafeDeceleration: 13.9
+  },
+  health: {
+    maxShield: 20,
+    maxArmor: 50,
+    maxHull: 130,
+    shieldChargeRate: 1.8,
+    shieldRechargeDelaySeconds: 3.4,
+    hullRepairRate: 0,
+    armorRepairRate: 0,
+    armorRepairEfficiency: 0.56
+  }
+};
+
 const SHIP_DEFINITIONS: readonly ShipDefinition[] = [
   TEST_FIGHTER,
   MX4_LANCER,
   SWIFT_INTERCEPTOR,
+  B2_SPARROWHAWK,
+  HAULER_T2,
   BEARCLAW_MK2
 ];
 

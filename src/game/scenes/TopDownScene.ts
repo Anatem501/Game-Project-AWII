@@ -1847,6 +1847,11 @@ function resolveRepeatingLaserboltPhaseSlots(shipId: string, cannonCount: number
     return [0, 0, 1, 1];
   }
 
+  if (shipId === "b2_sparrowhawk" && cannonCount === 3) {
+    // Fire pattern: [1,2] together, then [3].
+    return [0, 0, 1];
+  }
+
   if (shipId === "test_fighter") {
     return Array.from({ length: cannonCount }, (_, index) => index % 2);
   }
