@@ -126,6 +126,189 @@ canvas {
   grid-template-columns: minmax(240px, 1fr) minmax(360px, 1.45fr) minmax(240px, 1fr);
 }
 
+.ship-select-layout-control-config {
+  grid-template-columns: minmax(300px, 0.9fr) minmax(520px, 1.6fr);
+  align-items: stretch;
+}
+
+.control-config-wiring-panel {
+  position: relative;
+}
+
+.control-config-columns {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(260px, 1fr);
+  gap: 12px;
+}
+
+.control-config-column {
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+}
+
+.control-config-component-groups {
+  margin-top: 0.55rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.control-config-component-group {
+  border: 1px solid rgba(113, 176, 239, 0.24);
+  background: rgba(8, 34, 67, 0.55);
+  padding: 0.28rem 0.34rem 0.34rem;
+}
+
+.control-config-group-toggle {
+  width: 100%;
+  margin: 0;
+  padding: 0.34rem 0.42rem;
+  border: 1px solid rgba(139, 215, 255, 0.45);
+  background: rgba(32, 98, 160, 0.28);
+  color: #d8f1ff;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.control-config-group-toggle:hover {
+  filter: brightness(1.06);
+}
+
+.control-config-group-toggle.menu-focus {
+  outline: 2px solid #f8fdff;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px rgba(89, 196, 255, 0.55);
+}
+
+.control-config-group-socket-list {
+  margin-top: 0.4rem;
+}
+
+.control-config-tab-row {
+  margin-top: 0.55rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.control-config-tab {
+  margin-top: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.76rem;
+}
+
+.control-config-tab.is-active {
+  border-color: #8bd7ff;
+  background: linear-gradient(180deg, #66cdff, #1d9bff);
+  color: #06233f;
+}
+
+.control-config-socket-list {
+  list-style: none;
+  margin: 0.55rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.38rem;
+  flex: 1 1 auto;
+  align-content: start;
+}
+
+.control-config-column-footer {
+  margin-top: 0.55rem;
+}
+
+.control-config-row {
+  display: grid;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 42px;
+  padding: 0.32rem 0.36rem;
+  border: 1px solid rgba(113, 176, 239, 0.28);
+  background: rgba(12, 42, 80, 0.48);
+}
+
+.control-config-row-component {
+  grid-template-columns: 1fr auto;
+}
+
+.control-config-row-control {
+  grid-template-columns: auto 1fr;
+}
+
+.control-config-entry-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+}
+
+.control-config-entry-title {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #d9f0ff;
+}
+
+.control-config-entry-value {
+  font-size: 0.82rem;
+  color: #8fd6ff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.control-config-socket {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(139, 215, 255, 0.6);
+  background: radial-gradient(circle at 35% 35%, #c7ecff 20%, #3699d5 78%);
+  box-shadow: 0 0 0 1px rgba(7, 21, 37, 0.65) inset;
+  cursor: grab;
+}
+
+.control-config-socket:active {
+  cursor: grabbing;
+}
+
+.control-config-socket.is-connected {
+  border-color: rgba(140, 255, 168, 0.95);
+  box-shadow: 0 0 0 1px rgba(7, 21, 37, 0.65) inset, 0 0 10px rgba(121, 255, 168, 0.5);
+}
+
+.control-config-socket:focus-visible {
+  outline: 2px solid #f8fdff;
+  outline-offset: 2px;
+}
+
+.control-config-wire-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.control-config-wire {
+  fill: none;
+  stroke: rgba(108, 221, 255, 0.72);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.control-config-wire.is-dragging {
+  stroke: rgba(255, 201, 108, 0.9);
+  stroke-dasharray: 5 5;
+}
+
 .ship-info-column {
   border: 1px solid rgba(109, 182, 242, 0.36);
   background: rgba(7, 28, 59, 0.78);
@@ -264,12 +447,16 @@ canvas {
 }
 
 .menu-action-row-confirm {
-  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
 }
 
 .menu-action-row-ship-select {
   grid-template-columns: 2.4rem minmax(150px, 1fr) 2.4rem minmax(120px, 1fr);
   align-items: center;
+}
+
+.menu-action-row-control-config {
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
 }
 
 .menu-action-row .menu-button {
@@ -317,6 +504,18 @@ canvas {
   z-index: 1;
 }
 
+.ship-select-layout-confirm .component-panel-column {
+  display: flex;
+  flex-direction: column;
+}
+
+.ship-select-layout-confirm .component-panel-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .ship-select-layout-primary .ship-info-column {
   min-height: 438px;
 }
@@ -329,6 +528,10 @@ canvas {
 
 .component-panel-footer {
   margin-top: 0.55rem;
+}
+
+.ship-select-layout-confirm .component-panel-footer {
+  margin-top: auto;
 }
 
 .component-panel-footer .menu-button {
@@ -390,6 +593,10 @@ canvas {
 
   .ship-select-layout-primary,
   .ship-select-layout-confirm {
+    grid-template-columns: 1fr;
+  }
+
+  .control-config-columns {
     grid-template-columns: 1fr;
   }
 

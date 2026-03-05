@@ -6,7 +6,9 @@ import {
   DEFAULT_CANNON_PRIMARY_COMPONENT_ID,
   type CannonPrimaryComponentId,
   DEFAULT_MISSILE_BAY_COMPONENT_ID,
-  type MissileBayComponentId
+  type MissileBayComponentId,
+  DEFAULT_TORPEDO_COMPONENT_ID,
+  type TorpedoComponentId
 } from "../weapons/WeaponComponentCatalog";
 import playerModelUrl from "../../assets/models/SpaceShip V3.glb?url";
 import vagabondM2ShipModelUrl from "../../assets/models/Vagabond-m2-Ship-V01.glb?url";
@@ -29,6 +31,13 @@ export type ShipCannonMountDefinition = {
   id: string;
 };
 
+export type ShipTorpedoLauncherDefinition = {
+  id: string;
+  displayName: string;
+  defaultTorpedoComponentId: TorpedoComponentId;
+  maxLaunchers?: number;
+};
+
 export type ShipDefinition = {
   id: string;
   displayName: string;
@@ -46,12 +55,15 @@ export type ShipDefinition = {
   thrusterGlowOpacityScale?: number;
   cannonMounts?: readonly ShipCannonMountDefinition[];
   missileBays?: readonly ShipMissileBayDefinition[];
+  torpedoLaunchers?: readonly ShipTorpedoLauncherDefinition[];
   builtInEquipmentAbilityId?: "aerobatic_roll";
   defaultGunFireIntervalSeconds: number;
   defaultLoadout: readonly string[];
   handling: ShipHandlingConfig;
   health: HealthConfig;
 };
+
+export const DEFAULT_SHIP_TORPEDO_COMPONENT_ID = DEFAULT_TORPEDO_COMPONENT_ID;
 
 const AZURE_ARROW_V2_GUN_HARDPOINTS: readonly THREE.Vector3[] = [
   new THREE.Vector3(0, 0, 0),
@@ -152,6 +164,19 @@ const B2_SPARROWHAWK_CANNON_MOUNTS: readonly ShipCannonMountDefinition[] = [
   }
 ] as const;
 
+const B2_SPARROWHAWK_TORPEDO_LAUNCHERS: readonly ShipTorpedoLauncherDefinition[] = [
+  {
+    id: "torpedo_launcher_1",
+    displayName: "Torpedo Launcher 1",
+    defaultTorpedoComponentId: DEFAULT_SHIP_TORPEDO_COMPONENT_ID
+  },
+  {
+    id: "torpedo_launcher_2",
+    displayName: "Torpedo Launcher 2",
+    defaultTorpedoComponentId: DEFAULT_SHIP_TORPEDO_COMPONENT_ID
+  }
+] as const;
+
 const HAULER_T2_GUN_HARDPOINTS: readonly THREE.Vector3[] = [
   new THREE.Vector3(0, 0, 0),
   new THREE.Vector3(0, 0, 0)
@@ -167,6 +192,19 @@ const HAULER_T2_CANNON_MOUNTS: readonly ShipCannonMountDefinition[] = [
     id: "cannon_mount_2",
     displayName: "Cannons Primary Fire 2",
     defaultPrimaryComponentId: DEFAULT_CANNON_PRIMARY_COMPONENT_ID
+  }
+] as const;
+
+const HAULER_T2_TORPEDO_LAUNCHERS: readonly ShipTorpedoLauncherDefinition[] = [
+  {
+    id: "torpedo_launcher_1",
+    displayName: "Torpedo Launcher 1",
+    defaultTorpedoComponentId: DEFAULT_SHIP_TORPEDO_COMPONENT_ID
+  },
+  {
+    id: "torpedo_launcher_2",
+    displayName: "Torpedo Launcher 2",
+    defaultTorpedoComponentId: DEFAULT_SHIP_TORPEDO_COMPONENT_ID
   }
 ] as const;
 
@@ -397,11 +435,12 @@ const B2_SPARROWHAWK: ShipDefinition = {
   gunHardpointLocalOffsets: B2_SPARROWHAWK_GUN_HARDPOINTS,
   autoAlignGunHardpointsToModel: false,
   cannonMounts: B2_SPARROWHAWK_CANNON_MOUNTS,
+  torpedoLaunchers: B2_SPARROWHAWK_TORPEDO_LAUNCHERS,
   thrusterVisualPreset: "purple_rectangular",
   thrusterEffectScale: 0.4698,
   thrusterTrailLengthScale: 0.24,
   defaultGunFireIntervalSeconds: 0.2,
-  defaultLoadout: ["Tri Laser Cannons", "Target Assist Link", "Combat Stabilizers"],
+  defaultLoadout: ["Tri Laser Cannons", "Seeking Plasma Imploder", "Combat Stabilizers"],
   handling: {
     topManeuveringSpeed: 6.2,
     thrustSpeed: 7.9,
@@ -433,10 +472,11 @@ const HAULER_T2: ShipDefinition = {
   gunHardpointLocalOffsets: HAULER_T2_GUN_HARDPOINTS,
   autoAlignGunHardpointsToModel: false,
   cannonMounts: HAULER_T2_CANNON_MOUNTS,
+  torpedoLaunchers: HAULER_T2_TORPEDO_LAUNCHERS,
   thrusterEffectScale: 0.54,
   thrusterTrailLengthScale: 0.27,
   defaultGunFireIntervalSeconds: 0.24,
-  defaultLoadout: ["Utility Twin Cannons", "Cargo Stabilizer Grid", "Reinforced Plating"],
+  defaultLoadout: ["Utility Twin Cannons", "Seeking Plasma Imploder", "Reinforced Plating"],
   handling: {
     topManeuveringSpeed: 5.1,
     thrustSpeed: 6.6,

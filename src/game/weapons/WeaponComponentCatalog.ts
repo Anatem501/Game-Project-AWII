@@ -32,11 +32,16 @@ export const ENERGY_LAUNCHER_COMPONENT_OPTIONS = ["arc_plasma_emitter"] as const
 
 export type EnergyLauncherComponentId = (typeof ENERGY_LAUNCHER_COMPONENT_OPTIONS)[number];
 
+export const TORPEDO_COMPONENT_OPTIONS = ["seeking_plasma_imploder"] as const;
+
+export type TorpedoComponentId = (typeof TORPEDO_COMPONENT_OPTIONS)[number];
+
 export const DEFAULT_CANNON_PRIMARY_COMPONENT_ID: CannonPrimaryComponentId =
   "repeating_laserbolt_fire";
 export const DEFAULT_MISSILE_BAY_COMPONENT_ID: MissileBayComponentId = "concussive_barrage_missiles";
 export const DEFAULT_ENERGY_LAUNCHER_COMPONENT_ID: EnergyLauncherComponentId =
   "arc_plasma_emitter";
+export const DEFAULT_TORPEDO_COMPONENT_ID: TorpedoComponentId = "seeking_plasma_imploder";
 
 const RAPID_CHAINGUN_SHOTS_PER_BELT = 200;
 const RAPID_CHAINGUN_RELOAD_SECONDS = 5;
@@ -116,6 +121,21 @@ export type MissileBayComponentDefinition = WeaponComponentPresentation & {
 
 export type EnergyLauncherComponentDefinition = WeaponComponentPresentation & {
   id: EnergyLauncherComponentId;
+};
+
+export type TorpedoComponentDefinition = WeaponComponentPresentation & {
+  id: TorpedoComponentId;
+  triggerFireIntervalSeconds: number;
+  torpedoSpeed: number;
+  nonSeekingDetonationSeconds: number;
+  seekingDetonationSeconds: number;
+  homingTurnRateRadiansPerSecond: number;
+  reticleSeekRadiusPadding: number;
+  hitRadius: number;
+  implosionDamage: number;
+  implosionRadius: number;
+  explosionDamage: number;
+  explosionRadius: number;
 };
 
 const CANNON_PRIMARY_COMPONENTS: Record<
@@ -584,6 +604,31 @@ const ENERGY_LAUNCHER_COMPONENTS: Record<
   }
 };
 
+const TORPEDO_COMPONENTS: Record<TorpedoComponentId, TorpedoComponentDefinition> = {
+  seeking_plasma_imploder: {
+    id: "seeking_plasma_imploder",
+    name: "Seeking Plasma Imploder",
+    weaponType: "TorpedoLauncher",
+    fireType: "Torpedo Component",
+    damageType: "Plasma",
+    energyCost: 8,
+    heatCost: 8,
+    triggerFireIntervalSeconds: 5,
+    torpedoSpeed: 12,
+    nonSeekingDetonationSeconds: 1,
+    seekingDetonationSeconds: 2,
+    homingTurnRateRadiansPerSecond: THREE.MathUtils.degToRad(120),
+    reticleSeekRadiusPadding: 0.34,
+    hitRadius: 0.34,
+    implosionDamage: 10,
+    implosionRadius: 1.45,
+    explosionDamage: 26,
+    explosionRadius: 3.6,
+    description:
+      "Plasma torpedo that seeks only when fired with the reticle over a target. Detonates with a two-phase implosion/explosion blast."
+  }
+};
+
 export function getCannonPrimaryComponentDefinition(
   componentId: CannonPrimaryComponentId
 ): CannonPrimaryComponentDefinition {
@@ -602,4 +647,10 @@ export function getEnergyLauncherComponentDefinition(
   componentId: EnergyLauncherComponentId
 ): EnergyLauncherComponentDefinition {
   return ENERGY_LAUNCHER_COMPONENTS[componentId] ?? ENERGY_LAUNCHER_COMPONENTS.arc_plasma_emitter;
+}
+
+export function getTorpedoComponentDefinition(
+  componentId: TorpedoComponentId
+): TorpedoComponentDefinition {
+  return TORPEDO_COMPONENTS[componentId] ?? TORPEDO_COMPONENTS.seeking_plasma_imploder;
 }

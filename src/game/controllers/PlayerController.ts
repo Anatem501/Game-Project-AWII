@@ -35,6 +35,8 @@ type PlayerControllerParams = {
   builtInEquipmentAbility?: PlayerBuiltInEquipmentAbility | null;
   getLockedAimForward?: (out: THREE.Vector3) => THREE.Vector3 | null;
   canUseBuiltInEquipment?: () => boolean;
+  builtInEquipmentTriggerResolver?: () => boolean;
+  disableDefaultBuiltInEquipmentTrigger?: boolean;
 };
 
 export type PlayerControllerState = ShipControllerState;
@@ -57,7 +59,9 @@ export function createPlayerController({
   trueAimReticle,
   builtInEquipmentAbility = null,
   getLockedAimForward,
-  canUseBuiltInEquipment
+  canUseBuiltInEquipment,
+  builtInEquipmentTriggerResolver,
+  disableDefaultBuiltInEquipmentTrigger = false
 }: PlayerControllerParams): PlayerController {
   const pressedKeys = new Set<string>();
   const pointerNdc = new THREE.Vector2(0, 0);
@@ -77,12 +81,17 @@ export function createPlayerController({
   const raycaster = new THREE.Raycaster();
   const movementPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   let hasLastMouseWorld = false;
+  let customBuiltInEquipmentTriggerHeld = false;
   inputAimReticle.rotation.order = "XYZ";
   trueAimReticle.rotation.order = "XYZ";
 
   const onKeyDown = (event: KeyboardEvent): void => {
     const key = event.key.toLowerCase();
-    if (builtInEquipmentAbility && key === BUILT_IN_EQUIPMENT_TRIGGER_KEY) {
+    if (
+      !disableDefaultBuiltInEquipmentTrigger &&
+      builtInEquipmentAbility &&
+      key === BUILT_IN_EQUIPMENT_TRIGGER_KEY
+    ) {
       if (canUseBuiltInEquipment && !canUseBuiltInEquipment()) {
         builtInEquipmentAbility.onInputsCleared();
         event.preventDefault();
@@ -105,7 +114,11 @@ export function createPlayerController({
 
   const onKeyUp = (event: KeyboardEvent): void => {
     const key = event.key.toLowerCase();
-    if (builtInEquipmentAbility && key === BUILT_IN_EQUIPMENT_TRIGGER_KEY) {
+    if (
+      !disableDefaultBuiltInEquipmentTrigger &&
+      builtInEquipmentAbility &&
+      key === BUILT_IN_EQUIPMENT_TRIGGER_KEY
+    ) {
       builtInEquipmentAbility.onTriggerReleased();
       event.preventDefault();
       return;
@@ -121,6 +134,10 @@ export function createPlayerController({
 
   const clearMovementInputs = (): void => {
     pressedKeys.clear();
+    if (customBuiltInEquipmentTriggerHeld) {
+      builtInEquipmentAbility?.onTriggerReleased();
+      customBuiltInEquipmentTriggerHeld = false;
+    }
     builtInEquipmentAbility?.onInputsCleared();
   };
 
@@ -167,8 +184,21 @@ export function createPlayerController({
 
   const update = (deltaTime: number, camera: THREE.PerspectiveCamera): PlayerControllerState => {
     const currentShipState = shipController.getState();
-    if (builtInEquipmentAbility && canUseBuiltInEquipment && !canUseBuiltInEquipment()) {
+    const canUseBuiltInNow = canUseBuiltInEquipment ? canUseBuiltInEquipment() : true;
+    if (builtInEquipmentAbility && !canUseBuiltInNow) {
+      if (customBuiltInEquipmentTriggerHeld) {
+        builtInEquipmentAbility.onTriggerReleased();
+        customBuiltInEquipmentTriggerHeld = false;
+      }
       builtInEquipmentAbility.onInputsCleared();
+    } else if (builtInEquipmentAbility && builtInEquipmentTriggerResolver) {
+      const customTriggerHeld = builtInEquipmentTriggerResolver();
+      if (customTriggerHeld && !customBuiltInEquipmentTriggerHeld) {
+        builtInEquipmentAbility.onTriggerPressed({ pressedKeys, repeat: false });
+      } else if (!customTriggerHeld && customBuiltInEquipmentTriggerHeld) {
+        builtInEquipmentAbility.onTriggerReleased();
+      }
+      customBuiltInEquipmentTriggerHeld = customTriggerHeld;
     }
     builtInEquipmentAbility?.update(Math.max(0, deltaTime));
 

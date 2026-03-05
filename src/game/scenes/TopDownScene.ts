@@ -22,6 +22,10 @@ import {
   createMissileBayController,
   type MissileBayInstanceConfig
 } from "../controllers/MissileBayController";
+import {
+  createTorpedoLauncherController,
+  type TorpedoLauncherInstanceConfig
+} from "../controllers/TorpedoLauncherController";
 import { createPlayerController } from "../controllers/PlayerController";
 import { createShipController } from "../controllers/ShipController";
 import type { ProjectileFactory } from "../controllers/projectiles/ProjectileTypes";
@@ -44,6 +48,7 @@ import {
   createDefaultShipSelection,
   resolveCannonPrimaryComponentId,
   resolveMissileBayComponentId,
+  resolveTorpedoComponentId,
   type ShipSelectionConfig
 } from "../ships/ShipSelection";
 import {
@@ -52,7 +57,8 @@ import {
 } from "../weapons/CannonProjectileFactoryResolver";
 import {
   getCannonPrimaryComponentDefinition,
-  getMissileBayComponentDefinition
+  getMissileBayComponentDefinition,
+  getTorpedoComponentDefinition
 } from "../weapons/WeaponComponentCatalog";
 import {
   createPlayerHealthHud,
@@ -74,6 +80,15 @@ import {
 } from "./factories/EnemyMissileShipFactory";
 import { createShipRig } from "./factories/PlayerFactory";
 import { createReticles } from "./factories/ReticleFactory";
+import {
+  GENERAL_COMPONENT_SOCKET_IDS,
+  getShipControlConfiguration,
+  type ControlConfigurationConnectionsByTab,
+  type ControlConfigurationControlSocket,
+  type ControlConfigurationControlsByTab,
+  type ControlConfigurationTab,
+  type ShipControlConfiguration
+} from "../input/ShipControlConfigurationStore";
 
 const GRID_TILE_SIZE = 22;
 const GRID_DIVISIONS = 22;
@@ -176,11 +191,21 @@ export function setupTopDownScene(
   );
   const shipMissileBays = selectedShip.missileBays ?? [];
   const playerHasMissileBays = shipMissileBays.length > 0;
+  const shipTorpedoLaunchers = selectedShip.torpedoLaunchers ?? [];
   const selectedMissilePayloadComponentId = resolveMissileBayComponentId(
     selectedShip.id,
     selection.missileBayComponentId
   );
   const selectedMissilePayload = getMissileBayComponentDefinition(selectedMissilePayloadComponentId);
+  const selectedTorpedoComponentId = resolveTorpedoComponentId(
+    selectedShip.id,
+    selection.torpedoComponentId
+  );
+  const selectedTorpedoComponent = getTorpedoComponentDefinition(selectedTorpedoComponentId);
+  const savedShipControlConfiguration = getShipControlConfiguration(selectedShip.id);
+  const shipControlRuntime = savedShipControlConfiguration
+    ? createShipControlRuntime(canvas, savedShipControlConfiguration)
+    : null;
   const playerResources = createShipResourceComponent(DEFAULT_PLAYER_RESOURCE_CONFIG);
   let enemyDualTurretResources: ShipResourceComponent | null = null;
   let enemyPlasmaboltTurretResources: ShipResourceComponent | null = null;
@@ -189,6 +214,7 @@ export function setupTopDownScene(
   let cannonOverheatGlowEffect: ReturnType<typeof createCannonOverheatGlowEffect> | null = null;
   let cannonOverheatSteamEffect: ReturnType<typeof createCannonOverheatSteamEffect> | null = null;
   let missileBayController: ReturnType<typeof createMissileBayController> | null = null;
+  let torpedoLauncherController: ReturnType<typeof createTorpedoLauncherController> | null = null;
 
   const environment = createEnvironment(scene, {
     mapId,
@@ -202,6 +228,34 @@ export function setupTopDownScene(
 
   const missileCellLaunchers: THREE.Object3D[] = [];
   const missileBayLaunchers: MissileBayInstanceConfig[] = [];
+  const torpedoLaunchers: TorpedoLauncherInstanceConfig[] = [];
+  const torpedoLauncherMounts: THREE.Object3D[] = [];
+  const rebuildTorpedoLauncherMounts = (launcherLocalOffsets: readonly THREE.Vector3[]): void => {
+    for (const launcher of torpedoLauncherMounts) {
+      launcher.removeFromParent();
+    }
+    torpedoLauncherMounts.length = 0;
+    torpedoLaunchers.length = 0;
+
+    for (
+      let launcherIndex = 0;
+      launcherIndex < shipTorpedoLaunchers.length && launcherIndex < launcherLocalOffsets.length;
+      launcherIndex += 1
+    ) {
+      const launcherMount = new THREE.Object3D();
+      launcherMount.position.copy(launcherLocalOffsets[launcherIndex]);
+      launcherMount.userData.torpedoLauncherId = shipTorpedoLaunchers[launcherIndex].id;
+      launcherMount.userData.torpedoComponentId = selectedTorpedoComponent.id;
+      playerRoot.add(launcherMount);
+      torpedoLauncherMounts.push(launcherMount);
+      torpedoLaunchers.push({
+        id: shipTorpedoLaunchers[launcherIndex].id,
+        mount: launcherMount,
+        payload: selectedTorpedoComponent
+      });
+    }
+    torpedoLauncherController?.setLaunchers(torpedoLaunchers);
+  };
   const rebuildMissileBayLaunchers = (bayLocalOffsets: readonly THREE.Vector3[][]): void => {
     for (const launcher of missileCellLaunchers) {
       launcher.removeFromParent();
@@ -256,6 +310,85 @@ export function setupTopDownScene(
 
     rebuildMissileBayLaunchers(bayLocalOffsets);
   };
+  const applyLauncherSockets = (launcherLocalOffsets: readonly THREE.Vector3[]): void => {
+    if (shipTorpedoLaunchers.length <= 0) {
+      rebuildTorpedoLauncherMounts([]);
+      return;
+    }
+
+    const clampedOffsets = launcherLocalOffsets.slice(0, shipTorpedoLaunchers.length);
+    rebuildTorpedoLauncherMounts(clampedOffsets);
+  };
+  const resolveCannonPrimaryControlSocketId = (gunIndex: number): string => {
+    if (!shipControlRuntime) {
+      return GENERAL_COMPONENT_SOCKET_IDS.cannonPrimaryFire;
+    }
+    const cannonMountId = selectedShip.cannonMounts?.[gunIndex]?.id;
+    if (!cannonMountId) {
+      return GENERAL_COMPONENT_SOCKET_IDS.cannonPrimaryFire;
+    }
+    const individualSocketId = `cannon:${cannonMountId}`;
+    if (shipControlRuntime.hasComponentBinding(individualSocketId)) {
+      return individualSocketId;
+    }
+    return GENERAL_COMPONENT_SOCKET_IDS.cannonPrimaryFire;
+  };
+  const resolveMissilePayloadControlSocketId = (launcherId: string): string => {
+    if (!shipControlRuntime) {
+      return GENERAL_COMPONENT_SOCKET_IDS.missileBayPayload;
+    }
+    const individualSocketId = `missile:${launcherId}`;
+    if (shipControlRuntime.hasComponentBinding(individualSocketId)) {
+      return individualSocketId;
+    }
+    return GENERAL_COMPONENT_SOCKET_IDS.missileBayPayload;
+  };
+  const resolveTorpedoPayloadControlSocketId = (launcherId: string): string => {
+    if (!shipControlRuntime) {
+      return GENERAL_COMPONENT_SOCKET_IDS.torpedoLauncherPayload;
+    }
+    const individualSocketId = `torpedo:${launcherId}`;
+    if (shipControlRuntime.hasComponentBinding(individualSocketId)) {
+      return individualSocketId;
+    }
+    return GENERAL_COMPONENT_SOCKET_IDS.torpedoLauncherPayload;
+  };
+  const isMissileTriggerInputActive = (): boolean => {
+    if (!shipControlRuntime) {
+      return false;
+    }
+    if (shipControlRuntime.isComponentTriggered(GENERAL_COMPONENT_SOCKET_IDS.missileBayPayload)) {
+      return true;
+    }
+    for (const missileBay of shipMissileBays) {
+      const individualSocketId = `missile:${missileBay.id}`;
+      if (!shipControlRuntime.hasComponentBinding(individualSocketId)) {
+        continue;
+      }
+      if (shipControlRuntime.isComponentTriggered(individualSocketId)) {
+        return true;
+      }
+    }
+    return false;
+  };
+  const isTorpedoTriggerInputActive = (): boolean => {
+    if (!shipControlRuntime) {
+      return false;
+    }
+    if (shipControlRuntime.isComponentTriggered(GENERAL_COMPONENT_SOCKET_IDS.torpedoLauncherPayload)) {
+      return true;
+    }
+    for (const torpedoLauncher of shipTorpedoLaunchers) {
+      const individualSocketId = `torpedo:${torpedoLauncher.id}`;
+      if (!shipControlRuntime.hasComponentBinding(individualSocketId)) {
+        continue;
+      }
+      if (shipControlRuntime.isComponentTriggered(individualSocketId)) {
+        return true;
+      }
+    }
+    return false;
+  };
 
   const { gunHardpoints, playerRoot, dispose: disposePlayerRig } = createShipRig(scene, {
     autoAlignGunHardpointsToModel: selectedShip.autoAlignGunHardpointsToModel,
@@ -283,6 +416,9 @@ export function setupTopDownScene(
     },
     onMissileCellSocketsResolved: (missileCellSockets) => {
       applyMissileCellSockets(missileCellSockets);
+    },
+    onLauncherSocketsResolved: (launcherLocalOffsets) => {
+      applyLauncherSockets(launcherLocalOffsets);
     }
   });
   if (shipMissileBays.length > 0) {
@@ -291,6 +427,9 @@ export function setupTopDownScene(
       fallbackOffsets[0] = [...MAURADER_DEFAULT_MISSILE_CELL_LOCAL_OFFSETS];
     }
     rebuildMissileBayLaunchers(fallbackOffsets);
+  }
+  if (shipTorpedoLaunchers.length > 0) {
+    rebuildTorpedoLauncherMounts([]);
   }
   cannonOverheatGlowEffect = createCannonOverheatGlowEffect(
     playerRoot,
@@ -364,7 +503,11 @@ export function setupTopDownScene(
     trueAimReticle,
     builtInEquipmentAbility: playerBuiltInEquipmentAbility,
     getLockedAimForward: (out) => playerStatus.getLockedAimForward(out),
-    canUseBuiltInEquipment: () => playerStatus.canUseEquipment()
+    canUseBuiltInEquipment: () => playerStatus.canUseEquipment(),
+    builtInEquipmentTriggerResolver: shipControlRuntime
+      ? () => shipControlRuntime.isComponentTriggered(GENERAL_COMPONENT_SOCKET_IDS.builtInEquipment)
+      : undefined,
+    disableDefaultBuiltInEquipmentTrigger: shipControlRuntime !== null
   });
 
   const playerHealth = createHealthComponent(selectedShip.health);
@@ -1073,7 +1216,12 @@ export function setupTopDownScene(
       return playerResources.tryConsumeWeaponCost(cost);
     },
     getPrimaryFireIntervalMultiplier: () => playerResources.getWeaponFireIntervalMultiplier(),
-    targetHurtboxes: enemyTargetHurtboxes
+    targetHurtboxes: enemyTargetHurtboxes,
+    resolvePrimaryFireInputForGun: shipControlRuntime
+      ? (gunIndex) =>
+          shipControlRuntime.isComponentTriggered(resolveCannonPrimaryControlSocketId(gunIndex))
+      : undefined,
+    disableDefaultPrimaryFireInput: shipControlRuntime !== null
   });
   missileBayController = createMissileBayController({
     canvas,
@@ -1097,8 +1245,43 @@ export function setupTopDownScene(
     },
     getWeaponFireIntervalMultiplier: () =>
       playerResources.getWeaponFireIntervalMultiplier(),
-    targetHurtboxes: enemyTargetHurtboxes
+    targetHurtboxes: enemyTargetHurtboxes,
+    triggerFireInputActiveResolver: shipControlRuntime ? () => isMissileTriggerInputActive() : undefined,
+    disableDefaultTriggerInput: shipControlRuntime !== null,
+    canLauncherFire: shipControlRuntime
+      ? (launcherId) =>
+          shipControlRuntime.isComponentTriggered(resolveMissilePayloadControlSocketId(launcherId))
+      : undefined
   });
+  if (shipTorpedoLaunchers.length > 0) {
+    torpedoLauncherController = createTorpedoLauncherController({
+      canvas,
+      playerRoot,
+      scene,
+      launchers: torpedoLaunchers,
+      targetHurtboxes: enemyTargetHurtboxes,
+      consumeLauncherFireCost: (torpedoPayload) => {
+        if (!playerStatus.canUseEquipment()) {
+          return false;
+        }
+        const heatCost = torpedoPayload.heatCost ?? 0;
+        if (heatCost > 0 && !playerResources.canUseHeatEquipment()) {
+          return false;
+        }
+        return playerResources.tryConsumeWeaponCost({
+          heatCost,
+          energyCost: torpedoPayload.energyCost ?? 0
+        });
+      },
+      getWeaponFireIntervalMultiplier: () => playerResources.getWeaponFireIntervalMultiplier(),
+      triggerFireInputActiveResolver: shipControlRuntime ? () => isTorpedoTriggerInputActive() : undefined,
+      disableDefaultTriggerInput: shipControlRuntime !== null,
+      canLauncherFire: shipControlRuntime
+        ? (launcherId) =>
+            shipControlRuntime.isComponentTriggered(resolveTorpedoPayloadControlSocketId(launcherId))
+        : undefined
+    });
+  }
   let playerIsDestroyed = false;
   let playerRespawnSecondsRemaining = 0;
 
@@ -1223,6 +1406,11 @@ export function setupTopDownScene(
       playerState.forward,
       playerState.yaw,
       camera,
+      inputAimReticle.position
+    );
+    torpedoLauncherController?.update(
+      deltaTime,
+      playerState.forward,
       inputAimReticle.position
     );
     const missileStatus = playerHasMissileBays ? missileBayController?.getStatus() : undefined;
@@ -1566,6 +1754,7 @@ export function setupTopDownScene(
         updatePlayerTargetHurtboxes();
         gunController.setEnabled(false);
         missileBayController?.setEnabled(false);
+        torpedoLauncherController?.setEnabled(false);
       }
     } else {
       playerRespawnSecondsRemaining = Math.max(0, playerRespawnSecondsRemaining - deltaTime);
@@ -1580,6 +1769,7 @@ export function setupTopDownScene(
         updatePlayerTargetHurtboxes();
         gunController.setEnabled(true);
         missileBayController?.setEnabled(true);
+        torpedoLauncherController?.setEnabled(true);
         playerIsDestroyed = false;
         playerState = shipController.getState();
       }
@@ -1712,9 +1902,12 @@ export function setupTopDownScene(
 
   const dispose = (): void => {
     playerController.dispose();
+    shipControlRuntime?.dispose();
     gunController.dispose();
     missileBayController?.dispose();
     missileBayController = null;
+    torpedoLauncherController?.dispose();
+    torpedoLauncherController = null;
     cannonOverheatGlowEffect?.dispose();
     cannonOverheatGlowEffect = null;
     cannonOverheatSteamEffect?.dispose();
@@ -1749,6 +1942,270 @@ export function setupTopDownScene(
   };
 
   return { update, dispose };
+}
+
+type ShipControlRuntime = {
+  isComponentTriggered: (componentSocketId: string) => boolean;
+  hasComponentBinding: (componentSocketId: string) => boolean;
+  dispose: () => void;
+};
+
+function createShipControlRuntime(
+  canvas: HTMLCanvasElement,
+  configuration: ShipControlConfiguration
+): ShipControlRuntime {
+  const pressedKeys = new Set<string>();
+  const pressedMouseButtons = new Set<number>();
+
+  const normalizeKeyboardKey = (rawKey: string): string => {
+    if (rawKey === " ") {
+      return " ";
+    }
+    const normalized = rawKey.toLowerCase().trim();
+    if (!normalized) {
+      return "";
+    }
+    if (normalized === "spacebar" || normalized === "space") {
+      return " ";
+    }
+    if (normalized === "esc") {
+      return "escape";
+    }
+    if (normalized === "left shift" || normalized === "right shift") {
+      return "shift";
+    }
+    if (normalized === "left ctrl" || normalized === "right ctrl" || normalized === "ctrl") {
+      return "control";
+    }
+    if (normalized === "left alt" || normalized === "right alt") {
+      return "alt";
+    }
+    if (
+      normalized === "left arrow" ||
+      normalized === "arrow left" ||
+      normalized === "arrowleft"
+    ) {
+      return "arrowleft";
+    }
+    if (
+      normalized === "right arrow" ||
+      normalized === "arrow right" ||
+      normalized === "arrowright"
+    ) {
+      return "arrowright";
+    }
+    if (normalized === "up arrow" || normalized === "arrow up" || normalized === "arrowup") {
+      return "arrowup";
+    }
+    if (
+      normalized === "down arrow" ||
+      normalized === "arrow down" ||
+      normalized === "arrowdown"
+    ) {
+      return "arrowdown";
+    }
+    return normalized.replace(/\s+/g, "");
+  };
+
+  const onKeyDown = (event: KeyboardEvent): void => {
+    const normalizedKey = normalizeKeyboardKey(event.key);
+    if (!normalizedKey) {
+      return;
+    }
+    pressedKeys.add(normalizedKey);
+  };
+
+  const onKeyUp = (event: KeyboardEvent): void => {
+    const normalizedKey = normalizeKeyboardKey(event.key);
+    if (!normalizedKey) {
+      return;
+    }
+    pressedKeys.delete(normalizedKey);
+  };
+
+  const onMouseDown = (event: MouseEvent): void => {
+    pressedMouseButtons.add(event.button);
+  };
+
+  const onMouseUp = (event: MouseEvent): void => {
+    pressedMouseButtons.delete(event.button);
+  };
+
+  const onWindowBlur = (): void => {
+    pressedKeys.clear();
+    pressedMouseButtons.clear();
+  };
+
+  const onVisibilityChange = (): void => {
+    if (!document.hidden) {
+      return;
+    }
+    pressedKeys.clear();
+    pressedMouseButtons.clear();
+  };
+
+  const onContextMenu = (event: MouseEvent): void => {
+    event.preventDefault();
+  };
+
+  window.addEventListener("keydown", onKeyDown);
+  window.addEventListener("keyup", onKeyUp);
+  window.addEventListener("blur", onWindowBlur);
+  window.addEventListener("mouseup", onMouseUp);
+  document.addEventListener("visibilitychange", onVisibilityChange);
+  canvas.addEventListener("mousedown", onMouseDown);
+  canvas.addEventListener("contextmenu", onContextMenu);
+
+  const controllerButtonByToken: Record<string, number> = {
+    a: 0,
+    b: 1,
+    x: 2,
+    y: 3,
+    lb: 4,
+    rb: 5,
+    lt: 6,
+    rt: 7,
+    back: 8,
+    start: 9,
+    ls: 10,
+    rs: 11,
+    dpadup: 12,
+    dpaddown: 13,
+    dpadleft: 14,
+    dpadright: 15
+  };
+
+  const buildKbmControlPredicate = (label: string): (() => boolean) | null => {
+    const tokenPredicates = label
+      .split("+")
+      .map((token) => token.trim())
+      .filter(Boolean)
+      .map((token) => {
+        const normalizedToken = token.toLowerCase().replace(/\s+/g, " ");
+        if (normalizedToken === "left click") {
+          return () => pressedMouseButtons.has(0);
+        }
+        if (normalizedToken === "right click") {
+          return () => pressedMouseButtons.has(2);
+        }
+        if (normalizedToken === "middle click") {
+          return () => pressedMouseButtons.has(1);
+        }
+        const normalizedKey = normalizeKeyboardKey(token);
+        if (!normalizedKey) {
+          return null;
+        }
+        return () => pressedKeys.has(normalizedKey);
+      });
+    if (tokenPredicates.length <= 0 || tokenPredicates.some((predicate) => predicate === null)) {
+      return null;
+    }
+    return () => tokenPredicates.every((predicate) => predicate?.() === true);
+  };
+
+  const buildControllerControlPredicate = (label: string): (() => boolean) | null => {
+    const buttonIndices = label
+      .split("+")
+      .map((token) => token.trim().toLowerCase().replace(/[\s_-]+/g, ""))
+      .filter(Boolean)
+      .map((token) => controllerButtonByToken[token]);
+    if (buttonIndices.length <= 0 || buttonIndices.some((index) => !Number.isFinite(index))) {
+      return null;
+    }
+    return () => {
+      const gamepad = getConnectedGamepadForShipControls();
+      if (!gamepad) {
+        return false;
+      }
+      return buttonIndices.every((buttonIndex) => gamepad.buttons[buttonIndex]?.pressed === true);
+    };
+  };
+
+  const buildControlPredicatesByTab = (
+    controlsByTab: ControlConfigurationControlsByTab
+  ): Record<ControlConfigurationTab, Map<string, () => boolean>> => {
+    const createTabMap = (
+      tab: ControlConfigurationTab,
+      controls: readonly ControlConfigurationControlSocket[]
+    ): Map<string, () => boolean> => {
+      const predicatesById = new Map<string, () => boolean>();
+      for (const controlSocket of controls) {
+        const predicate =
+          tab === "kbm"
+            ? buildKbmControlPredicate(controlSocket.label)
+            : buildControllerControlPredicate(controlSocket.label);
+        if (!predicate) {
+          continue;
+        }
+        predicatesById.set(controlSocket.id, predicate);
+      }
+      return predicatesById;
+    };
+
+    return {
+      kbm: createTabMap("kbm", controlsByTab.kbm),
+      controller: createTabMap("controller", controlsByTab.controller)
+    };
+  };
+
+  const controlPredicatesByTab = buildControlPredicatesByTab(configuration.controlsByTab);
+  const connectionsByTab: ControlConfigurationConnectionsByTab = {
+    kbm: { ...configuration.connectionsByTab.kbm },
+    controller: { ...configuration.connectionsByTab.controller }
+  };
+
+  const isComponentTriggered = (componentSocketId: string): boolean => {
+    const tabOrder: readonly ControlConfigurationTab[] = ["kbm", "controller"];
+    for (const tab of tabOrder) {
+      const controlSocketIds = connectionsByTab[tab][componentSocketId] ?? [];
+      if (controlSocketIds.length <= 0) {
+        continue;
+      }
+      const controlPredicates = controlPredicatesByTab[tab];
+      for (const controlSocketId of controlSocketIds) {
+        const predicate = controlPredicates.get(controlSocketId);
+        if (predicate?.()) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  const hasComponentBinding = (componentSocketId: string): boolean =>
+    (connectionsByTab.kbm[componentSocketId]?.length ?? 0) > 0 ||
+    (connectionsByTab.controller[componentSocketId]?.length ?? 0) > 0;
+
+  const dispose = (): void => {
+    window.removeEventListener("keydown", onKeyDown);
+    window.removeEventListener("keyup", onKeyUp);
+    window.removeEventListener("blur", onWindowBlur);
+    window.removeEventListener("mouseup", onMouseUp);
+    document.removeEventListener("visibilitychange", onVisibilityChange);
+    canvas.removeEventListener("mousedown", onMouseDown);
+    canvas.removeEventListener("contextmenu", onContextMenu);
+    pressedKeys.clear();
+    pressedMouseButtons.clear();
+  };
+
+  return {
+    isComponentTriggered,
+    hasComponentBinding,
+    dispose
+  };
+}
+
+function getConnectedGamepadForShipControls(): Gamepad | null {
+  const gamepads = navigator.getGamepads?.();
+  if (!gamepads) {
+    return null;
+  }
+  for (const gamepad of gamepads) {
+    if (gamepad?.connected) {
+      return gamepad;
+    }
+  }
+  return null;
 }
 
 function applyCircularBoundary2D(

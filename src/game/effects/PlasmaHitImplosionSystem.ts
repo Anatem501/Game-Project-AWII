@@ -26,7 +26,10 @@ export type PlasmaHitImplosionSystem = {
 };
 
 type PlasmaHitImplosionConfig = {
+  animationProfile?: "implode_then_expand" | "expand";
+  expandStartScaleMultiplier?: number;
   globCount?: number;
+  introFadeInSeconds?: number;
   lifetimeSeconds?: number;
   radius?: number;
   opacityScale?: number;
@@ -87,7 +90,15 @@ export function createPlasmaHitImplosionSystem(
   scene: THREE.Scene,
   config: PlasmaHitImplosionConfig = {}
 ): PlasmaHitImplosionSystem {
+  const animationProfile = config.animationProfile ?? "implode_then_expand";
+  const expandStartScaleMultiplier = THREE.MathUtils.clamp(
+    config.expandStartScaleMultiplier ?? 0.2,
+    0.01,
+    1
+  );
   const lifetimeSeconds = Math.max(0.01, config.lifetimeSeconds ?? DEFAULT_LIFETIME_SECONDS);
+  const introFadeInSeconds = Math.max(0, config.introFadeInSeconds ?? 0);
+  const introFadeInDuration = Math.min(lifetimeSeconds * 0.8, introFadeInSeconds);
   const radius = Math.max(0.01, config.radius ?? DEFAULT_RADIUS);
   const globCount = Math.max(0, Math.floor(config.globCount ?? DEFAULT_GLOB_COUNT));
   const opacityScale = THREE.MathUtils.clamp(config.opacityScale ?? 1, 0, 1);
@@ -188,23 +199,35 @@ export function createPlasmaHitImplosionSystem(
       implosion.material.uniforms.uAge.value = implosion.age;
 
       const t = THREE.MathUtils.clamp(implosion.age / implosion.lifetime, 0, 1);
-      const shrinkPhaseEnd = 0.32;
-      const shrinkScale = implosion.baseScale * 0.62;
       const expandScale = implosion.baseScale * 2.35;
-      const radialScale =
-        t <= shrinkPhaseEnd
-          ? THREE.MathUtils.lerp(implosion.baseScale, shrinkScale, t / shrinkPhaseEnd)
-          : THREE.MathUtils.lerp(
-              shrinkScale,
-              expandScale,
-              (t - shrinkPhaseEnd) / Math.max(0.0001, 1 - shrinkPhaseEnd)
-            );
+      let radialScale = implosion.baseScale;
+      if (animationProfile === "expand") {
+        const startScale = implosion.baseScale * expandStartScaleMultiplier;
+        const easedExpand = 1 - Math.pow(1 - t, 2.2);
+        radialScale = THREE.MathUtils.lerp(startScale, expandScale, easedExpand);
+      } else {
+        const shrinkPhaseEnd = 0.32;
+        const shrinkScale = implosion.baseScale * 0.62;
+        radialScale =
+          t <= shrinkPhaseEnd
+            ? THREE.MathUtils.lerp(implosion.baseScale, shrinkScale, t / shrinkPhaseEnd)
+            : THREE.MathUtils.lerp(
+                shrinkScale,
+                expandScale,
+                (t - shrinkPhaseEnd) / Math.max(0.0001, 1 - shrinkPhaseEnd)
+              );
+      }
       implosion.mesh.scale.setScalar(radialScale);
       implosion.glowMesh.scale.setScalar(radialScale * 1.28);
+      const introAlpha =
+        introFadeInDuration > 0
+          ? THREE.MathUtils.smoothstep(implosion.age, 0, introFadeInDuration)
+          : 1;
+      implosion.material.uniforms.uOpacityScale.value = opacityScale * introAlpha;
       const glowFade = 1 - THREE.MathUtils.smoothstep(t, 0.6, 1);
-      implosion.glowMaterial.opacity = 0.14 * opacityScale * glowFade;
+      implosion.glowMaterial.opacity = 0.14 * opacityScale * glowFade * introAlpha;
       const globFade = 1 - THREE.MathUtils.smoothstep(t, 0.42, 1);
-      implosion.globMaterial.opacity = 0.42 * opacityScale * globFade;
+      implosion.globMaterial.opacity = 0.42 * opacityScale * globFade * introAlpha;
       for (const glob of implosion.globs) {
         glob.mesh.position.addScaledVector(glob.velocity, deltaTime);
         const drag = Math.max(0, 1 - deltaTime * 6.2);

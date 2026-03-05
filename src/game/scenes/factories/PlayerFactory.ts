@@ -10,6 +10,7 @@ type PlayerRigParams = {
   autoAlignGunHardpointsToModel?: boolean;
   onThrusterSocketsResolved?: (thrusterLocalOffsets: THREE.Vector3[], thrusterSizeScales: number[]) => void;
   onMissileCellSocketsResolved?: (missileCellSockets: MissileCellSocketLocalOffset[]) => void;
+  onLauncherSocketsResolved?: (launcherLocalOffsets: THREE.Vector3[]) => void;
 };
 
 export type PlayerRig = {
@@ -42,7 +43,8 @@ export function createPlayerRig(
     gunHardpointLocalOffsets,
     autoAlignGunHardpointsToModel,
     onThrusterSocketsResolved,
-    onMissileCellSocketsResolved
+    onMissileCellSocketsResolved,
+    onLauncherSocketsResolved
   }: PlayerRigParams
 ): PlayerRig {
   let disposed = false;
@@ -72,6 +74,7 @@ export function createPlayerRig(
     shouldAutoAlignGunHardpoints,
     onThrusterSocketsResolved,
     onMissileCellSocketsResolved,
+    onLauncherSocketsResolved,
     () => disposed
   );
 
@@ -106,6 +109,7 @@ function loadPlayerModel(
   onMissileCellSocketsResolved:
     | ((missileCellSockets: MissileCellSocketLocalOffset[]) => void)
     | undefined,
+  onLauncherSocketsResolved: ((launcherLocalOffsets: THREE.Vector3[]) => void) | undefined,
   isDisposed: () => boolean
 ): void {
   const loader = new GLTFLoader();
@@ -146,6 +150,7 @@ function loadPlayerModel(
 
       onThrusterSocketsResolved?.(socketData.thrusterOffsets, socketData.thrusterSizeScales);
       onMissileCellSocketsResolved?.(socketData.missileCellSockets);
+      onLauncherSocketsResolved?.(socketData.launcherOffsets);
     },
     undefined,
     (error) => {
@@ -263,6 +268,7 @@ type CollectedModelSocketData = {
   thrusterOffsets: THREE.Vector3[];
   thrusterSizeScales: number[];
   missileCellSockets: MissileCellSocketLocalOffset[];
+  launcherOffsets: THREE.Vector3[];
 };
 
 function collectModelSocketData(
@@ -272,6 +278,7 @@ function collectModelSocketData(
   const cannonNodes: IndexedSocketNode[] = [];
   const thrusterNodes: IndexedSocketNode[] = [];
   const missileCellNodes: MissileCellSocketNode[] = [];
+  const launcherNodes: IndexedSocketNode[] = [];
 
   model.traverse((node) => {
     const cannonIndex = parseSocketIndex(node.name, "cannon");
@@ -292,10 +299,16 @@ function collectModelSocketData(
         node
       });
     }
+
+    const launcherIndex = parseLauncherSocketIndex(node.name);
+    if (launcherIndex !== null) {
+      launcherNodes.push({ index: launcherIndex, node });
+    }
   });
 
   sortIndexedSocketNodes(cannonNodes);
   sortIndexedSocketNodes(thrusterNodes);
+  sortIndexedSocketNodes(launcherNodes);
   sortMissileCellSocketNodes(missileCellNodes);
 
   playerRoot.updateMatrixWorld(true);
@@ -306,6 +319,10 @@ function collectModelSocketData(
     return playerRoot.worldToLocal(worldPosition.clone());
   });
   const thrusterOffsets = thrusterNodes.map(({ node }) => {
+    node.getWorldPosition(worldPosition);
+    return playerRoot.worldToLocal(worldPosition.clone());
+  });
+  const launcherOffsets = launcherNodes.map(({ node }) => {
     node.getWorldPosition(worldPosition);
     return playerRoot.worldToLocal(worldPosition.clone());
   });
@@ -336,7 +353,8 @@ function collectModelSocketData(
     cannonOffsets,
     thrusterOffsets,
     thrusterSizeScales,
-    missileCellSockets
+    missileCellSockets,
+    launcherOffsets
   };
 }
 
@@ -409,6 +427,23 @@ function parseMissileCellSocketName(
     if (Number.isFinite(cellIndex)) {
       return { bayIndex: 1, cellIndex };
     }
+  }
+
+  return null;
+}
+
+function parseLauncherSocketIndex(name: string): number | null {
+  const compactName = name.replace(/\s+/g, "").replace(/\.\d+$/, "");
+  const launcherSocketMatch = compactName.match(/^Launcher(?:[_-])?Socket(?:[_-])?(\d+)$/i);
+  if (launcherSocketMatch) {
+    const launcherIndex = Number.parseInt(launcherSocketMatch[1], 10);
+    return Number.isFinite(launcherIndex) ? launcherIndex : null;
+  }
+
+  const launcherOnlyMatch = compactName.match(/^Launcher(?:[_-])?(\d+)$/i);
+  if (launcherOnlyMatch) {
+    const launcherIndex = Number.parseInt(launcherOnlyMatch[1], 10);
+    return Number.isFinite(launcherIndex) ? launcherIndex : null;
   }
 
   return null;

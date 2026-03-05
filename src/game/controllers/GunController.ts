@@ -156,6 +156,8 @@ type GunControllerParams = {
   reticleHomingTargetPadding?: number;
   consumePrimaryFireCost?: (cost: WeaponResourceCost) => boolean;
   getPrimaryFireIntervalMultiplier?: () => number;
+  resolvePrimaryFireInputForGun?: (gunIndex: number) => boolean;
+  disableDefaultPrimaryFireInput?: boolean;
 };
 
 export type GunController = {
@@ -177,7 +179,9 @@ export function createGunController({
   targetHurtboxes = [],
   reticleHomingTargetPadding = DEFAULT_RETICLE_HOMING_TARGET_PADDING,
   consumePrimaryFireCost,
-  getPrimaryFireIntervalMultiplier
+  getPrimaryFireIntervalMultiplier,
+  resolvePrimaryFireInputForGun,
+  disableDefaultPrimaryFireInput = false
 }: GunControllerParams): GunController {
   const muzzleWorld = new THREE.Vector3();
   const aimDirection = new THREE.Vector3();
@@ -493,6 +497,7 @@ export function createGunController({
     { length: Math.max(0, ...primaryReloadGroupIds) + 1 },
     () => 0
   );
+  const perGunPrimaryFireInputActive = normalizedGuns.map(() => false);
   const maxAimClampRadians = THREE.MathUtils.clamp(maxAimAngleRadians, 0, Math.PI);
   scene.add(projectilesRoot);
   scene.add(hitscanBeamPulsesRoot);
@@ -608,9 +613,11 @@ export function createGunController({
     event.preventDefault();
   };
 
-  canvas.addEventListener("mousedown", onMouseDown);
-  window.addEventListener("mouseup", onMouseUp);
-  canvas.addEventListener("contextmenu", onContextMenu);
+  if (!disableDefaultPrimaryFireInput) {
+    canvas.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("mouseup", onMouseUp);
+    canvas.addEventListener("contextmenu", onContextMenu);
+  }
 
   const findReticleHomingTargetHurtbox = (
     reticleWorldPosition: THREE.Vector3
@@ -1127,9 +1134,20 @@ export function createGunController({
     }
     lastYaw = playerState.yaw;
 
-    const gamepadPrimaryFireHeld = isGamepadFireButtonHeld(GAMEPAD_PRIMARY_FIRE_BUTTON_INDEX);
-
-    lastPrimaryFireInputActive = enabled && (primaryFireHeld || gamepadPrimaryFireHeld);
+    const gamepadPrimaryFireHeld =
+      !disableDefaultPrimaryFireInput && isGamepadFireButtonHeld(GAMEPAD_PRIMARY_FIRE_BUTTON_INDEX);
+    const defaultPrimaryFireInputActive =
+      enabled && !disableDefaultPrimaryFireInput && (primaryFireHeld || gamepadPrimaryFireHeld);
+    let anyPrimaryInputActive = false;
+    for (let gunIndex = 0; gunIndex < normalizedGuns.length; gunIndex += 1) {
+      const perGunInputActive =
+        enabled && (resolvePrimaryFireInputForGun?.(gunIndex) ?? defaultPrimaryFireInputActive);
+      perGunPrimaryFireInputActive[gunIndex] = perGunInputActive;
+      if (perGunInputActive) {
+        anyPrimaryInputActive = true;
+      }
+    }
+    lastPrimaryFireInputActive = anyPrimaryInputActive;
 
     for (let i = 0; i < primaryReloadGroupRemainingSeconds.length; i += 1) {
       primaryReloadGroupRemainingSeconds[i] = Math.max(
@@ -1142,7 +1160,8 @@ export function createGunController({
     if (lastPrimaryFireInputActive || hasCommittedPrimaryBurstFire) {
       for (let i = 0; i < normalizedGuns.length; i += 1) {
         const gun = normalizedGuns[i];
-        const gunFireRequested = lastPrimaryFireInputActive || (primaryBurstContinueUntilWrap[i] ?? false);
+        const gunFireRequested =
+          (perGunPrimaryFireInputActive[i] ?? false) || (primaryBurstContinueUntilWrap[i] ?? false);
         if (!gunFireRequested) {
           continue;
         }
@@ -1454,9 +1473,11 @@ export function createGunController({
   };
 
   const dispose = (): void => {
-    canvas.removeEventListener("mousedown", onMouseDown);
-    window.removeEventListener("mouseup", onMouseUp);
-    canvas.removeEventListener("contextmenu", onContextMenu);
+    if (!disableDefaultPrimaryFireInput) {
+      canvas.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("mouseup", onMouseUp);
+      canvas.removeEventListener("contextmenu", onContextMenu);
+    }
 
     for (const projectile of projectiles) {
       projectile.dispose?.();

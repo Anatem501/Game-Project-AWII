@@ -150,6 +150,9 @@ type MissileBayControllerParams = {
   payload?: MissileBayComponentDefinition;
   consumeLauncherFireCost?: MissileFireCostResolver;
   getWeaponFireIntervalMultiplier?: () => number;
+  triggerFireInputActiveResolver?: () => boolean;
+  disableDefaultTriggerInput?: boolean;
+  canLauncherFire?: (launcherId: string) => boolean;
 };
 
 export type MissileBayInstanceConfig = {
@@ -203,7 +206,10 @@ export function createMissileBayController({
   targetHurtboxes = [],
   payload,
   consumeLauncherFireCost,
-  getWeaponFireIntervalMultiplier
+  getWeaponFireIntervalMultiplier,
+  triggerFireInputActiveResolver,
+  disableDefaultTriggerInput = false,
+  canLauncherFire
 }: MissileBayControllerParams): MissileBayController {
   const root = new THREE.Group();
   scene.add(root);
@@ -381,6 +387,7 @@ export function createMissileBayController({
   let lockingProgress01 = 0;
   let lockStackRoundRobinCursor = 0;
   let enabled = true;
+  let customTriggerFireHeldLastFrame = false;
 
   const maxAimClampRadians = THREE.MathUtils.clamp(maxAimAngleRadians, 0, Math.PI);
 
@@ -919,13 +926,7 @@ export function createMissileBayController({
     }
   };
 
-  const onMouseDown = (event: MouseEvent): void => {
-    if (event.button !== 2) {
-      return;
-    }
-    if (!enabled) {
-      return;
-    }
+  const requestQueuedShot = (): void => {
     if (getNowSeconds() < nextTriggerReadyAtSeconds) {
       return;
     }
@@ -941,10 +942,19 @@ export function createMissileBayController({
       return;
     }
     if (getAvailableSalvoCount() <= 0) {
-      event.preventDefault();
       return;
     }
     queuedShots = 1;
+  };
+
+  const onMouseDown = (event: MouseEvent): void => {
+    if (event.button !== 2) {
+      return;
+    }
+    if (!enabled) {
+      return;
+    }
+    requestQueuedShot();
     event.preventDefault();
   };
 
@@ -952,8 +962,10 @@ export function createMissileBayController({
     event.preventDefault();
   };
 
-  canvas.addEventListener("mousedown", onMouseDown);
-  canvas.addEventListener("contextmenu", onContextMenu);
+  if (!disableDefaultTriggerInput) {
+    canvas.addEventListener("mousedown", onMouseDown);
+    canvas.addEventListener("contextmenu", onContextMenu);
+  }
 
   const setMissileBays = (nextBays: readonly MissileBayInstanceConfig[]): void => {
     missileBayInstances = buildBayInstances(nextBays, [], resolvedLegacyPayload);
@@ -1006,6 +1018,12 @@ export function createMissileBayController({
     } else {
       updateTargetLocks(deltaTime, camera, aimTargetWorldPosition);
     }
+
+    const customTriggerFireHeld = triggerFireInputActiveResolver?.() ?? false;
+    if (enabled && customTriggerFireHeld && !customTriggerFireHeldLastFrame) {
+      requestQueuedShot();
+    }
+    customTriggerFireHeldLastFrame = customTriggerFireHeld;
 
     if (hasLastYaw) {
       const yawDelta = shortestAngleDelta(lastYaw, shipYaw);
@@ -1417,7 +1435,11 @@ export function createMissileBayController({
     for (let groupIndex = 0; groupIndex < missileLauncherGroups.length; groupIndex += 1) {
       const group = missileLauncherGroups[groupIndex];
       const launcherPayload = launcherPayloads[groupIndex] ?? resolvedLegacyPayload;
+      const launcherId = launcherIds[groupIndex] ?? `missile_bay_${groupIndex + 1}`;
       if (group.length === 0 || launcherRoundsRemaining[groupIndex] <= 0) {
+        continue;
+      }
+      if (canLauncherFire && !canLauncherFire(launcherId)) {
         continue;
       }
       if (!(consumeLauncherFireCost?.(launcherPayload) ?? true)) {
@@ -2186,8 +2208,10 @@ export function createMissileBayController({
   };
 
   const dispose = (): void => {
-    canvas.removeEventListener("mousedown", onMouseDown);
-    canvas.removeEventListener("contextmenu", onContextMenu);
+    if (!disableDefaultTriggerInput) {
+      canvas.removeEventListener("mousedown", onMouseDown);
+      canvas.removeEventListener("contextmenu", onContextMenu);
+    }
 
     for (let i = activeMissiles.length - 1; i >= 0; i -= 1) {
       disposeMissile(i);
@@ -2365,6 +2389,7 @@ export function createMissileBayController({
       nextTriggerReadyAtSeconds = 0;
       hasLastYaw = false;
       turnDirection = 0;
+      customTriggerFireHeldLastFrame = false;
       clearCurrentLocks();
       activeVolleyTargetIds.clear();
       activeVolleyTargetLockCounts.clear();
