@@ -22,6 +22,7 @@ export type ShipControlConfiguration = {
 
 export const GENERAL_COMPONENT_SOCKET_IDS = {
   cannonPrimaryFire: "general:cannon_primary_fire",
+  beamEmitterPrimary: "general:beam_emitter_primary",
   missileBayPayload: "general:missile_payload",
   torpedoLauncherPayload: "general:torpedo_payload",
   builtInEquipment: "general:built_in_equipment"

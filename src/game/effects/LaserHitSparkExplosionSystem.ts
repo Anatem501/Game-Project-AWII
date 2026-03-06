@@ -24,6 +24,9 @@ type LaserHitSparkExplosionConfig = {
   spreadRadians?: number;
   pointSizeScale?: number;
   opacityScale?: number;
+  upwardDriftScale?: number;
+  verticalScale?: number;
+  blobiness?: number;
 };
 
 const DEFAULT_SPARK_COUNT = 48;
@@ -40,6 +43,7 @@ uniform float uAge;
 uniform float uLifetime;
 uniform float uViewportHeight;
 uniform float uPointSizeScale;
+uniform float uVerticalDriftScale;
 
 varying float vLife;
 varying float vSeed;
@@ -47,7 +51,7 @@ varying float vSeed;
 void main() {
   float t = clamp(uAge / max(uLifetime, 0.0001), 0.0, 1.0);
   vec3 displaced = position + aVelocity * uAge;
-  displaced.y += (1.0 - t) * 0.08;
+  displaced.y += (1.0 - t) * 0.08 * uVerticalDriftScale;
 
   vec4 mvPosition = modelViewMatrix * vec4(displaced, 1.0);
   gl_Position = projectionMatrix * mvPosition;
@@ -66,12 +70,16 @@ varying float vSeed;
 uniform vec3 uCoreColor;
 uniform vec3 uGlowColor;
 uniform float uOpacityScale;
+uniform float uBlobiness;
 
 void main() {
   vec2 p = gl_PointCoord - vec2(0.5);
-  float d = length(p);
-  float core = smoothstep(0.45, 0.0, d);
-  float glow = smoothstep(0.65, 0.0, d);
+  float angle = atan(p.y, p.x);
+  float radiusWarp = sin(angle * 5.0 + vSeed * 19.0 + (1.0 - vLife) * 8.0) * 0.065 * uBlobiness;
+  radiusWarp += sin(angle * 9.0 - vSeed * 31.0 + (1.0 - vLife) * 12.0) * 0.038 * uBlobiness;
+  float d = length(p) - radiusWarp;
+  float core = smoothstep(mix(0.45, 0.56, clamp(uBlobiness, 0.0, 1.0)), 0.0, d);
+  float glow = smoothstep(mix(0.65, 0.82, clamp(uBlobiness, 0.0, 1.0)), 0.0, d);
   float flicker = 0.7 + 0.3 * sin((1.0 - vLife) * 28.0 + vSeed * 17.0);
   float alpha = (core * 1.2 + glow * 0.5) * vLife * flicker * uOpacityScale;
 
@@ -99,6 +107,9 @@ export function createLaserHitSparkExplosionSystem(
   );
   const pointSizeScale = Math.max(0.1, config.pointSizeScale ?? 1);
   const opacityScale = THREE.MathUtils.clamp(config.opacityScale ?? 1, 0, 1);
+  const upwardDriftScale = THREE.MathUtils.clamp(config.upwardDriftScale ?? 1, 0, 2);
+  const verticalScale = THREE.MathUtils.clamp(config.verticalScale ?? 1, 0.05, 1);
+  const blobiness = THREE.MathUtils.clamp(config.blobiness ?? 0, 0, 1.5);
   const fallbackColor = config.color ?? 0x40ff6b;
   const sparkCoreColor = new THREE.Color(config.coreColor ?? 0xf6fffb);
   const sparkGlowColor = new THREE.Color(config.glowColor ?? fallbackColor);
@@ -141,7 +152,13 @@ export function createLaserHitSparkExplosionSystem(
         Math.sin(theta) * sinSpread,
         cosSpread
       );
-      localDir.applyQuaternion(baseQuat).normalize();
+      localDir.applyQuaternion(baseQuat);
+      localDir.y *= verticalScale;
+      if (localDir.lengthSq() <= 0.000001) {
+        localDir.copy(spawnDirection);
+      } else {
+        localDir.normalize();
+      }
 
       const speed = randomRange(speedMin, speedMax);
       velocity.copy(localDir).multiplyScalar(speed);
@@ -164,7 +181,9 @@ export function createLaserHitSparkExplosionSystem(
         uLifetime: { value: lifetimeSeconds },
         uViewportHeight: { value: window.innerHeight || 1080 },
         uPointSizeScale: { value: pointSizeScale },
+        uVerticalDriftScale: { value: upwardDriftScale },
         uOpacityScale: { value: opacityScale },
+        uBlobiness: { value: blobiness },
         uCoreColor: { value: new THREE.Vector3(sparkCoreColor.r, sparkCoreColor.g, sparkCoreColor.b) },
         uGlowColor: { value: new THREE.Vector3(sparkGlowColor.r, sparkGlowColor.g, sparkGlowColor.b) }
       },

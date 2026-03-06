@@ -10,6 +10,7 @@ type ImplosionGlob = {
 type ActiveImplosion = {
   age: number;
   baseScale: number;
+  flattenYScale: number;
   globMaterial: THREE.MeshBasicMaterial;
   globs: ImplosionGlob[];
   glowMaterial: THREE.MeshBasicMaterial;
@@ -28,6 +29,7 @@ export type PlasmaHitImplosionSystem = {
 type PlasmaHitImplosionConfig = {
   animationProfile?: "implode_then_expand" | "expand";
   expandStartScaleMultiplier?: number;
+  flattenYScale?: number;
   globCount?: number;
   introFadeInSeconds?: number;
   lifetimeSeconds?: number;
@@ -96,6 +98,7 @@ export function createPlasmaHitImplosionSystem(
     0.01,
     1
   );
+  const flattenYScale = THREE.MathUtils.clamp(config.flattenYScale ?? 1, 0.05, 1);
   const lifetimeSeconds = Math.max(0.01, config.lifetimeSeconds ?? DEFAULT_LIFETIME_SECONDS);
   const introFadeInSeconds = Math.max(0, config.introFadeInSeconds ?? 0);
   const introFadeInDuration = Math.min(lifetimeSeconds * 0.8, introFadeInSeconds);
@@ -129,7 +132,7 @@ export function createPlasmaHitImplosionSystem(
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.copy(origin);
     const baseScale = Math.max(0.01, (boltRadius ?? radius) * 1.15);
-    mesh.scale.setScalar(baseScale);
+    mesh.scale.set(baseScale, baseScale * flattenYScale, baseScale);
     root.add(mesh);
 
     const glowMaterial = new THREE.MeshBasicMaterial({
@@ -142,7 +145,7 @@ export function createPlasmaHitImplosionSystem(
     });
     const glowMesh = new THREE.Mesh(geometry, glowMaterial);
     glowMesh.position.copy(origin);
-    glowMesh.scale.setScalar(baseScale * 1.28);
+    glowMesh.scale.set(baseScale * 1.28, baseScale * 1.28 * flattenYScale, baseScale * 1.28);
     root.add(glowMesh);
 
     const globMaterial = new THREE.MeshBasicMaterial({
@@ -164,6 +167,12 @@ export function createPlasmaHitImplosionSystem(
       } else {
         globDirection.normalize();
       }
+      globDirection.y *= flattenYScale;
+      if (globDirection.lengthSq() <= 0.000001) {
+        globDirection.set(0, 1, 0);
+      } else {
+        globDirection.normalize();
+      }
       mesh.position.copy(origin).addScaledVector(globDirection, baseScale * randomRange(0.05, 0.18));
       mesh.scale.setScalar(startScale);
       root.add(mesh);
@@ -178,6 +187,7 @@ export function createPlasmaHitImplosionSystem(
     activeImplosions.push({
       age: 0,
       baseScale,
+      flattenYScale,
       globMaterial,
       globs,
       glowMaterial,
@@ -217,8 +227,12 @@ export function createPlasmaHitImplosionSystem(
                 (t - shrinkPhaseEnd) / Math.max(0.0001, 1 - shrinkPhaseEnd)
               );
       }
-      implosion.mesh.scale.setScalar(radialScale);
-      implosion.glowMesh.scale.setScalar(radialScale * 1.28);
+      implosion.mesh.scale.set(radialScale, radialScale * implosion.flattenYScale, radialScale);
+      implosion.glowMesh.scale.set(
+        radialScale * 1.28,
+        radialScale * 1.28 * implosion.flattenYScale,
+        radialScale * 1.28
+      );
       const introAlpha =
         introFadeInDuration > 0
           ? THREE.MathUtils.smoothstep(implosion.age, 0, introFadeInDuration)

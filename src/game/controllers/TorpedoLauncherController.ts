@@ -113,34 +113,39 @@ export function createTorpedoLauncherController({
   const detonationExplosion = createPlasmaHitImplosionSystem(scene, {
     animationProfile: "expand",
     expandStartScaleMultiplier: 0.08,
+    flattenYScale: 0.26,
     introFadeInSeconds: 0.14,
     radius: 0.3,
-    globCount: 38,
-    lifetimeSeconds: 0.68,
+    globCount: 56,
+    lifetimeSeconds: 0.8,
     opacityScale: 1
   });
   const detonationPlasmaBursts = createPlasmaMuzzleGlobBurstSystem(scene, {
-    globCountPerBurst: 42,
-    burstLifetimeSeconds: 0.44,
-    speedMin: 0.2,
-    speedMax: 1.55,
-    spreadRadians: THREE.MathUtils.degToRad(74),
-    forwardVelocityBias: 0.2,
+    globCountPerBurst: 68,
+    burstLifetimeSeconds: 0.56,
+    speedMin: 0.5,
+    speedMax: 3.2,
+    spreadRadians: THREE.MathUtils.degToRad(112),
+    forwardVelocityBias: 0.35,
     motionHoldSeconds: 0.02,
-    pointSizeScale: 1.96,
+    pointSizeScale: 2.8,
     deepColor: 0xe0081f,
     coreColor: 0xff292b,
-    opacityScale: 0.96
+    opacityScale: 0.96,
+    upwardDriftScale: 0.42,
+    verticalScale: 0.5
   });
   const detonationSparks = createLaserHitSparkExplosionSystem(scene, {
-    sparkCount: 72,
-    lifetimeSeconds: 0.3,
-    speedMin: 1.8,
-    speedMax: 7.2,
-    spreadRadians: THREE.MathUtils.degToRad(78),
-    pointSizeScale: 1.5,
+    sparkCount: 120,
+    lifetimeSeconds: 0.42,
+    speedMin: 3.2,
+    speedMax: 12.8,
+    spreadRadians: THREE.MathUtils.degToRad(118),
+    pointSizeScale: 2.2,
     coreColor: 0xfff3e7,
-    glowColor: 0xff2d24
+    glowColor: 0xff2d24,
+    upwardDriftScale: 0.38,
+    verticalScale: 0.48
   });
   const torpedoTrailPlasma = createPlasmaMuzzleGlobBurstSystem(scene, {
     globCountPerBurst: 16,
@@ -159,6 +164,10 @@ export function createTorpedoLauncherController({
   const scratchAimDirection = new THREE.Vector3();
   const scratchTargetCenter = new THREE.Vector3();
   const scratchHurtboxCenter = new THREE.Vector3();
+  const scratchPreviousPosition = new THREE.Vector3();
+  const scratchImpactSegment = new THREE.Vector3();
+  const scratchImpactToPoint = new THREE.Vector3();
+  const scratchImpactClosestPoint = new THREE.Vector3();
   const scratchCurrentDirection = new THREE.Vector3();
   const scratchDesiredDirection = new THREE.Vector3();
   const scratchShipOffset = new THREE.Vector3();
@@ -319,8 +328,8 @@ export function createTorpedoLauncherController({
     payload: TorpedoComponentDefinition
   ): void => {
     const explosionVisualRadius = Math.max(
-      0.34,
-      payload.explosionRadius * 0.42 * DETONATION_VISUAL_SIZE_SCALE
+      0.52,
+      payload.explosionRadius * 0.62 * DETONATION_VISUAL_SIZE_SCALE
     );
     detonationExplosion.spawnImplosion(origin, explosionVisualRadius);
   };
@@ -410,7 +419,7 @@ export function createTorpedoLauncherController({
     return null;
   };
 
-  const hasTorpedoImpact = (torpedo: ActiveTorpedo): boolean => {
+  const hasTorpedoImpact = (torpedo: ActiveTorpedo, previousPosition: THREE.Vector3): boolean => {
     const hitRadius = Math.max(DEFAULT_HIT_RADIUS, torpedo.payload.hitRadius);
     for (const hurtbox of targetHurtboxes) {
       if (!hurtbox.canReceiveDamage()) {
@@ -418,7 +427,17 @@ export function createTorpedoLauncherController({
       }
       hurtbox.getWorldCenter(scratchHurtboxCenter);
       const combinedRadius = hitRadius + Math.max(0, hurtbox.collisionArea.radius);
-      if (torpedo.object.position.distanceToSquared(scratchHurtboxCenter) <= combinedRadius * combinedRadius) {
+      if (
+        distanceSquaredToSegment(
+          scratchHurtboxCenter,
+          previousPosition,
+          torpedo.object.position,
+          scratchImpactSegment,
+          scratchImpactToPoint,
+          scratchImpactClosestPoint
+        ) <=
+        combinedRadius * combinedRadius
+      ) {
         return true;
       }
     }
@@ -599,6 +618,7 @@ export function createTorpedoLauncherController({
         }
       }
 
+      scratchPreviousPosition.copy(torpedo.object.position);
       torpedo.object.position.addScaledVector(torpedo.velocity, deltaTime);
       torpedo.trailSpawnSeconds += deltaTime;
       let spawnedTrailBursts = 0;
@@ -633,7 +653,7 @@ export function createTorpedoLauncherController({
         spawnedTrailBursts += 1;
       }
 
-      if (torpedo.seeking && hasTorpedoImpact(torpedo)) {
+      if (hasTorpedoImpact(torpedo, scratchPreviousPosition)) {
         detonateTorpedo(i, torpedo);
         continue;
       }
@@ -802,6 +822,25 @@ function createPlasmaTorpedoSurfaceMaterial(sourceMaterial: THREE.Material): THR
     blending: THREE.NormalBlending,
     toneMapped: false
   });
+}
+
+function distanceSquaredToSegment(
+  point: THREE.Vector3,
+  segmentStart: THREE.Vector3,
+  segmentEnd: THREE.Vector3,
+  scratchSegment: THREE.Vector3,
+  scratchToPoint: THREE.Vector3,
+  scratchClosestPoint: THREE.Vector3
+): number {
+  scratchSegment.subVectors(segmentEnd, segmentStart);
+  const segmentLengthSquared = scratchSegment.lengthSq();
+  if (segmentLengthSquared <= 0.000001) {
+    return point.distanceToSquared(segmentStart);
+  }
+  scratchToPoint.subVectors(point, segmentStart);
+  const t = THREE.MathUtils.clamp(scratchToPoint.dot(scratchSegment) / segmentLengthSquared, 0, 1);
+  scratchClosestPoint.copy(segmentStart).addScaledVector(scratchSegment, t);
+  return point.distanceToSquared(scratchClosestPoint);
 }
 
 function disposeObjectResources(object: THREE.Object3D): void {

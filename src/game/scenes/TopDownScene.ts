@@ -46,6 +46,7 @@ import type { GameMapId } from "../modes/GameMode";
 import { getShipDefinition } from "../ships/ShipCatalog";
 import {
   createDefaultShipSelection,
+  resolveBeamPrimaryComponentId,
   resolveCannonPrimaryComponentId,
   resolveMissileBayComponentId,
   resolveTorpedoComponentId,
@@ -56,6 +57,7 @@ import {
   createCannonPrimaryProjectileFactory
 } from "../weapons/CannonProjectileFactoryResolver";
 import {
+  getBeamPrimaryComponentDefinition,
   getCannonPrimaryComponentDefinition,
   getMissileBayComponentDefinition,
   getTorpedoComponentDefinition
@@ -191,7 +193,15 @@ export function setupTopDownScene(
   );
   const shipMissileBays = selectedShip.missileBays ?? [];
   const playerHasMissileBays = shipMissileBays.length > 0;
+  const shipBeamEmitters = selectedShip.beamEmitters ?? [];
   const shipTorpedoLaunchers = selectedShip.torpedoLaunchers ?? [];
+  const selectedBeamPrimaryComponentId = resolveBeamPrimaryComponentId(
+    selectedShip.id,
+    selection.beamPrimaryComponentId
+  );
+  const selectedBeamPrimaryComponent = getBeamPrimaryComponentDefinition(
+    selectedBeamPrimaryComponentId
+  );
   const selectedMissilePayloadComponentId = resolveMissileBayComponentId(
     selectedShip.id,
     selection.missileBayComponentId
@@ -213,6 +223,7 @@ export function setupTopDownScene(
   let playerShieldBubbleEffect: ReturnType<typeof createShieldBubbleEffect> | null = null;
   let cannonOverheatGlowEffect: ReturnType<typeof createCannonOverheatGlowEffect> | null = null;
   let cannonOverheatSteamEffect: ReturnType<typeof createCannonOverheatSteamEffect> | null = null;
+  let beamEmitterController: ReturnType<typeof createGunController> | null = null;
   let missileBayController: ReturnType<typeof createMissileBayController> | null = null;
   let torpedoLauncherController: ReturnType<typeof createTorpedoLauncherController> | null = null;
 
@@ -230,6 +241,35 @@ export function setupTopDownScene(
   const missileBayLaunchers: MissileBayInstanceConfig[] = [];
   const torpedoLaunchers: TorpedoLauncherInstanceConfig[] = [];
   const torpedoLauncherMounts: THREE.Object3D[] = [];
+  const beamEmitterMounts: THREE.Object3D[] = [];
+  const rebuildBeamEmitterMounts = (emitterLocalOffsets: readonly THREE.Vector3[]): void => {
+    for (let emitterIndex = 0; emitterIndex < shipBeamEmitters.length; emitterIndex += 1) {
+      let emitterMount = beamEmitterMounts[emitterIndex];
+      if (!emitterMount) {
+        emitterMount = new THREE.Object3D();
+        playerRoot.add(emitterMount);
+        beamEmitterMounts.push(emitterMount);
+      }
+
+      const emitterDefinition = shipBeamEmitters[emitterIndex];
+      emitterMount.userData.beamEmitterId = emitterDefinition.id;
+      emitterMount.userData.beamPrimaryComponentId = selectedBeamPrimaryComponent.id;
+
+      const localOffset = emitterLocalOffsets[emitterIndex];
+      if (localOffset) {
+        emitterMount.position.copy(localOffset);
+        emitterMount.userData.hasResolvedSocket = true;
+      } else if (emitterMount.userData.hasResolvedSocket !== true) {
+        emitterMount.position.set(0, 0, 0);
+        emitterMount.userData.hasResolvedSocket = false;
+      }
+    }
+
+    while (beamEmitterMounts.length > shipBeamEmitters.length) {
+      const emitterMount = beamEmitterMounts.pop();
+      emitterMount?.removeFromParent();
+    }
+  };
   const rebuildTorpedoLauncherMounts = (launcherLocalOffsets: readonly THREE.Vector3[]): void => {
     for (const launcher of torpedoLauncherMounts) {
       launcher.removeFromParent();
@@ -319,6 +359,15 @@ export function setupTopDownScene(
     const clampedOffsets = launcherLocalOffsets.slice(0, shipTorpedoLaunchers.length);
     rebuildTorpedoLauncherMounts(clampedOffsets);
   };
+  const applyEmitterSockets = (emitterLocalOffsets: readonly THREE.Vector3[]): void => {
+    if (shipBeamEmitters.length <= 0) {
+      rebuildBeamEmitterMounts([]);
+      return;
+    }
+
+    const clampedOffsets = emitterLocalOffsets.slice(0, shipBeamEmitters.length);
+    rebuildBeamEmitterMounts(clampedOffsets);
+  };
   const resolveCannonPrimaryControlSocketId = (gunIndex: number): string => {
     if (!shipControlRuntime) {
       return GENERAL_COMPONENT_SOCKET_IDS.cannonPrimaryFire;
@@ -342,6 +391,16 @@ export function setupTopDownScene(
       return individualSocketId;
     }
     return GENERAL_COMPONENT_SOCKET_IDS.missileBayPayload;
+  };
+  const resolveBeamEmitterPrimaryControlSocketId = (emitterId: string): string => {
+    if (!shipControlRuntime) {
+      return GENERAL_COMPONENT_SOCKET_IDS.beamEmitterPrimary;
+    }
+    const individualSocketId = `beam:${emitterId}`;
+    if (shipControlRuntime.hasComponentBinding(individualSocketId)) {
+      return individualSocketId;
+    }
+    return GENERAL_COMPONENT_SOCKET_IDS.beamEmitterPrimary;
   };
   const resolveTorpedoPayloadControlSocketId = (launcherId: string): string => {
     if (!shipControlRuntime) {
@@ -419,6 +478,9 @@ export function setupTopDownScene(
     },
     onLauncherSocketsResolved: (launcherLocalOffsets) => {
       applyLauncherSockets(launcherLocalOffsets);
+    },
+    onEmitterSocketsResolved: (emitterLocalOffsets) => {
+      applyEmitterSockets(emitterLocalOffsets);
     }
   });
   if (shipMissileBays.length > 0) {
@@ -430,6 +492,9 @@ export function setupTopDownScene(
   }
   if (shipTorpedoLaunchers.length > 0) {
     rebuildTorpedoLauncherMounts([]);
+  }
+  if (shipBeamEmitters.length > 0) {
+    rebuildBeamEmitterMounts([]);
   }
   cannonOverheatGlowEffect = createCannonOverheatGlowEffect(
     playerRoot,
@@ -1200,6 +1265,7 @@ export function setupTopDownScene(
   const gunController = createGunController({
     aimReticle: inputAimReticle,
     canvas,
+    viewCamera: camera,
     guns,
     maxAimAngleRadians: GUN_MAX_AIM_ANGLE_RADIANS,
     minAimDistanceFromShip: GUN_MIN_AIM_DISTANCE_FROM_SHIP,
@@ -1223,6 +1289,90 @@ export function setupTopDownScene(
       : undefined,
     disableDefaultPrimaryFireInput: shipControlRuntime !== null
   });
+  const beamPrimaryHeatCost = Math.max(0, selectedBeamPrimaryComponent.heatCost ?? 0);
+  const beamPrimaryEnergyCost = Math.max(0, selectedBeamPrimaryComponent.energyCost ?? 0);
+  const beamPrimaryFireIntervalSeconds = Math.max(
+    0.001,
+    selectedBeamPrimaryComponent.fireIntervalSeconds ?? CANNON_FIRE_INTERVAL_SECONDS
+  );
+  const beamPrimaryChargeDurationSeconds = Math.max(
+    0,
+    selectedBeamPrimaryComponent.chargeDurationSeconds ?? 0
+  );
+  const beamHitscanPulseConfig = {
+    maxDistance: selectedBeamPrimaryComponent.hitscanPulse.maxDistance,
+    pulseDurationSeconds: selectedBeamPrimaryComponent.hitscanPulse.pulseDurationSeconds,
+    beamThickness: selectedBeamPrimaryComponent.hitscanPulse.beamThickness,
+    damageAmount: selectedBeamPrimaryComponent.hitscanPulse.damage,
+    damageType: (selectedBeamPrimaryComponent.hitscanPulse.damageType ?? "Laser") as const,
+    sourceFaction: "player",
+    hitSparkIntervalSeconds: selectedBeamPrimaryComponent.hitscanPulse.hitSparkIntervalSeconds,
+    beamColor: selectedBeamPrimaryComponent.hitscanPulse.beamColor ?? 0x40ff6b,
+    beamCoreColor: selectedBeamPrimaryComponent.hitscanPulse.beamCoreColor ?? 0xeefff4,
+    effectStyle: selectedBeamPrimaryComponent.hitscanPulse.effectStyle ?? "default",
+    edgeParticleCount: selectedBeamPrimaryComponent.hitscanPulse.edgeParticleCount,
+    edgeParticleSpeedUnitsPerSecond:
+      selectedBeamPrimaryComponent.hitscanPulse.edgeParticleSpeedUnitsPerSecond,
+    edgeParticleLength: selectedBeamPrimaryComponent.hitscanPulse.edgeParticleLength,
+    edgeParticleThickness: selectedBeamPrimaryComponent.hitscanPulse.edgeParticleThickness,
+    edgeParticleOrbitRadiusMultiplier:
+      selectedBeamPrimaryComponent.hitscanPulse.edgeParticleOrbitRadiusMultiplier
+  };
+  if (shipBeamEmitters.length > 0 && beamEmitterMounts.length > 0) {
+    const beamEmitterGuns = beamEmitterMounts.map((hardpoint) => ({
+      hardpoint,
+      primary: {
+        fireIntervalSeconds: beamPrimaryFireIntervalSeconds,
+        chargeDurationSeconds: beamPrimaryChargeDurationSeconds,
+        hitscanPulse: beamHitscanPulseConfig,
+        heatCost: beamPrimaryHeatCost,
+        energyCost: beamPrimaryEnergyCost
+      }
+    }));
+    beamEmitterController = createGunController({
+      aimReticle: inputAimReticle,
+      canvas,
+      viewCamera: camera,
+      guns: beamEmitterGuns,
+      maxAimAngleRadians: GUN_MAX_AIM_ANGLE_RADIANS,
+      minAimDistanceFromShip: GUN_MIN_AIM_DISTANCE_FROM_SHIP,
+      playerRoot,
+      scene,
+      reticleHomingTargetPadding: RETICLE_ENEMY_HOVER_PADDING,
+      consumePrimaryFireCost: (cost) => {
+        if (!playerStatus.canFireWeapons()) {
+          return false;
+        }
+        if (!playerResources.canFireCannons()) {
+          return false;
+        }
+        return playerResources.tryConsumeWeaponCost(cost);
+      },
+      getPrimaryFireIntervalMultiplier: () => playerResources.getWeaponFireIntervalMultiplier(),
+      targetHurtboxes: enemyTargetHurtboxes,
+      canPrimaryFireForGun: (gunIndex) => {
+        const energySnapshot = playerResources.getSnapshot().energy;
+        if (energySnapshot.max > 0 && energySnapshot.current <= 0) {
+          return false;
+        }
+        return beamEmitterMounts[gunIndex]?.userData.hasResolvedSocket === true;
+      },
+      resolvePrimaryFireInputForGun: shipControlRuntime
+        ? (gunIndex) => {
+            const emitterId = shipBeamEmitters[gunIndex]?.id;
+            if (!emitterId) {
+              return false;
+            }
+            return shipControlRuntime.isComponentTriggered(
+              resolveBeamEmitterPrimaryControlSocketId(emitterId)
+            );
+          }
+        : undefined,
+      disableDefaultPrimaryFireInput: shipControlRuntime !== null,
+      defaultPrimaryFireMouseButton: 2,
+      defaultPrimaryFireGamepadButtonIndex: 4
+    });
+  }
   missileBayController = createMissileBayController({
     canvas,
     missileBays: missileBayLaunchers,
@@ -1396,10 +1546,14 @@ export function setupTopDownScene(
       !playerIsDestroyed ? playerController.getTemporaryManeuverCameraLockYaw() : null
     );
     gunController.update(deltaTime, playerState);
-    rogueEnemyCannonShip?.setPlayerPrimaryFireActive(gunController.isPrimaryFireInputActive());
-    rogueEnemyPlasmaCannonShip?.setPlayerPrimaryFireActive(gunController.isPrimaryFireInputActive());
+    beamEmitterController?.update(deltaTime, playerState);
+    const playerPrimaryFireInputActive =
+      gunController.isPrimaryFireInputActive() ||
+      (beamEmitterController?.isPrimaryFireInputActive() ?? false);
+    rogueEnemyCannonShip?.setPlayerPrimaryFireActive(playerPrimaryFireInputActive);
+    rogueEnemyPlasmaCannonShip?.setPlayerPrimaryFireActive(playerPrimaryFireInputActive);
     for (const missileShip of rogueEnemyMissileShips) {
-      missileShip?.setPlayerPrimaryFireActive(gunController.isPrimaryFireInputActive());
+      missileShip?.setPlayerPrimaryFireActive(playerPrimaryFireInputActive);
     }
     missileBayController?.update(
       deltaTime,
@@ -1753,6 +1907,7 @@ export function setupTopDownScene(
         playerShieldHurtbox?.setEnabled(false);
         updatePlayerTargetHurtboxes();
         gunController.setEnabled(false);
+        beamEmitterController?.setEnabled(false);
         missileBayController?.setEnabled(false);
         torpedoLauncherController?.setEnabled(false);
       }
@@ -1768,6 +1923,7 @@ export function setupTopDownScene(
         playerShieldHurtbox?.setEnabled(playerHealth.getSnapshot().shield.current > 0);
         updatePlayerTargetHurtboxes();
         gunController.setEnabled(true);
+        beamEmitterController?.setEnabled(true);
         missileBayController?.setEnabled(true);
         torpedoLauncherController?.setEnabled(true);
         playerIsDestroyed = false;
@@ -1904,6 +2060,8 @@ export function setupTopDownScene(
     playerController.dispose();
     shipControlRuntime?.dispose();
     gunController.dispose();
+    beamEmitterController?.dispose();
+    beamEmitterController = null;
     missileBayController?.dispose();
     missileBayController = null;
     torpedoLauncherController?.dispose();

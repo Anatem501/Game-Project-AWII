@@ -11,6 +11,7 @@ type PlayerRigParams = {
   onThrusterSocketsResolved?: (thrusterLocalOffsets: THREE.Vector3[], thrusterSizeScales: number[]) => void;
   onMissileCellSocketsResolved?: (missileCellSockets: MissileCellSocketLocalOffset[]) => void;
   onLauncherSocketsResolved?: (launcherLocalOffsets: THREE.Vector3[]) => void;
+  onEmitterSocketsResolved?: (emitterLocalOffsets: THREE.Vector3[]) => void;
 };
 
 export type PlayerRig = {
@@ -44,7 +45,8 @@ export function createPlayerRig(
     autoAlignGunHardpointsToModel,
     onThrusterSocketsResolved,
     onMissileCellSocketsResolved,
-    onLauncherSocketsResolved
+    onLauncherSocketsResolved,
+    onEmitterSocketsResolved
   }: PlayerRigParams
 ): PlayerRig {
   let disposed = false;
@@ -75,6 +77,7 @@ export function createPlayerRig(
     onThrusterSocketsResolved,
     onMissileCellSocketsResolved,
     onLauncherSocketsResolved,
+    onEmitterSocketsResolved,
     () => disposed
   );
 
@@ -110,6 +113,7 @@ function loadPlayerModel(
     | ((missileCellSockets: MissileCellSocketLocalOffset[]) => void)
     | undefined,
   onLauncherSocketsResolved: ((launcherLocalOffsets: THREE.Vector3[]) => void) | undefined,
+  onEmitterSocketsResolved: ((emitterLocalOffsets: THREE.Vector3[]) => void) | undefined,
   isDisposed: () => boolean
 ): void {
   const loader = new GLTFLoader();
@@ -151,6 +155,7 @@ function loadPlayerModel(
       onThrusterSocketsResolved?.(socketData.thrusterOffsets, socketData.thrusterSizeScales);
       onMissileCellSocketsResolved?.(socketData.missileCellSockets);
       onLauncherSocketsResolved?.(socketData.launcherOffsets);
+      onEmitterSocketsResolved?.(socketData.emitterOffsets);
     },
     undefined,
     (error) => {
@@ -269,6 +274,7 @@ type CollectedModelSocketData = {
   thrusterSizeScales: number[];
   missileCellSockets: MissileCellSocketLocalOffset[];
   launcherOffsets: THREE.Vector3[];
+  emitterOffsets: THREE.Vector3[];
 };
 
 function collectModelSocketData(
@@ -279,6 +285,7 @@ function collectModelSocketData(
   const thrusterNodes: IndexedSocketNode[] = [];
   const missileCellNodes: MissileCellSocketNode[] = [];
   const launcherNodes: IndexedSocketNode[] = [];
+  const emitterNodes: IndexedSocketNode[] = [];
 
   model.traverse((node) => {
     const cannonIndex = parseSocketIndex(node.name, "cannon");
@@ -304,11 +311,17 @@ function collectModelSocketData(
     if (launcherIndex !== null) {
       launcherNodes.push({ index: launcherIndex, node });
     }
+
+    const emitterIndex = parseSocketIndex(node.name, "emitter");
+    if (emitterIndex !== null) {
+      emitterNodes.push({ index: emitterIndex, node });
+    }
   });
 
   sortIndexedSocketNodes(cannonNodes);
   sortIndexedSocketNodes(thrusterNodes);
   sortIndexedSocketNodes(launcherNodes);
+  sortIndexedSocketNodes(emitterNodes);
   sortMissileCellSocketNodes(missileCellNodes);
 
   playerRoot.updateMatrixWorld(true);
@@ -323,6 +336,10 @@ function collectModelSocketData(
     return playerRoot.worldToLocal(worldPosition.clone());
   });
   const launcherOffsets = launcherNodes.map(({ node }) => {
+    node.getWorldPosition(worldPosition);
+    return playerRoot.worldToLocal(worldPosition.clone());
+  });
+  const emitterOffsets = emitterNodes.map(({ node }) => {
     node.getWorldPosition(worldPosition);
     return playerRoot.worldToLocal(worldPosition.clone());
   });
@@ -354,7 +371,8 @@ function collectModelSocketData(
     thrusterOffsets,
     thrusterSizeScales,
     missileCellSockets,
-    launcherOffsets
+    launcherOffsets,
+    emitterOffsets
   };
 }
 

@@ -1,19 +1,23 @@
 import { DEFAULT_SHIP_ID, listShipDefinitions, type ShipDefinition } from "../ships/ShipCatalog";
 import { getGameModeLabel, type GameModeId } from "../modes/GameMode";
 import {
+  BEAM_PRIMARY_OPTIONS,
   MISSILE_COMPONENT_OPTIONS,
   PRIMARY_FIRE_COMPONENT_OPTIONS,
   TORPEDO_COMPONENT_OPTIONS,
+  resolveBeamPrimaryComponentId,
   createDefaultShipSelection,
   resolveCannonPrimaryComponentId,
   resolveMissileBayComponentId,
   resolveTorpedoComponentId,
+  type BeamPrimaryComponentId,
   type MissileComponentId,
   type PrimaryFireComponentId,
   type TorpedoFireComponentId,
   type ShipSelectionConfig
 } from "../ships/ShipSelection";
 import {
+  getBeamPrimaryComponentDefinition,
   getCannonPrimaryComponentDefinition,
   getMissileBayComponentDefinition,
   getTorpedoComponentDefinition
@@ -36,8 +40,8 @@ type MainMenuHandlers = {
 };
 
 type MenuView = "start" | "mode-select" | "ship-select" | "ship-confirm" | "control-config";
-type ComponentSlotId = "cannon_primary_fire" | "missile_payload" | "torpedo_payload";
-type ControlConfigurationComponentGroupId = "cannon" | "missile" | "torpedo";
+type ComponentSlotId = "cannon_primary_fire" | "beam_primary" | "missile_payload" | "torpedo_payload";
+type ControlConfigurationComponentGroupId = "cannon" | "beam" | "missile" | "torpedo";
 type ControlConfigurationComponentSocket = {
   id: string;
   label: string;
@@ -50,9 +54,11 @@ const GAMEPAD_CONFIRM_BUTTON_INDEX = 0;
 const FOCUS_REPEAT_INITIAL_MS = 250;
 const FOCUS_REPEAT_HELD_MS = 130;
 const GUN_PRIMARY_FIRE_SLOT_LABEL = "Cannons Primary Fire";
+const BEAM_PRIMARY_SLOT_LABEL = "Beam Emitter Primary";
 const MISSILE_PAYLOAD_SLOT_LABEL = "Missile Bay Payload";
 const TORPEDO_PAYLOAD_SLOT_LABEL = "Torpedo Launcher";
 const CONTROL_CONFIG_GENERAL_CANNON_LABEL = "Cannon Primary Fire";
+const CONTROL_CONFIG_GENERAL_BEAM_LABEL = "Beam Emitter Primary";
 const CONTROL_CONFIG_GENERAL_MISSILE_LABEL = "Missile Bay Payload";
 const CONTROL_CONFIG_GENERAL_TORPEDO_LABEL = "Torpedo Launcher Payload";
 const CONTROL_CONFIG_GENERAL_BUILT_IN_LABEL = "Built-In Equipment";
@@ -127,6 +133,7 @@ export class MainMenu {
     boolean
   > = {
     cannon: true,
+    beam: true,
     missile: true,
     torpedo: true
   };
@@ -137,6 +144,7 @@ export class MainMenu {
   private isControlConfigurationListeningForInput = false;
   private cleanupControlConfigurationWiring: (() => void) | null = null;
   private hoveredPrimaryFireComponentId: PrimaryFireComponentId | null = null;
+  private hoveredBeamPrimaryComponentId: BeamPrimaryComponentId | null = null;
   private hoveredMissileComponentId: MissileComponentId | null = null;
   private hoveredTorpedoComponentId: TorpedoFireComponentId | null = null;
   private preview: ShipCarouselPreview | null = null;
@@ -236,6 +244,7 @@ export class MainMenu {
     this.currentShipIndex = shipIndex >= 0 ? shipIndex : 0;
     this.shipSelection.shipId = this.ships[this.currentShipIndex].id;
     this.syncCannonPrimarySelectionWithCurrentShip();
+    this.syncBeamPrimarySelectionWithCurrentShip();
     this.syncMissileBaySelectionWithCurrentShip();
     this.syncTorpedoSelectionWithCurrentShip();
 
@@ -276,6 +285,7 @@ export class MainMenu {
           <h2>Components</h2>
           <div class="component-panel-content">
             <div data-role="ship-select-cannon-slots"></div>
+            <div data-role="ship-select-beam-slots"></div>
             <div data-role="ship-select-missile-slots"></div>
             <div data-role="ship-select-torpedo-slots"></div>
             <div data-role="ship-select-built-in-slots"></div>
@@ -350,6 +360,7 @@ export class MainMenu {
           <h2>Components</h2>
           <div class="component-panel-content" data-role="component-panel-content">
             <div data-role="confirm-cannon-slot-list"></div>
+            <div data-role="confirm-beam-slot-list"></div>
             <div data-role="confirm-missile-slot-list"></div>
             <div data-role="confirm-torpedo-slot-list"></div>
             <div class="component-panel-footer">
@@ -407,6 +418,7 @@ export class MainMenu {
     const currentShip = this.ships[this.currentShipIndex];
     this.shipSelection.shipId = currentShip.id;
     this.syncCannonPrimarySelectionWithCurrentShip();
+    this.syncBeamPrimarySelectionWithCurrentShip();
     this.syncMissileBaySelectionWithCurrentShip();
     this.syncTorpedoSelectionWithCurrentShip();
     const componentSockets = this.buildControlConfigurationComponentSockets(currentShip);
@@ -424,9 +436,11 @@ export class MainMenu {
     );
     const generalComponentSockets = componentSockets.filter((socket) => socket.groupId === "general");
     const cannonComponentSockets = componentSockets.filter((socket) => socket.groupId === "cannon");
+    const beamComponentSockets = componentSockets.filter((socket) => socket.groupId === "beam");
     const missileComponentSockets = componentSockets.filter((socket) => socket.groupId === "missile");
     const torpedoComponentSockets = componentSockets.filter((socket) => socket.groupId === "torpedo");
     const cannonGroupExpanded = !this.controlConfigurationCollapsedGroups.cannon;
+    const beamGroupExpanded = !this.controlConfigurationCollapsedGroups.beam;
     const missileGroupExpanded = !this.controlConfigurationCollapsedGroups.missile;
     const torpedoGroupExpanded = !this.controlConfigurationCollapsedGroups.torpedo;
 
@@ -464,6 +478,12 @@ export class MainMenu {
                   cannonGroupExpanded
                 )}
                 ${this.renderControlConfigurationComponentGroup(
+                  "beam",
+                  "Beam Emitters",
+                  beamComponentSockets,
+                  beamGroupExpanded
+                )}
+                ${this.renderControlConfigurationComponentGroup(
                   "missile",
                   "Missile Bays",
                   missileComponentSockets,
@@ -487,7 +507,7 @@ export class MainMenu {
                   data-tab="kbm"
                   data-focusable="true"
                 >
-                  KBM
+                  Keyboard
                 </button>
                 <button
                   class="menu-button menu-button-secondary control-config-tab${!isKbmTab ? " is-active" : ""}"
@@ -651,10 +671,14 @@ export class MainMenu {
   ): ControlConfigurationComponentSocket[] {
     const sockets: ControlConfigurationComponentSocket[] = [];
     const cannonMounts = ship.cannonMounts ?? [];
+    const beamEmitters = ship.beamEmitters ?? [];
     const missileBays = ship.missileBays ?? [];
     const torpedoLaunchers = ship.torpedoLaunchers ?? [];
     const cannonComponentName = getCannonPrimaryComponentDefinition(
       this.shipSelection.cannonPrimaryComponentId
+    ).name;
+    const beamComponentName = getBeamPrimaryComponentDefinition(
+      this.shipSelection.beamPrimaryComponentId
     ).name;
     const missileComponentName = getMissileBayComponentDefinition(
       this.shipSelection.missileBayComponentId
@@ -668,6 +692,14 @@ export class MainMenu {
         id: GENERAL_COMPONENT_SOCKET_IDS.cannonPrimaryFire,
         label: CONTROL_CONFIG_GENERAL_CANNON_LABEL,
         componentName: cannonComponentName,
+        groupId: "general"
+      });
+    }
+    if (beamEmitters.length > 0) {
+      sockets.push({
+        id: GENERAL_COMPONENT_SOCKET_IDS.beamEmitterPrimary,
+        label: CONTROL_CONFIG_GENERAL_BEAM_LABEL,
+        componentName: beamComponentName,
         groupId: "general"
       });
     }
@@ -702,6 +734,14 @@ export class MainMenu {
         label: mount.displayName,
         componentName: cannonComponentName,
         groupId: "cannon"
+      });
+    }
+    for (const emitter of beamEmitters) {
+      sockets.push({
+        id: `beam:${emitter.id}`,
+        label: emitter.displayName,
+        componentName: beamComponentName,
+        groupId: "beam"
       });
     }
     for (const bay of missileBays) {
@@ -804,6 +844,11 @@ export class MainMenu {
       ];
       connections.controller[GENERAL_COMPONENT_SOCKET_IDS.cannonPrimaryFire] = ["controller_rt"];
     }
+    if (componentSocketIds.has(GENERAL_COMPONENT_SOCKET_IDS.beamEmitterPrimary)) {
+      usedControlsByTab.controller.add("controller_lb");
+      connections.kbm[GENERAL_COMPONENT_SOCKET_IDS.beamEmitterPrimary] = ["kbm_right_click"];
+      connections.controller[GENERAL_COMPONENT_SOCKET_IDS.beamEmitterPrimary] = ["controller_lb"];
+    }
     if (componentSocketIds.has(GENERAL_COMPONENT_SOCKET_IDS.missileBayPayload)) {
       connections.kbm[GENERAL_COMPONENT_SOCKET_IDS.missileBayPayload] = [
         "kbm_right_click",
@@ -872,27 +917,31 @@ export class MainMenu {
     componentSockets: readonly ControlConfigurationComponentSocket[]
   ): void {
     const componentSocketIds = new Set(componentSockets.map((componentSocket) => componentSocket.id));
-    if (!componentSocketIds.has(GENERAL_COMPONENT_SOCKET_IDS.torpedoLauncherPayload)) {
-      return;
-    }
+    const ensureKbmFallbackBinding = (
+      socketId: string,
+      controlId: string
+    ): void => {
+      const hasAnyBinding =
+        (connections.kbm[socketId]?.length ?? 0) > 0 ||
+        (connections.controller[socketId]?.length ?? 0) > 0;
+      if (hasAnyBinding) {
+        return;
+      }
+      connections.kbm[socketId] = [controlId];
+      const hasControl = controlsByTab.kbm.some((controlSocket) => controlSocket.id === controlId);
+      if (!hasControl) {
+        controlsByTab.kbm.push({
+          id: controlId,
+          label: this.resolveControlConfigurationControlLabel("kbm", controlId)
+        });
+      }
+    };
 
-    const torpedoSocketId = GENERAL_COMPONENT_SOCKET_IDS.torpedoLauncherPayload;
-    const hasAnyTorpedoBinding =
-      (connections.kbm[torpedoSocketId]?.length ?? 0) > 0 ||
-      (connections.controller[torpedoSocketId]?.length ?? 0) > 0;
-    if (hasAnyTorpedoBinding) {
-      return;
+    if (componentSocketIds.has(GENERAL_COMPONENT_SOCKET_IDS.torpedoLauncherPayload)) {
+      ensureKbmFallbackBinding(GENERAL_COMPONENT_SOCKET_IDS.torpedoLauncherPayload, "kbm_right_click");
     }
-
-    connections.kbm[torpedoSocketId] = ["kbm_right_click"];
-    const hasRightClickControl = controlsByTab.kbm.some(
-      (controlSocket) => controlSocket.id === "kbm_right_click"
-    );
-    if (!hasRightClickControl) {
-      controlsByTab.kbm.push({
-        id: "kbm_right_click",
-        label: this.resolveControlConfigurationControlLabel("kbm", "kbm_right_click")
-      });
+    if (componentSocketIds.has(GENERAL_COMPONENT_SOCKET_IDS.beamEmitterPrimary)) {
+      ensureKbmFallbackBinding(GENERAL_COMPONENT_SOCKET_IDS.beamEmitterPrimary, "kbm_right_click");
     }
   }
 
@@ -1562,6 +1611,7 @@ export class MainMenu {
     this.currentShipIndex = (this.currentShipIndex + direction + count) % count;
     this.shipSelection.shipId = this.ships[this.currentShipIndex].id;
     this.syncCannonPrimarySelectionWithCurrentShip();
+    this.syncBeamPrimarySelectionWithCurrentShip();
     this.syncMissileBaySelectionWithCurrentShip();
     this.syncTorpedoSelectionWithCurrentShip();
     this.refreshShipSelectContent();
@@ -1572,11 +1622,16 @@ export class MainMenu {
     const previous = this.getShipWithOffset(-1);
     const next = this.getShipWithOffset(1);
     const cannonMounts = current.cannonMounts ?? [];
+    const beamEmitters = current.beamEmitters ?? [];
     const missileBays = current.missileBays ?? [];
     const torpedoLaunchers = current.torpedoLaunchers ?? [];
     this.shipSelection.cannonPrimaryComponentId = resolveCannonPrimaryComponentId(
       current.id,
       this.shipSelection.cannonPrimaryComponentId
+    );
+    this.shipSelection.beamPrimaryComponentId = resolveBeamPrimaryComponentId(
+      current.id,
+      this.shipSelection.beamPrimaryComponentId
     );
     this.shipSelection.missileBayComponentId = resolveMissileBayComponentId(
       current.id,
@@ -1609,6 +1664,27 @@ export class MainMenu {
               <div class="menu-button menu-button-secondary component-slot-button component-slot-readonly">
                 <span class="component-slot-title">Cannon ${mountIndex + 1}</span>
                 <span class="component-slot-value">Primary Fire: ${component.name}</span>
+              </div>
+            `;
+          })
+          .join("");
+      }
+    }
+
+    const shipSelectBeamSlots = this.panel.querySelector<HTMLElement>(
+      '[data-role="ship-select-beam-slots"]'
+    );
+    if (shipSelectBeamSlots) {
+      if (beamEmitters.length <= 0) {
+        shipSelectBeamSlots.innerHTML = "";
+      } else {
+        const component = getBeamPrimaryComponentDefinition(this.shipSelection.beamPrimaryComponentId);
+        shipSelectBeamSlots.innerHTML = beamEmitters
+          .map((_, emitterIndex) => {
+            return `
+              <div class="menu-button menu-button-secondary component-slot-button component-slot-readonly">
+                <span class="component-slot-title">Emitter ${emitterIndex + 1}</span>
+                <span class="component-slot-value">Beam Primary: ${component.name}</span>
               </div>
             `;
           })
@@ -1680,11 +1756,16 @@ export class MainMenu {
   private refreshShipConfirmContent(): void {
     const selectedShip = this.ships[this.currentShipIndex];
     const cannonMounts = selectedShip.cannonMounts ?? [];
+    const beamEmitters = selectedShip.beamEmitters ?? [];
     const missileBays = selectedShip.missileBays ?? [];
     const torpedoLaunchers = selectedShip.torpedoLaunchers ?? [];
     this.shipSelection.cannonPrimaryComponentId = resolveCannonPrimaryComponentId(
       selectedShip.id,
       this.shipSelection.cannonPrimaryComponentId
+    );
+    this.shipSelection.beamPrimaryComponentId = resolveBeamPrimaryComponentId(
+      selectedShip.id,
+      this.shipSelection.beamPrimaryComponentId
     );
     this.shipSelection.missileBayComponentId = resolveMissileBayComponentId(
       selectedShip.id,
@@ -1698,22 +1779,27 @@ export class MainMenu {
     this.setTextContent('[data-role="ship-description"]', selectedShip.description);
 
     const hasCannonSlot = cannonMounts.length > 0;
+    const hasBeamSlot = beamEmitters.length > 0;
     const hasMissileSlot = missileBays.length > 0;
     const hasTorpedoSlot = torpedoLaunchers.length > 0;
     if (
       (this.selectedComponentSlot === "cannon_primary_fire" && !hasCannonSlot) ||
+      (this.selectedComponentSlot === "beam_primary" && !hasBeamSlot) ||
       (this.selectedComponentSlot === "missile_payload" && !hasMissileSlot) ||
       (this.selectedComponentSlot === "torpedo_payload" && !hasTorpedoSlot)
     ) {
       this.selectedComponentSlot = null;
       this.isComponentPickerOpen = false;
       this.hoveredPrimaryFireComponentId = null;
+      this.hoveredBeamPrimaryComponentId = null;
       this.hoveredMissileComponentId = null;
       this.hoveredTorpedoComponentId = null;
     }
     if (this.selectedComponentSlot === null) {
       if (hasCannonSlot) {
         this.selectedComponentSlot = "cannon_primary_fire";
+      } else if (hasBeamSlot) {
+        this.selectedComponentSlot = "beam_primary";
       } else if (hasMissileSlot) {
         this.selectedComponentSlot = "missile_payload";
       } else if (hasTorpedoSlot) {
@@ -1740,6 +1826,34 @@ export class MainMenu {
         confirmCannonSlotList.innerHTML = "";
       }
       confirmCannonSlotList
+        .querySelectorAll<HTMLButtonElement>('[data-action="select-component-slot"]')
+        .forEach((button) => {
+          const slot = button.dataset.slot as ComponentSlotId | undefined;
+          if (!slot) {
+            return;
+          }
+          button.addEventListener("click", () => this.selectComponentSlot(slot));
+        });
+    }
+
+    const confirmBeamSlotList = this.panel.querySelector<HTMLElement>(
+      '[data-role="confirm-beam-slot-list"]'
+    );
+    if (confirmBeamSlotList) {
+      if (hasBeamSlot) {
+        const component = getBeamPrimaryComponentDefinition(this.shipSelection.beamPrimaryComponentId);
+        const selectedClass = this.selectedComponentSlot === "beam_primary" ? " component-slot-selected" : "";
+        const focusable = !this.isComponentPickerOpen ? ' data-focusable="true"' : "";
+        confirmBeamSlotList.innerHTML = `
+          <button class="menu-button menu-button-secondary component-slot-button${selectedClass}" data-action="select-component-slot" data-slot="beam_primary"${focusable} type="button">
+            <span class="component-slot-title">${BEAM_PRIMARY_SLOT_LABEL}</span>
+            <span class="component-slot-value">${component.name}</span>
+          </button>
+        `;
+      } else {
+        confirmBeamSlotList.innerHTML = "";
+      }
+      confirmBeamSlotList
         .querySelectorAll<HTMLButtonElement>('[data-action="select-component-slot"]')
         .forEach((button) => {
           const slot = button.dataset.slot as ComponentSlotId | undefined;
@@ -1865,6 +1979,7 @@ export class MainMenu {
     }
     if (!this.isComponentPickerOpen) {
       this.hoveredPrimaryFireComponentId = null;
+      this.hoveredBeamPrimaryComponentId = null;
       this.hoveredMissileComponentId = null;
       this.hoveredTorpedoComponentId = null;
     }
@@ -1894,6 +2009,30 @@ export class MainMenu {
               button.addEventListener("focus", () => this.previewPrimaryFireComponent(componentId));
               button.addEventListener("mouseleave", () => this.clearPrimaryFireComponentPreview());
               button.addEventListener("blur", () => this.clearPrimaryFireComponentPreview());
+            });
+        } else if (this.selectedComponentSlot === "beam_primary") {
+          optionList.innerHTML = BEAM_PRIMARY_OPTIONS.map((componentId) => {
+            const option = getBeamPrimaryComponentDefinition(componentId);
+            const equippedSuffix =
+              componentId === this.shipSelection.beamPrimaryComponentId
+                ? " (Equipped)"
+                : "";
+            return `<button class="menu-button menu-button-secondary component-option-button" data-action="select-beam-component-option" data-component-id="${componentId}" data-focusable="true">${option.name}${equippedSuffix}</button>`;
+          }).join("");
+          optionList
+            .querySelectorAll<HTMLButtonElement>('[data-action="select-beam-component-option"]')
+            .forEach((button) => {
+              const componentId = button.dataset.componentId as BeamPrimaryComponentId | undefined;
+              if (!componentId) {
+                return;
+              }
+              button.addEventListener("click", () => {
+                this.selectBeamComponent(componentId);
+              });
+              button.addEventListener("mouseenter", () => this.previewBeamPrimaryComponent(componentId));
+              button.addEventListener("focus", () => this.previewBeamPrimaryComponent(componentId));
+              button.addEventListener("mouseleave", () => this.clearBeamPrimaryComponentPreview());
+              button.addEventListener("blur", () => this.clearBeamPrimaryComponentPreview());
             });
         } else if (this.selectedComponentSlot === "missile_payload") {
           optionList.innerHTML = MISSILE_COMPONENT_OPTIONS.map((componentId) => {
@@ -1958,6 +2097,7 @@ export class MainMenu {
     this.handlers.onLaunchMode(this.selectedModeId, {
       shipId: this.shipSelection.shipId,
       cannonPrimaryComponentId: this.shipSelection.cannonPrimaryComponentId,
+      beamPrimaryComponentId: this.shipSelection.beamPrimaryComponentId,
       missileBayComponentId: this.shipSelection.missileBayComponentId,
       energyComponentId: this.shipSelection.energyComponentId,
       torpedoComponentId: this.shipSelection.torpedoComponentId
@@ -1968,6 +2108,7 @@ export class MainMenu {
     this.selectedComponentSlot = slot;
     this.isComponentPickerOpen = false;
     this.hoveredPrimaryFireComponentId = null;
+    this.hoveredBeamPrimaryComponentId = null;
     this.hoveredMissileComponentId = null;
     this.hoveredTorpedoComponentId = null;
     this.refreshShipConfirmContent();
@@ -1982,6 +2123,7 @@ export class MainMenu {
 
     this.isComponentPickerOpen = true;
     this.hoveredPrimaryFireComponentId = null;
+    this.hoveredBeamPrimaryComponentId = null;
     this.hoveredMissileComponentId = null;
     this.hoveredTorpedoComponentId = null;
     this.refreshShipConfirmContent();
@@ -1990,6 +2132,8 @@ export class MainMenu {
       this.focusElement('[data-action="select-missile-component-option"]');
     } else if (this.selectedComponentSlot === "torpedo_payload") {
       this.focusElement('[data-action="select-torpedo-component-option"]');
+    } else if (this.selectedComponentSlot === "beam_primary") {
+      this.focusElement('[data-action="select-beam-component-option"]');
     } else {
       this.focusElement('[data-action="select-component-option"]');
     }
@@ -2002,6 +2146,7 @@ export class MainMenu {
 
     this.isComponentPickerOpen = false;
     this.hoveredPrimaryFireComponentId = null;
+    this.hoveredBeamPrimaryComponentId = null;
     this.hoveredMissileComponentId = null;
     this.hoveredTorpedoComponentId = null;
     this.refreshShipConfirmContent();
@@ -2013,6 +2158,20 @@ export class MainMenu {
     this.shipSelection.cannonPrimaryComponentId = componentId;
     this.isComponentPickerOpen = false;
     this.hoveredPrimaryFireComponentId = null;
+    this.hoveredBeamPrimaryComponentId = null;
+    this.hoveredMissileComponentId = null;
+    this.hoveredTorpedoComponentId = null;
+    this.refreshShipConfirmContent();
+    this.refreshShipSelectContent();
+    this.refreshFocusables(0);
+    this.focusElement('[data-action="change-component"]');
+  }
+
+  private selectBeamComponent(componentId: BeamPrimaryComponentId): void {
+    this.shipSelection.beamPrimaryComponentId = componentId;
+    this.isComponentPickerOpen = false;
+    this.hoveredPrimaryFireComponentId = null;
+    this.hoveredBeamPrimaryComponentId = null;
     this.hoveredMissileComponentId = null;
     this.hoveredTorpedoComponentId = null;
     this.refreshShipConfirmContent();
@@ -2025,6 +2184,7 @@ export class MainMenu {
     this.shipSelection.missileBayComponentId = componentId;
     this.isComponentPickerOpen = false;
     this.hoveredPrimaryFireComponentId = null;
+    this.hoveredBeamPrimaryComponentId = null;
     this.hoveredMissileComponentId = null;
     this.hoveredTorpedoComponentId = null;
     this.refreshShipConfirmContent();
@@ -2037,6 +2197,7 @@ export class MainMenu {
     this.shipSelection.torpedoComponentId = componentId;
     this.isComponentPickerOpen = false;
     this.hoveredPrimaryFireComponentId = null;
+    this.hoveredBeamPrimaryComponentId = null;
     this.hoveredMissileComponentId = null;
     this.hoveredTorpedoComponentId = null;
     this.refreshShipConfirmContent();
@@ -2058,6 +2219,22 @@ export class MainMenu {
       return;
     }
     this.hoveredPrimaryFireComponentId = null;
+    this.renderSelectedComponentStats();
+  }
+
+  private previewBeamPrimaryComponent(componentId: BeamPrimaryComponentId): void {
+    if (!this.isComponentPickerOpen) {
+      return;
+    }
+    this.hoveredBeamPrimaryComponentId = componentId;
+    this.renderSelectedComponentStats();
+  }
+
+  private clearBeamPrimaryComponentPreview(): void {
+    if (!this.isComponentPickerOpen) {
+      return;
+    }
+    this.hoveredBeamPrimaryComponentId = null;
     this.renderSelectedComponentStats();
   }
 
@@ -2122,6 +2299,24 @@ export class MainMenu {
       return;
     }
 
+    if (this.selectedComponentSlot === "beam_primary") {
+      const componentId =
+        this.hoveredBeamPrimaryComponentId ??
+        this.shipSelection.beamPrimaryComponentId ??
+        BEAM_PRIMARY_OPTIONS[0];
+      const component = getBeamPrimaryComponentDefinition(componentId);
+      statsRoot.innerHTML = `
+        <ul class="ship-list">
+          <li><span>Name</span><strong>${component.name}</strong></li>
+          <li><span>Weapon Type</span><strong>${component.weaponType}</strong></li>
+          <li><span>Fire Type</span><strong>${component.fireType}</strong></li>
+          <li><span>Damage Type</span><strong>${component.damageType}</strong></li>
+        </ul>
+        <p class="ship-description">${component.description}</p>
+      `;
+      return;
+    }
+
     if (this.selectedComponentSlot === "missile_payload") {
       const componentId = this.hoveredMissileComponentId ?? this.shipSelection.missileBayComponentId;
       const component = getMissileBayComponentDefinition(componentId);
@@ -2171,6 +2366,14 @@ export class MainMenu {
     this.shipSelection.cannonPrimaryComponentId = resolveCannonPrimaryComponentId(
       currentShip.id,
       this.shipSelection.cannonPrimaryComponentId
+    );
+  }
+
+  private syncBeamPrimarySelectionWithCurrentShip(): void {
+    const currentShip = this.ships[this.currentShipIndex];
+    this.shipSelection.beamPrimaryComponentId = resolveBeamPrimaryComponentId(
+      currentShip.id,
+      this.shipSelection.beamPrimaryComponentId
     );
   }
 

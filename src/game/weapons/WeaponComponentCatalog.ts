@@ -21,6 +21,10 @@ export const CANNON_PRIMARY_COMPONENT_OPTIONS = [
 
 export type CannonPrimaryComponentId = (typeof CANNON_PRIMARY_COMPONENT_OPTIONS)[number];
 
+export const BEAM_PRIMARY_COMPONENT_OPTIONS = ["heavy_laser_beam"] as const;
+
+export type BeamPrimaryComponentId = (typeof BEAM_PRIMARY_COMPONENT_OPTIONS)[number];
+
 export const MISSILE_BAY_COMPONENT_OPTIONS = [
   "concussive_barrage_missiles",
   "concussive_swarm_missiles"
@@ -38,6 +42,7 @@ export type TorpedoComponentId = (typeof TORPEDO_COMPONENT_OPTIONS)[number];
 
 export const DEFAULT_CANNON_PRIMARY_COMPONENT_ID: CannonPrimaryComponentId =
   "repeating_laserbolt_fire";
+export const DEFAULT_BEAM_PRIMARY_COMPONENT_ID: BeamPrimaryComponentId = "heavy_laser_beam";
 export const DEFAULT_MISSILE_BAY_COMPONENT_ID: MissileBayComponentId = "concussive_barrage_missiles";
 export const DEFAULT_ENERGY_LAUNCHER_COMPONENT_ID: EnergyLauncherComponentId =
   "arc_plasma_emitter";
@@ -74,11 +79,42 @@ export type CannonPrimaryComponentDefinition = WeaponComponentPresentation & {
     hitSparkIntervalSeconds?: number;
     beamColor?: number;
     beamCoreColor?: number;
-    effectStyle?: "default" | "electromagnetic_railgun" | "explosive_shell_fire";
+    effectStyle?:
+      | "default"
+      | "electromagnetic_railgun"
+      | "explosive_shell_fire"
+      | "heavy_laserbeam_pulse";
     explosionRadius?: number;
     explosionDamage?: number;
+    edgeParticleCount?: number;
+    edgeParticleSpeedUnitsPerSecond?: number;
+    edgeParticleLength?: number;
+    edgeParticleThickness?: number;
+    edgeParticleOrbitRadiusMultiplier?: number;
   };
   projectile: LaserBoltFactoryOptions;
+};
+
+export type BeamPrimaryComponentDefinition = WeaponComponentPresentation & {
+  id: BeamPrimaryComponentId;
+  fireIntervalSeconds?: number;
+  chargeDurationSeconds?: number;
+  hitscanPulse: {
+    pulseDurationSeconds: number;
+    maxDistance: number;
+    beamThickness: number;
+    damage: number;
+    damageType?: string;
+    hitSparkIntervalSeconds?: number;
+    beamColor?: number;
+    beamCoreColor?: number;
+    effectStyle?: "default" | "heavy_laserbeam_pulse";
+    edgeParticleCount?: number;
+    edgeParticleSpeedUnitsPerSecond?: number;
+    edgeParticleLength?: number;
+    edgeParticleThickness?: number;
+    edgeParticleOrbitRadiusMultiplier?: number;
+  };
 };
 
 export type MissileTargetLockingConfig = {
@@ -589,6 +625,37 @@ const MISSILE_BAY_COMPONENTS: Record<MissileBayComponentId, MissileBayComponentD
   }
 };
 
+const BEAM_PRIMARY_COMPONENTS: Record<BeamPrimaryComponentId, BeamPrimaryComponentDefinition> = {
+  heavy_laser_beam: {
+    id: "heavy_laser_beam",
+    name: "Heavy Laserbeam Pulse",
+    weaponType: "Beam Emitter",
+    fireType: "Beam Primary",
+    damageType: "Laser",
+    energyCost: 3,
+    fireIntervalSeconds: 0.2,
+    chargeDurationSeconds: 0.8,
+    hitscanPulse: {
+      pulseDurationSeconds: 0.4,
+      maxDistance: 280,
+      beamThickness: 0.2,
+      damage: 9,
+      damageType: "Laser",
+      hitSparkIntervalSeconds: 0.06,
+      beamColor: 0x44ff66,
+      beamCoreColor: 0xd9ffe2,
+      effectStyle: "heavy_laserbeam_pulse",
+      edgeParticleCount: 12,
+      edgeParticleSpeedUnitsPerSecond: 42,
+      edgeParticleLength: 0.42,
+      edgeParticleThickness: 0.018,
+      edgeParticleOrbitRadiusMultiplier: 1.1
+    },
+    description:
+      "Charged beam emitter that requires an 800ms wind-up, then repeatedly ticks a wide hitscan laser every 200ms while held."
+  }
+};
+
 const ENERGY_LAUNCHER_COMPONENTS: Record<
   EnergyLauncherComponentId,
   EnergyLauncherComponentDefinition
@@ -615,8 +682,8 @@ const TORPEDO_COMPONENTS: Record<TorpedoComponentId, TorpedoComponentDefinition>
     heatCost: 8,
     triggerFireIntervalSeconds: 5,
     torpedoSpeed: 12,
-    nonSeekingDetonationSeconds: 1,
-    seekingDetonationSeconds: 2,
+    nonSeekingDetonationSeconds: 4,
+    seekingDetonationSeconds: 4,
     homingTurnRateRadiansPerSecond: THREE.MathUtils.degToRad(120),
     reticleSeekRadiusPadding: 0.34,
     hitRadius: 0.34,
@@ -641,6 +708,12 @@ export function getMissileBayComponentDefinition(
   return (
     MISSILE_BAY_COMPONENTS[componentId] ?? MISSILE_BAY_COMPONENTS.concussive_barrage_missiles
   );
+}
+
+export function getBeamPrimaryComponentDefinition(
+  componentId: BeamPrimaryComponentId
+): BeamPrimaryComponentDefinition {
+  return BEAM_PRIMARY_COMPONENTS[componentId] ?? BEAM_PRIMARY_COMPONENTS.heavy_laser_beam;
 }
 
 export function getEnergyLauncherComponentDefinition(

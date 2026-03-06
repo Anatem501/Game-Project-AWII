@@ -26,6 +26,8 @@ type PlasmaMuzzleGlobBurstSystemConfig = {
   coreColor?: number;
   blending?: THREE.Blending;
   opacityScale?: number;
+  upwardDriftScale?: number;
+  verticalScale?: number;
 };
 
 const DEFAULT_GLOB_COUNT = 20;
@@ -43,6 +45,7 @@ uniform float uLifetime;
 uniform float uMotionHold;
 uniform float uViewportHeight;
 uniform float uPointSizeScale;
+uniform float uVerticalDriftScale;
 
 varying float vLife;
 varying float vSeed;
@@ -51,7 +54,7 @@ void main() {
   float t = clamp(uAge / max(uLifetime, 0.0001), 0.0, 1.0);
   float motionAge = max(0.0, uAge - max(uMotionHold, 0.0));
   vec3 displaced = position + aVelocity * motionAge;
-  displaced.y += (1.0 - t) * 0.03;
+  displaced.y += (1.0 - t) * 0.03 * uVerticalDriftScale;
 
   vec4 mvPosition = modelViewMatrix * vec4(displaced, 1.0);
   gl_Position = projectionMatrix * mvPosition;
@@ -108,6 +111,8 @@ export function createPlasmaMuzzleGlobBurstSystem(
   const motionHoldSeconds = Math.max(0, config.motionHoldSeconds ?? 0);
   const pointSizeScale = Math.max(0.1, config.pointSizeScale ?? 1);
   const opacityScale = THREE.MathUtils.clamp(config.opacityScale ?? 1, 0, 1);
+  const upwardDriftScale = THREE.MathUtils.clamp(config.upwardDriftScale ?? 1, 0, 2);
+  const verticalScale = THREE.MathUtils.clamp(config.verticalScale ?? 1, 0.05, 1);
   const deepColor = new THREE.Color(config.deepColor ?? 0xe0081f);
   const coreColor = new THREE.Color(config.coreColor ?? 0xff292b);
   const blending = config.blending ?? THREE.AdditiveBlending;
@@ -154,7 +159,13 @@ export function createPlasmaMuzzleGlobBurstSystem(
       const cosSpread = THREE.MathUtils.lerp(Math.cos(spreadRadians), 1, Math.random());
       const sinSpread = Math.sqrt(Math.max(0, 1 - cosSpread * cosSpread));
       localDirection.set(Math.cos(theta) * sinSpread, Math.sin(theta) * sinSpread, cosSpread);
-      localDirection.applyQuaternion(directionQuaternion).normalize();
+      localDirection.applyQuaternion(directionQuaternion);
+      localDirection.y *= verticalScale;
+      if (localDirection.lengthSq() <= 0.000001) {
+        localDirection.copy(burstDirection);
+      } else {
+        localDirection.normalize();
+      }
 
       const speed = randomRange(speedMin, speedMax);
       velocity.copy(localDirection).multiplyScalar(speed);
@@ -185,6 +196,7 @@ export function createPlasmaMuzzleGlobBurstSystem(
         uMotionHold: { value: motionHoldSeconds },
         uViewportHeight: { value: window.innerHeight || 1080 },
         uPointSizeScale: { value: pointSizeScale },
+        uVerticalDriftScale: { value: upwardDriftScale },
         uOpacityScale: { value: opacityScale },
         uDeepColor: { value: new THREE.Vector3(deepColor.r, deepColor.g, deepColor.b) },
         uCoreColor: { value: new THREE.Vector3(coreColor.r, coreColor.g, coreColor.b) }

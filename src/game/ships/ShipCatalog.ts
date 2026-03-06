@@ -5,6 +5,8 @@ import type { PlayerThrusterVisualPreset } from "../effects/PlayerThrusterEffect
 import {
   DEFAULT_CANNON_PRIMARY_COMPONENT_ID,
   type CannonPrimaryComponentId,
+  DEFAULT_BEAM_PRIMARY_COMPONENT_ID,
+  type BeamPrimaryComponentId,
   DEFAULT_MISSILE_BAY_COMPONENT_ID,
   type MissileBayComponentId,
   DEFAULT_TORPEDO_COMPONENT_ID,
@@ -38,6 +40,12 @@ export type ShipTorpedoLauncherDefinition = {
   maxLaunchers?: number;
 };
 
+export type ShipBeamEmitterDefinition = {
+  id: string;
+  displayName: string;
+  defaultBeamPrimaryComponentId: BeamPrimaryComponentId;
+};
+
 export type ShipDefinition = {
   id: string;
   displayName: string;
@@ -54,6 +62,7 @@ export type ShipDefinition = {
   thrusterTrailLengthScale?: number;
   thrusterGlowOpacityScale?: number;
   cannonMounts?: readonly ShipCannonMountDefinition[];
+  beamEmitters?: readonly ShipBeamEmitterDefinition[];
   missileBays?: readonly ShipMissileBayDefinition[];
   torpedoLaunchers?: readonly ShipTorpedoLauncherDefinition[];
   builtInEquipmentAbilityId?: "aerobatic_roll";
@@ -195,16 +204,16 @@ const HAULER_T2_CANNON_MOUNTS: readonly ShipCannonMountDefinition[] = [
   }
 ] as const;
 
-const HAULER_T2_TORPEDO_LAUNCHERS: readonly ShipTorpedoLauncherDefinition[] = [
+const HAULER_T2_BEAM_EMITTERS: readonly ShipBeamEmitterDefinition[] = [
   {
-    id: "torpedo_launcher_1",
-    displayName: "Torpedo Launcher 1",
-    defaultTorpedoComponentId: DEFAULT_SHIP_TORPEDO_COMPONENT_ID
+    id: "beam_emitter_1",
+    displayName: "Emitter 1",
+    defaultBeamPrimaryComponentId: DEFAULT_BEAM_PRIMARY_COMPONENT_ID
   },
   {
-    id: "torpedo_launcher_2",
-    displayName: "Torpedo Launcher 2",
-    defaultTorpedoComponentId: DEFAULT_SHIP_TORPEDO_COMPONENT_ID
+    id: "beam_emitter_2",
+    displayName: "Emitter 2",
+    defaultBeamPrimaryComponentId: DEFAULT_BEAM_PRIMARY_COMPONENT_ID
   }
 ] as const;
 
@@ -472,11 +481,11 @@ const HAULER_T2: ShipDefinition = {
   gunHardpointLocalOffsets: HAULER_T2_GUN_HARDPOINTS,
   autoAlignGunHardpointsToModel: false,
   cannonMounts: HAULER_T2_CANNON_MOUNTS,
-  torpedoLaunchers: HAULER_T2_TORPEDO_LAUNCHERS,
+  beamEmitters: HAULER_T2_BEAM_EMITTERS,
   thrusterEffectScale: 0.54,
   thrusterTrailLengthScale: 0.27,
   defaultGunFireIntervalSeconds: 0.24,
-  defaultLoadout: ["Utility Twin Cannons", "Seeking Plasma Imploder", "Reinforced Plating"],
+  defaultLoadout: ["Utility Twin Cannons", "Heavy Laserbeam Pulse", "Reinforced Plating"],
   handling: {
     topManeuveringSpeed: 5.1,
     thrustSpeed: 6.6,
