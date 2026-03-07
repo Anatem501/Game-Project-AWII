@@ -85,6 +85,16 @@ export class EnemyProjectileRuntime {
     return this.projectiles.length;
   }
 
+  appendActiveProjectileHurtboxes(out: HurtboxComponent[]): void {
+    for (const projectile of this.projectiles) {
+      const hurtbox = projectile.hurtbox;
+      if (!hurtbox || !hurtbox.canReceiveDamage()) {
+        continue;
+      }
+      out.push(hurtbox);
+    }
+  }
+
   dispose(): void {
     for (let i = this.projectiles.length - 1; i >= 0; i -= 1) {
       this.disposeProjectileAtIndex(i);
@@ -138,6 +148,7 @@ export class EnemyProjectileRuntime {
 
   private disposeProjectileAtIndex(index: number): void {
     const projectile = this.projectiles[index];
+    projectile.hurtbox?.setEnabled(false);
     projectile.object.removeFromParent();
     projectile.dispose?.();
     this.projectiles.splice(index, 1);

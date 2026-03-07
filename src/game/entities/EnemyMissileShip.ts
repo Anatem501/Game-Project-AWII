@@ -47,6 +47,7 @@ const ENEMY_OUTLINE_COLOR_HEX = 0xff4b4b;
 const MAX_MODEL_MISSILE_CELL_SOCKETS = 32;
 const HOMING_LOCK_HALF_ANGLE_RADIANS = THREE.MathUtils.degToRad(20);
 const SWARM_MISSILES_PER_BAY = 2;
+const SWARM_MISSILE_SHOT_INTERVAL_SECONDS = 0.15;
 const DEFAULT_THRUSTER_LOCAL_OFFSETS: readonly THREE.Vector3[] = [
   new THREE.Vector3(-0.34, 0.92, 1.05),
   new THREE.Vector3(0.34, 0.92, 1.05)
@@ -70,6 +71,12 @@ type MissileCellLauncher = {
   bayIndex: number;
   cellIndex: number;
   object: THREE.Object3D;
+};
+
+type PendingSwarmMissileLaunch = {
+  launcher: MissileCellLauncher;
+  delaySecondsRemaining: number;
+  targetWorldPosition: THREE.Vector3;
 };
 
 export type EnemyMissileShipConfig = {
@@ -170,6 +177,7 @@ export class EnemyMissileShip {
 
   private readonly launchCells: MissileCellLauncher[] = [];
   private readonly launchCellsByBay = new Map<number, MissileCellLauncher[]>();
+  private readonly pendingSwarmMissileLaunches: PendingSwarmMissileLaunch[] = [];
   private readonly targetWorld = new THREE.Vector3();
   private readonly toTarget = new THREE.Vector3();
   private readonly worldForward = new THREE.Vector3();
@@ -378,7 +386,10 @@ export class EnemyMissileShip {
       lockSeconds: Math.max(0, config.homingLockSeconds ?? 2.5),
       cooldownSeconds: Math.max(0, config.homingAttackCooldownSeconds ?? 7.5),
       canStart: () =>
-        this.canStartAttackWithMagazineCost(1, this.homingAttackHeatCost) &&
+        this.canStartAttackWithMagazineCost(
+          this.getHomingVolleyLauncherCount(),
+          this.homingAttackHeatCost
+        ) &&
         this.hasForwardHomingLockContact(),
       canMaintainLock: () => this.hasForwardHomingLockContact(),
       progressDecaySeconds: 1.25,
@@ -418,6 +429,7 @@ export class EnemyMissileShip {
     }
     this.status.syncMotionSample(this.worldForward, this.frameVelocity);
     this.status.update(deltaTime);
+    this.updatePendingSwarmMissileLaunches(deltaTime);
     if (!this.status.canControlFlight()) {
       const driftVelocity = this.status.getFrozenDriftVelocity(this.frameVelocity);
       if (driftVelocity) {
@@ -702,6 +714,7 @@ export class EnemyMissileShip {
   onEnterDeadState(): void {
     this.hurtbox.setEnabled(false);
     this.primaryAttackLoadout.resetAll();
+    this.pendingSwarmMissileLaunches.length = 0;
   }
 
   onAiStateChanged(stateId: EnemyShipAiStateId): void {
@@ -750,6 +763,11 @@ export class EnemyMissileShip {
     return this.homingProjectileRuntime.getActiveCount() > 0;
   }
 
+  appendActiveProjectileHurtboxes(out: HurtboxComponent[]): void {
+    this.swarmProjectileRuntime.appendActiveProjectileHurtboxes(out);
+    this.homingProjectileRuntime.appendActiveProjectileHurtboxes(out);
+  }
+
   dispose(): void {
     if (this.disposed) {
       return;
@@ -760,6 +778,7 @@ export class EnemyMissileShip {
     this.homingProjectileRuntime.dispose();
     this.swarmProjectileFactory.dispose?.();
     this.homingProjectileFactory.dispose?.();
+    this.pendingSwarmMissileLaunches.length = 0;
     this.lockTelegraphGlowEffect.dispose();
     this.weaponOverheatSteamEffect?.dispose();
     this.weaponOverheatSteamEffect = null;
@@ -803,6 +822,16 @@ export class EnemyMissileShip {
     return count;
   }
 
+  private getHomingVolleyLauncherCount(): number {
+    let count = 0;
+    for (const [, bay] of this.launchCellsByBay) {
+      if (bay.length > 0) {
+        count += 1;
+      }
+    }
+    return count;
+  }
+
   private executeSwarmAttack(): boolean {
     if (!this.status.canFireWeapons()) {
       return false;
@@ -810,7 +839,7 @@ export class EnemyMissileShip {
     if (!this.perception.tryCopyCurrentTargetWorld(this.targetWorld)) {
       return false;
     }
-    const launchers = this.pickRandomCellsPerBay(SWARM_MISSILES_PER_BAY);
+    const launchers = this.pickRandomCellsPerBayAlternating(SWARM_MISSILES_PER_BAY);
     if (
       launchers.length <= 0 ||
       !this.canStartAttackWithMagazineCost(launchers.length, this.swarmAttackHeatCost)
@@ -821,6 +850,39 @@ export class EnemyMissileShip {
       this.resources &&
       this.swarmAttackHeatCost > 0 &&
       !this.resources.tryConsumeWeaponCost({ heatCost: this.swarmAttackHeatCost })
+    ) {
+      return false;
+    }
+    for (let i = 0; i < launchers.length; i += 1) {
+      this.pendingSwarmMissileLaunches.push({
+        launcher: launchers[i],
+        delaySecondsRemaining: SWARM_MISSILE_SHOT_INTERVAL_SECONDS * i,
+        targetWorldPosition: this.targetWorld.clone()
+      });
+    }
+    this.magazine.tryConsume(launchers.length);
+    this.generalAttackCooldownRemaining = this.generalAttackCooldownSeconds;
+    return true;
+  }
+
+  private executeHomingAttack(): boolean {
+    if (!this.status.canFireWeapons()) {
+      return false;
+    }
+    if (!this.perception.tryCopyCurrentTargetWorld(this.targetWorld)) {
+      return false;
+    }
+    const launchers = this.pickRandomCellsPerBayAlternating(1);
+    if (
+      launchers.length <= 0 ||
+      !this.canStartAttackWithMagazineCost(launchers.length, this.homingAttackHeatCost)
+    ) {
+      return false;
+    }
+    if (
+      this.resources &&
+      this.homingAttackHeatCost > 0 &&
+      !this.resources.tryConsumeWeaponCost({ heatCost: this.homingAttackHeatCost })
     ) {
       return false;
     }
@@ -835,33 +897,68 @@ export class EnemyMissileShip {
       } else {
         this.shotDirection.normalize();
       }
-      this.swarmProjectileRuntime.spawn(this.shotOrigin, this.shotDirection);
+      this.homingProjectileRuntime.spawn(this.shotOrigin, this.shotDirection);
     }
     this.magazine.tryConsume(launchers.length);
     this.generalAttackCooldownRemaining = this.generalAttackCooldownSeconds;
     return true;
   }
 
-  private executeHomingAttack(): boolean {
-    if (!this.status.canFireWeapons()) {
-      return false;
+  private pickRandomCellsPerBayAlternating(countPerBay: number): MissileCellLauncher[] {
+    const selectionsByBay: Array<{ bayIndex: number; launchers: MissileCellLauncher[] }> = [];
+    for (const [bayIndex, bay] of this.launchCellsByBay) {
+      if (bay.length <= 0) continue;
+      const shotsForBay = Math.min(Math.max(1, Math.floor(countPerBay)), bay.length);
+      const usedIndices = new Set<number>();
+      const baySelections: MissileCellLauncher[] = [];
+      while (usedIndices.size < shotsForBay) {
+        const index = Math.floor(Math.random() * bay.length);
+        if (usedIndices.has(index)) {
+          continue;
+        }
+        usedIndices.add(index);
+        baySelections.push(bay[index]);
+      }
+      selectionsByBay.push({ bayIndex, launchers: baySelections });
     }
-    if (!this.perception.tryCopyCurrentTargetWorld(this.targetWorld)) {
-      return false;
+    selectionsByBay.sort((a, b) => a.bayIndex - b.bayIndex);
+    const out: MissileCellLauncher[] = [];
+    let round = 0;
+    while (true) {
+      let addedAny = false;
+      for (const bay of selectionsByBay) {
+        if (round >= bay.launchers.length) {
+          continue;
+        }
+        out.push(bay.launchers[round]);
+        addedAny = true;
+      }
+      if (!addedAny) {
+        break;
+      }
+      round += 1;
     }
-    const launcher = this.pickRandomLauncherCell();
-    if (!launcher || !this.canStartAttackWithMagazineCost(1, this.homingAttackHeatCost)) {
-      return false;
+    return out;
+  }
+
+  private updatePendingSwarmMissileLaunches(deltaTime: number): void {
+    for (let i = this.pendingSwarmMissileLaunches.length - 1; i >= 0; i -= 1) {
+      const pendingLaunch = this.pendingSwarmMissileLaunches[i];
+      pendingLaunch.delaySecondsRemaining -= deltaTime;
+      if (pendingLaunch.delaySecondsRemaining > 0) {
+        continue;
+      }
+      this.fireSwarmMissileFromLauncher(pendingLaunch.launcher, pendingLaunch.targetWorldPosition);
+      this.pendingSwarmMissileLaunches.splice(i, 1);
     }
-    if (
-      this.resources &&
-      this.homingAttackHeatCost > 0 &&
-      !this.resources.tryConsumeWeaponCost({ heatCost: this.homingAttackHeatCost })
-    ) {
-      return false;
-    }
+  }
+
+  private fireSwarmMissileFromLauncher(
+    launcher: MissileCellLauncher,
+    targetWorldPosition: THREE.Vector3
+  ): void {
     launcher.object.getWorldPosition(this.shotOrigin);
-    this.shotDirection.subVectors(this.targetWorld, this.shotOrigin).setY(0);
+    this.shotDirection.subVectors(targetWorldPosition, this.shotOrigin).setY(0);
     if (this.shotDirection.lengthSq() <= 0.000001) {
       launcher.object.getWorldDirection(this.shotDirection);
     }
@@ -870,35 +967,7 @@ export class EnemyMissileShip {
     } else {
       this.shotDirection.normalize();
     }
-    this.homingProjectileRuntime.spawn(this.shotOrigin, this.shotDirection);
-    this.magazine.tryConsume(1);
-    this.generalAttackCooldownRemaining = this.generalAttackCooldownSeconds;
-    return true;
-  }
-
-  private pickRandomCellsPerBay(countPerBay: number): MissileCellLauncher[] {
-    const out: MissileCellLauncher[] = [];
-    for (const [, bay] of this.launchCellsByBay) {
-      if (bay.length <= 0) continue;
-      const shotsForBay = Math.min(Math.max(1, Math.floor(countPerBay)), bay.length);
-      const usedIndices = new Set<number>();
-      while (usedIndices.size < shotsForBay) {
-        const index = Math.floor(Math.random() * bay.length);
-        if (usedIndices.has(index)) {
-          continue;
-        }
-        usedIndices.add(index);
-        out.push(bay[index]);
-      }
-    }
-    return out;
-  }
-
-  private pickRandomLauncherCell(): MissileCellLauncher | null {
-    if (this.launchCells.length <= 0) {
-      return null;
-    }
-    return this.launchCells[Math.floor(Math.random() * this.launchCells.length)] ?? null;
+    this.swarmProjectileRuntime.spawn(this.shotOrigin, this.shotDirection);
   }
 
   private rebuildLaunchCellMappings(bayOffsets: readonly (readonly THREE.Vector3[])[]): void {
@@ -941,8 +1010,9 @@ export class EnemyMissileShip {
           `Enemy missile ship model exposed ${missileSockets.length} missile sockets; ignoring model sockets and using defaults.`
         );
       } else if (missileSockets.length > 0) {
-        this.launcherRig.setMuzzleOffsets(missileSockets.map((socket) => socket.localOffset));
-        this.rebuildLaunchCellMappings(groupMissileCellSocketsByBay(missileSockets));
+        const groupedBayOffsets = groupMissileCellSocketsByBay(missileSockets);
+        this.launcherRig.setMuzzleOffsets(flattenBayOffsets(groupedBayOffsets));
+        this.rebuildLaunchCellMappings(groupedBayOffsets);
       }
 
       const outline = createSilhouetteOutlineShell(model, { colorHex: ENEMY_OUTLINE_COLOR_HEX, opacity: 0.16, scaleMultiplier: 1.035 });
@@ -1191,7 +1261,33 @@ function groupMissileCellSocketsByBay(
     list.push({ cellIndex: socket.cellIndex, localOffset: socket.localOffset.clone() });
     byBay.set(socket.bayIndex, list);
   }
-  return [...byBay.keys()]
+
+  const groupedByParsedBay = [...byBay.keys()]
     .sort((a, b) => a - b)
     .map((bayIndex) => (byBay.get(bayIndex) ?? []).sort((a, b) => a.cellIndex - b.cellIndex).map((entry) => entry.localOffset));
+
+  if (groupedByParsedBay.length !== 1) {
+    return groupedByParsedBay;
+  }
+
+  const leftBay: Array<{ cellIndex: number; localOffset: THREE.Vector3 }> = [];
+  const rightBay: Array<{ cellIndex: number; localOffset: THREE.Vector3 }> = [];
+  for (const socket of sockets) {
+    if (socket.localOffset.x < 0) {
+      leftBay.push({ cellIndex: socket.cellIndex, localOffset: socket.localOffset.clone() });
+      continue;
+    }
+    rightBay.push({ cellIndex: socket.cellIndex, localOffset: socket.localOffset.clone() });
+  }
+
+  if (leftBay.length <= 0 || rightBay.length <= 0) {
+    return groupedByParsedBay;
+  }
+
+  leftBay.sort((a, b) => a.cellIndex - b.cellIndex);
+  rightBay.sort((a, b) => a.cellIndex - b.cellIndex);
+  return [
+    leftBay.map((entry) => entry.localOffset),
+    rightBay.map((entry) => entry.localOffset)
+  ];
 }

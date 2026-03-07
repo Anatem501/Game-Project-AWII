@@ -15,6 +15,7 @@ export type EnemyShipMuzzleChargeVisualState = {
 };
 
 export class EnemyShipMuzzleRig {
+  private readonly parent: THREE.Object3D;
   private readonly muzzleObjects: THREE.Object3D[] = [];
   private readonly muzzleChargeInnerMeshes: THREE.Mesh[] = [];
   private readonly muzzleChargeOuterMeshes: THREE.Mesh[] = [];
@@ -23,6 +24,7 @@ export class EnemyShipMuzzleRig {
   private readonly outerColorHex: number;
 
   constructor(parent: THREE.Object3D, config: EnemyShipMuzzleRigConfig) {
+    this.parent = parent;
     this.outerColorHex = config.outerColorHex;
     this.innerBaseColor = new THREE.Color(config.innerBaseColorHex);
     this.innerPeakColor = new THREE.Color(config.innerPeakColorHex);
@@ -44,8 +46,8 @@ export class EnemyShipMuzzleRig {
   }
 
   setMuzzleOffsets(socketOffsets: readonly THREE.Vector3[]): void {
-    const count = Math.min(this.muzzleObjects.length, socketOffsets.length);
-    for (let i = 0; i < count; i += 1) {
+    this.resizeMuzzleCount(socketOffsets.length);
+    for (let i = 0; i < socketOffsets.length; i += 1) {
       this.muzzleObjects[i].position.copy(socketOffsets[i]);
     }
   }
@@ -123,6 +125,27 @@ export class EnemyShipMuzzleRig {
     return { inner, outer };
   }
 
+  private resizeMuzzleCount(targetCount: number): void {
+    const clampedCount = Math.max(0, Math.floor(targetCount));
+    while (this.muzzleObjects.length < clampedCount) {
+      const muzzle = new THREE.Object3D();
+      this.parent.add(muzzle);
+      this.muzzleObjects.push(muzzle);
+      const chargeMeshes = this.createMuzzleChargeMeshes(muzzle);
+      this.muzzleChargeInnerMeshes.push(chargeMeshes.inner);
+      this.muzzleChargeOuterMeshes.push(chargeMeshes.outer);
+    }
+
+    while (this.muzzleObjects.length > clampedCount) {
+      const outer = this.muzzleChargeOuterMeshes.pop() ?? null;
+      const inner = this.muzzleChargeInnerMeshes.pop() ?? null;
+      disposeChargeMesh(outer);
+      disposeChargeMesh(inner);
+      const muzzle = this.muzzleObjects.pop() ?? null;
+      muzzle?.removeFromParent();
+    }
+  }
+
   private hideAllChargeMeshes(): void {
     for (const mesh of this.muzzleChargeInnerMeshes) {
       hideChargeMesh(mesh);
@@ -139,5 +162,17 @@ function hideChargeMesh(mesh: THREE.Mesh): void {
   const material = mesh.material;
   if (material instanceof THREE.MeshBasicMaterial) {
     material.opacity = 0;
+  }
+}
+
+function disposeChargeMesh(mesh: THREE.Mesh | null): void {
+  if (!mesh) {
+    return;
+  }
+  mesh.removeFromParent();
+  mesh.geometry.dispose();
+  const material = mesh.material;
+  if (material instanceof THREE.MeshBasicMaterial) {
+    material.dispose();
   }
 }

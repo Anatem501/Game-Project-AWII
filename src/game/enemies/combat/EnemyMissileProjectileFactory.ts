@@ -1,6 +1,8 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { createHealthComponent } from "../../components/HealthComponent";
 import { createHitboxComponent } from "../../components/combat/HitboxComponent";
+import { createHurtboxComponent } from "../../components/combat/HurtboxComponent";
 import type { DamageType } from "../../components/combat/DamageTypes";
 import type {
   ProjectileFactory,
@@ -34,6 +36,7 @@ const MISSILE_THRUSTER_SOCKET_PREFIX = "thruster";
 const MINI_THRUSTER_CORE_COLOR = 0xffd48a;
 const MINI_THRUSTER_GLOW_COLOR = 0xff8a2a;
 const MINI_THRUSTER_SOCKET_BACK_OFFSET = 0.055;
+const MISSILE_INTERCEPT_HULL = 1;
 
 export type EnemyMissileProjectileFactoryOptions = {
   speed: number;
@@ -371,6 +374,14 @@ export function createEnemyMissileProjectileFactory(
       damageType,
       sourceFaction
     });
+    const hurtboxHealth = createHealthComponent({
+      maxShield: 0,
+      maxArmor: 0,
+      maxHull: MISSILE_INTERCEPT_HULL,
+      shieldChargeRate: 0,
+      armorRepairRate: 0,
+      hullRepairRate: 0
+    });
 
     const activeSmokeParticles: ActiveSmokeParticle[] = [];
     const activeExplosions: ActiveExplosion[] = [];
@@ -379,6 +390,13 @@ export function createEnemyMissileProjectileFactory(
     let trailSpawnSeconds = 0;
     let ageSeconds = 0;
     let exploding = false;
+
+    const hurtbox = createHurtboxComponent({
+      owner: missile,
+      health: hurtboxHealth,
+      collisionArea: { radius: collisionRadius * meshScale },
+      faction: sourceFaction
+    });
 
     const spawnExplosionFlash = (position: THREE.Vector3): void => {
       while (activeExplosions.length >= MISSILE_MAX_ACTIVE_EXPLOSION_FLASHES) {
@@ -524,6 +542,7 @@ export function createEnemyMissileProjectileFactory(
       }
       exploding = true;
       hitbox.setEnabled(false);
+      hurtbox.setEnabled(false);
       missile.visible = false;
       spawnExplosionFlash(missile.position);
     };
@@ -533,6 +552,7 @@ export function createEnemyMissileProjectileFactory(
     return {
       object: projectileRoot,
       hitbox,
+      hurtbox,
       beginDestroy: () => {
         if (!exploding) {
           triggerExplosion();
@@ -550,6 +570,10 @@ export function createEnemyMissileProjectileFactory(
         updateExplosions(deltaTime);
 
         if (!exploding) {
+          if (hurtboxHealth.getSnapshot().destroyed) {
+            triggerExplosion();
+          }
+
           lifeRemaining -= deltaTime;
 
           if (splinePath) {
@@ -669,6 +693,7 @@ export function createEnemyMissileProjectileFactory(
         miniThrusterCoreMaterial.dispose();
         miniThrusterGlowMaterial.dispose();
         missileOutlineShell?.dispose();
+        hurtbox.setEnabled(false);
         projectileRoot.clear();
       }
     };

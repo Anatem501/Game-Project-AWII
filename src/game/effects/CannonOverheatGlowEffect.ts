@@ -91,7 +91,6 @@ export function createCannonOverheatGlowEffect(
   const overlayEntries: OverlayEntry[] = [];
   const linkedSourceMeshes = new Set<THREE.Mesh>();
   const activeHeatSources: THREE.Object3D[] = [];
-  const maxPrimaryPoints = Math.min(cannonHardpoints.length, MAX_HEAT_POINTS);
 
   let time = 0;
   let currentIntensity = MIN_BASE_INTENSITY;
@@ -150,6 +149,7 @@ export function createCannonOverheatGlowEffect(
 
   const buildActiveHeatSources = (includeSecondaryHeatZones: boolean): number => {
     activeHeatSources.length = 0;
+    const maxPrimaryPoints = Math.min(cannonHardpoints.length, MAX_HEAT_POINTS);
     for (let i = 0; i < maxPrimaryPoints; i += 1) {
       activeHeatSources.push(cannonHardpoints[i]);
     }

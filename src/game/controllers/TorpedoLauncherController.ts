@@ -12,11 +12,12 @@ const TORPEDO_FORWARD_AXIS = new THREE.Vector3(0, 0, 1);
 const TORPEDO_TRIGGER_MOUSE_BUTTON = 2;
 const DEFAULT_HIT_RADIUS = 0.34;
 const DEFAULT_SEEK_PADDING = 0.34;
+const SEEK_TARGET_ACQUIRE_RADIUS_MULTIPLIER = 2.0;
 const DEFAULT_TORPEDO_SCALE = 0.533;
 const DETONATION_EXPLOSION_DELAY_SECONDS = 0.26;
 const DETONATION_TOTAL_LIFETIME_SECONDS = 1.36;
 const DETONATION_EXPLOSION_SHELL_LIFETIME_SECONDS = 0.52;
-const DETONATION_VISUAL_SIZE_SCALE = 0.42;
+const DETONATION_VISUAL_SIZE_SCALE = 0.35;
 const TORPEDO_TRAIL_SPAWN_INTERVAL_SECONDS = 0.03;
 const TORPEDO_MAX_TRAIL_SPAWNS_PER_FRAME = 4;
 const TORPEDO_TRAIL_DIRECTION_VARIANCE_RADIANS = THREE.MathUtils.degToRad(30);
@@ -29,7 +30,6 @@ export type TorpedoLauncherInstanceConfig = {
 
 type TorpedoLauncherControllerParams = {
   canvas: HTMLCanvasElement;
-  playerRoot: THREE.Object3D;
   scene: THREE.Scene;
   launchers?: readonly TorpedoLauncherInstanceConfig[];
   targetHurtboxes?: readonly HurtboxComponent[];
@@ -70,7 +70,6 @@ export type TorpedoLauncherController = {
 
 export function createTorpedoLauncherController({
   canvas,
-  playerRoot,
   scene,
   launchers = [],
   targetHurtboxes = [],
@@ -170,8 +169,6 @@ export function createTorpedoLauncherController({
   const scratchImpactClosestPoint = new THREE.Vector3();
   const scratchCurrentDirection = new THREE.Vector3();
   const scratchDesiredDirection = new THREE.Vector3();
-  const scratchShipOffset = new THREE.Vector3();
-  const scratchShipWorldOffset = new THREE.Vector3();
   const scratchExplosionDirection = new THREE.Vector3(0, 0, -1);
   const scratchTrailDirection = new THREE.Vector3(0, 0, -1);
   const scratchTrailJitterAxis = new THREE.Vector3(0, 1, 0);
@@ -270,10 +267,13 @@ export function createTorpedoLauncherController({
 
   const findReticleSeekTarget = (
     aimTargetWorldPosition: THREE.Vector3,
-    payload: TorpedoComponentDefinition
+    payload: TorpedoComponentDefinition,
+    launchOriginWorldPosition: THREE.Vector3
   ): HurtboxComponent | null => {
     let bestTarget: HurtboxComponent | null = null;
-    let bestDistanceSq = Number.POSITIVE_INFINITY;
+    let bestEdgeDistance = Number.POSITIVE_INFINITY;
+    let bestReticleDistanceSq = Number.POSITIVE_INFINITY;
+    let bestLaunchDistanceSq = Number.POSITIVE_INFINITY;
     const padding = Math.max(DEFAULT_SEEK_PADDING, payload.reticleSeekRadiusPadding);
 
     for (const hurtbox of targetHurtboxes) {
@@ -284,10 +284,28 @@ export function createTorpedoLauncherController({
       scratchHurtboxCenter.y = aimTargetWorldPosition.y;
       const radius = Math.max(0, hurtbox.collisionArea.radius + padding);
       const distanceSq = aimTargetWorldPosition.distanceToSquared(scratchHurtboxCenter);
-      if (distanceSq > radius * radius || distanceSq >= bestDistanceSq) {
+      const radiusSq = radius * radius;
+      if (radiusSq <= 0.000001) {
         continue;
       }
-      bestDistanceSq = distanceSq;
+      if (distanceSq > radiusSq * SEEK_TARGET_ACQUIRE_RADIUS_MULTIPLIER * SEEK_TARGET_ACQUIRE_RADIUS_MULTIPLIER) {
+        continue;
+      }
+      const distance = Math.sqrt(distanceSq);
+      const edgeDistance = Math.max(0, distance - radius);
+      const launchDistanceSq = launchOriginWorldPosition.distanceToSquared(scratchHurtboxCenter);
+      const isBetter =
+        edgeDistance < bestEdgeDistance - 0.000001 ||
+        (Math.abs(edgeDistance - bestEdgeDistance) <= 0.000001 &&
+          (distanceSq < bestReticleDistanceSq - 0.000001 ||
+            (Math.abs(distanceSq - bestReticleDistanceSq) <= 0.000001 &&
+              launchDistanceSq < bestLaunchDistanceSq)));
+      if (!isBetter) {
+        continue;
+      }
+      bestEdgeDistance = edgeDistance;
+      bestReticleDistanceSq = distanceSq;
+      bestLaunchDistanceSq = launchDistanceSq;
       bestTarget = hurtbox;
     }
 
@@ -491,40 +509,17 @@ export function createTorpedoLauncherController({
       scratchAimDirection.normalize();
     }
 
-    if (aimTargetWorldPosition) {
-      scratchShipOffset.copy(scratchTargetCenter);
-      playerRoot.worldToLocal(scratchShipOffset);
-      scratchShipOffset.y = 0;
-      if (scratchShipOffset.lengthSq() > 0.000001) {
-        scratchShipWorldOffset.copy(scratchShipOffset).applyQuaternion(playerRoot.quaternion);
-        scratchShipWorldOffset.y = 0;
-      } else {
-        scratchShipWorldOffset.set(0, 0, 0);
-      }
-      scratchDesiredDirection
-        .copy(aimTargetWorldPosition)
-        .addScaledVector(scratchShipWorldOffset, 0.65)
-        .sub(scratchTargetCenter)
-        .setY(0);
-      if (scratchDesiredDirection.lengthSq() > 0.000001) {
-        scratchDesiredDirection.normalize();
-        scratchAimDirection.copy(scratchDesiredDirection);
-      }
-    }
-
     let seekTargetId: string | null = null;
     let seeking = false;
     if (aimTargetWorldPosition) {
-      const seekTarget = findReticleSeekTarget(aimTargetWorldPosition, launcher.payload);
+      const seekTarget = findReticleSeekTarget(
+        aimTargetWorldPosition,
+        launcher.payload,
+        scratchTargetCenter
+      );
       if (seekTarget) {
         seeking = true;
         seekTargetId = seekTarget.id;
-        seekTarget.getWorldCenter(scratchDesiredDirection);
-        scratchDesiredDirection.sub(scratchTargetCenter).setY(0);
-        if (scratchDesiredDirection.lengthSq() > 0.000001) {
-          scratchDesiredDirection.normalize();
-          scratchAimDirection.copy(scratchDesiredDirection);
-        }
       }
     }
 

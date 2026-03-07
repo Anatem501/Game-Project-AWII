@@ -58,6 +58,7 @@ const HEAVY_BEAM_EDGE_PARTICLE_RADIAL_WOBBLE_SCALE = 0.06;
 const HEAVY_BEAM_EDGE_PARTICLE_THICKNESS_MULTIPLIER = 0.58;
 const HEAVY_BEAM_EDGE_PARTICLE_MUZZLE_FORWARD_OFFSET = 0.02;
 const HEAVY_BEAM_EDGE_PARTICLE_MUZZLE_FORWARD_RANDOM_MAX = 0.16;
+const HEAVY_BEAM_MAX_AIM_OFFSET_RADIANS = THREE.MathUtils.degToRad(5);
 const HEAVY_BEAM_SPIKY_EMISSION_VERTEX_SHADER = `
 uniform float uAge;
 uniform float uLifetime;
@@ -293,6 +294,7 @@ type GunControllerParams = {
   minAimDistanceFromShip?: number;
   maxAimAngleRadians?: number;
   targetHurtboxes?: readonly HurtboxComponent[];
+  interceptTargetHurtboxes?: readonly HurtboxComponent[];
   reticleHomingTargetPadding?: number;
   consumePrimaryFireCost?: (cost: WeaponResourceCost) => boolean;
   getPrimaryFireIntervalMultiplier?: () => number;
@@ -321,6 +323,7 @@ export function createGunController({
   minAimDistanceFromShip = MIN_AIM_DISTANCE_FROM_SHIP,
   maxAimAngleRadians = FULL_AIM_ARC_RADIANS,
   targetHurtboxes = [],
+  interceptTargetHurtboxes = [],
   reticleHomingTargetPadding = DEFAULT_RETICLE_HOMING_TARGET_PADDING,
   consumePrimaryFireCost,
   getPrimaryFireIntervalMultiplier,
@@ -1080,6 +1083,15 @@ export function createGunController({
     canvas.addEventListener("contextmenu", onContextMenu);
   }
 
+  const forEachDamageTargetHurtbox = (visitor: (hurtbox: HurtboxComponent) => void): void => {
+    for (const hurtbox of targetHurtboxes) {
+      visitor(hurtbox);
+    }
+    for (const hurtbox of interceptTargetHurtboxes) {
+      visitor(hurtbox);
+    }
+  };
+
   const findReticleHomingTargetHurtbox = (
     reticleWorldPosition: THREE.Vector3
   ): HurtboxComponent | null => {
@@ -1121,22 +1133,22 @@ export function createGunController({
     }
 
     let appliedAnyDamage = false;
-    for (const hurtbox of targetHurtboxes) {
+    forEachDamageTargetHurtbox((hurtbox) => {
       if (!hurtbox.canReceiveDamage()) {
-        continue;
+        return;
       }
       if (
         hurtbox.faction &&
         hitscanPulse.sourceFaction &&
         hurtbox.faction === hitscanPulse.sourceFaction
       ) {
-        continue;
+        return;
       }
       const targetRadius = Math.max(0, hurtbox.collisionArea.radius);
       hurtbox.getWorldCenter(hurtboxCenter);
       const combinedRadius = blastRadius + targetRadius;
       if (explosionCenter.distanceToSquared(hurtboxCenter) > combinedRadius * combinedRadius) {
-        continue;
+        return;
       }
 
       const hitResult = hurtbox.receiveDamage({
@@ -1151,7 +1163,7 @@ export function createGunController({
       if (hitResult) {
         appliedAnyDamage = true;
       }
-    }
+    });
 
     return appliedAnyDamage;
   };
@@ -1169,22 +1181,22 @@ export function createGunController({
     }
 
     let appliedAnyDamage = false;
-    for (const hurtbox of targetHurtboxes) {
+    forEachDamageTargetHurtbox((hurtbox) => {
       if (excludeHurtboxId && hurtbox.id === excludeHurtboxId) {
-        continue;
+        return;
       }
       if (!hurtbox.canReceiveDamage()) {
-        continue;
+        return;
       }
       if (hurtbox.faction && hitbox.sourceFaction && hurtbox.faction === hitbox.sourceFaction) {
-        continue;
+        return;
       }
 
       const targetRadius = Math.max(0, hurtbox.collisionArea.radius);
       hurtbox.getWorldCenter(hurtboxCenter);
       const combinedRadius = blastRadius + targetRadius;
       if (explosionCenter.distanceToSquared(hurtboxCenter) > combinedRadius * combinedRadius) {
-        continue;
+        return;
       }
 
       const hitResult = hurtbox.receiveDamage({
@@ -1195,7 +1207,7 @@ export function createGunController({
       if (hitResult) {
         appliedAnyDamage = true;
       }
-    }
+    });
 
     return appliedAnyDamage;
   };
@@ -1209,33 +1221,33 @@ export function createGunController({
     let nearestHurtbox: HurtboxComponent | null = null;
     let nearestHitDistance = Math.max(0.01, hitscanPulse.maxDistance);
 
-    for (const hurtbox of targetHurtboxes) {
+    forEachDamageTargetHurtbox((hurtbox) => {
       if (!hurtbox.canReceiveDamage()) {
-        continue;
+        return;
       }
       if (
         hurtbox.faction &&
         hitscanPulse.sourceFaction &&
         hurtbox.faction === hitscanPulse.sourceFaction
       ) {
-        continue;
+        return;
       }
       const radius = Math.max(0, hurtbox.collisionArea.radius);
       if (radius <= 0) {
-        continue;
+        return;
       }
 
       hurtbox.getWorldCenter(hurtboxCenter);
       rayToCenter.subVectors(hurtboxCenter, origin);
       const projectionDistance = rayToCenter.dot(direction);
       if (projectionDistance < -radius) {
-        continue;
+        return;
       }
 
       const radiusSq = radius * radius;
       const perpendicularDistanceSq = rayToCenter.lengthSq() - projectionDistance * projectionDistance;
       if (perpendicularDistanceSq > radiusSq) {
-        continue;
+        return;
       }
 
       const halfChord = Math.sqrt(Math.max(0, radiusSq - perpendicularDistanceSq));
@@ -1244,12 +1256,12 @@ export function createGunController({
         hitDistance = projectionDistance + halfChord;
       }
       if (hitDistance < 0 || hitDistance > nearestHitDistance) {
-        continue;
+        return;
       }
 
       nearestHitDistance = hitDistance;
       nearestHurtbox = hurtbox;
-    }
+    });
 
     const beamDistance = Math.max(0.05, nearestHitDistance);
     outContactPoint.copy(origin).addScaledVector(direction, beamDistance);
@@ -1611,10 +1623,7 @@ export function createGunController({
   ): void => {
     fallbackForward.copy(playerState.forward).normalize();
     gun.hardpoint.getWorldPosition(muzzleWorld);
-    if (gun.primary.hitscanPulse?.effectStyle === "heavy_laserbeam_pulse") {
-      aimDirection.copy(fallbackForward);
-      return;
-    }
+    const isHeavyLaserbeamPulse = gun.primary.hitscanPulse?.effectStyle === "heavy_laserbeam_pulse";
     aimTargetWorld.copy(aimReticle.position);
     if (hardpointAimOffsetScale !== 0) {
       hardpointLocalOffset.copy(muzzleWorld);
@@ -1644,11 +1653,19 @@ export function createGunController({
           crossForwardAim.copy(fallbackForward).cross(aimDirection).dot(up),
           dot
         );
-        const minAllowedAngle = turnDirection < 0 ? -maxAimClampRadians : 0;
-        const maxAllowedAngle = turnDirection > 0 ? maxAimClampRadians : 0;
-        const clampedAngle = turnDirection === 0
-          ? THREE.MathUtils.clamp(signedAngle, -maxAimClampRadians, maxAimClampRadians)
-          : THREE.MathUtils.clamp(signedAngle, minAllowedAngle, maxAllowedAngle);
+        const clampedAngle = isHeavyLaserbeamPulse
+          ? THREE.MathUtils.clamp(
+              signedAngle,
+              -HEAVY_BEAM_MAX_AIM_OFFSET_RADIANS,
+              HEAVY_BEAM_MAX_AIM_OFFSET_RADIANS
+            )
+          : (() => {
+              const minAllowedAngle = turnDirection < 0 ? -maxAimClampRadians : 0;
+              const maxAllowedAngle = turnDirection > 0 ? maxAimClampRadians : 0;
+              return turnDirection === 0
+                ? THREE.MathUtils.clamp(signedAngle, -maxAimClampRadians, maxAimClampRadians)
+                : THREE.MathUtils.clamp(signedAngle, minAllowedAngle, maxAllowedAngle);
+            })();
 
         if (clampedAngle !== signedAngle) {
           clampedForward.copy(fallbackForward).applyAxisAngle(up, clampedAngle).normalize();
@@ -2127,7 +2144,9 @@ export function createGunController({
       const projectile = projectiles[i];
       let removedOnCollision = false;
       while (true) {
-        const collision = resolveHitboxAgainstHurtboxes(projectile.hitbox, targetHurtboxes);
+        const collision =
+          resolveHitboxAgainstHurtboxes(projectile.hitbox, targetHurtboxes) ??
+          resolveHitboxAgainstHurtboxes(projectile.hitbox, interceptTargetHurtboxes);
         if (!collision) {
           break;
         }

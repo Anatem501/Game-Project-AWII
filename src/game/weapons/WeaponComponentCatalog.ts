@@ -684,13 +684,13 @@ const TORPEDO_COMPONENTS: Record<TorpedoComponentId, TorpedoComponentDefinition>
     torpedoSpeed: 12,
     nonSeekingDetonationSeconds: 4,
     seekingDetonationSeconds: 4,
-    homingTurnRateRadiansPerSecond: THREE.MathUtils.degToRad(120),
-    reticleSeekRadiusPadding: 0.34,
+    homingTurnRateRadiansPerSecond: THREE.MathUtils.degToRad(180),
+    reticleSeekRadiusPadding: 0.9,
     hitRadius: 0.34,
     implosionDamage: 10,
-    implosionRadius: 1.45,
+    implosionRadius: 1.2,
     explosionDamage: 26,
-    explosionRadius: 3.6,
+    explosionRadius: 3.0,
     description:
       "Plasma torpedo that seeks only when fired with the reticle over a target. Detonates with a two-phase implosion/explosion blast."
   }

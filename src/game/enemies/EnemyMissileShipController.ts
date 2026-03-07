@@ -96,6 +96,10 @@ export class EnemyMissileShipController {
     return this.ship.hasIncomingHomingMissileThreat();
   }
 
+  appendActiveProjectileHurtboxes(out: HurtboxComponent[]): void {
+    this.ship.appendActiveProjectileHurtboxes(out);
+  }
+
   getDebugSnapshot(): EnemyMissileShipControllerDebugSnapshot {
     const shipSnapshot = this.ship.getDebugSnapshot();
     return {

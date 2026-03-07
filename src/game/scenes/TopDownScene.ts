@@ -105,6 +105,7 @@ const CONCUSSIVE_BARRAGE_COMPONENT_ID = "concussive_barrage_missiles";
 const CONCUSSIVE_SWARM_COMPONENT_ID = "concussive_swarm_missiles";
 const GUN_MIN_AIM_DISTANCE_FROM_SHIP = 2.5;
 const GUN_MAX_AIM_ANGLE_RADIANS = THREE.MathUtils.degToRad(37.5);
+const CANNON_MAX_AIM_ANGLE_RADIANS = THREE.MathUtils.degToRad(15);
 const ENEMY_DUAL_TURRET_SPAWN = new THREE.Vector3(30, FLOOR_Y, -24);
 const ENEMY_PLASMABOLT_TURRET_SPAWN = new THREE.Vector3(-34, FLOOR_Y, 28);
 const PLAYER_HURTBOX_RADIUS = 1.05;
@@ -662,6 +663,7 @@ export function setupTopDownScene(
     }
   });
   const enemyTargetHurtboxes: HurtboxComponent[] = [];
+  const enemyProjectileInterceptHurtboxes: HurtboxComponent[] = [];
   const minimapEnemyPosition = new THREE.Vector3();
   const reticleEnemyCenter = new THREE.Vector3();
   let enemyDualTurretHealth: ReturnType<typeof createHealthComponent> | null = null;
@@ -1154,6 +1156,13 @@ export function setupTopDownScene(
     updateEnemyTargetHurtboxes();
   };
 
+  const updateEnemyProjectileInterceptHurtboxes = (): void => {
+    enemyProjectileInterceptHurtboxes.length = 0;
+    for (const missileShip of rogueEnemyMissileShips) {
+      missileShip?.appendActiveProjectileHurtboxes(enemyProjectileInterceptHurtboxes);
+    }
+  };
+
   const spawnRogueEnemyPlasmaCannonShip = (): void => {
     if (mapId !== "rogue_pilot_map") {
       return;
@@ -1267,7 +1276,7 @@ export function setupTopDownScene(
     canvas,
     viewCamera: camera,
     guns,
-    maxAimAngleRadians: GUN_MAX_AIM_ANGLE_RADIANS,
+    maxAimAngleRadians: CANNON_MAX_AIM_ANGLE_RADIANS,
     minAimDistanceFromShip: GUN_MIN_AIM_DISTANCE_FROM_SHIP,
     playerRoot,
     scene,
@@ -1283,6 +1292,7 @@ export function setupTopDownScene(
     },
     getPrimaryFireIntervalMultiplier: () => playerResources.getWeaponFireIntervalMultiplier(),
     targetHurtboxes: enemyTargetHurtboxes,
+    interceptTargetHurtboxes: enemyProjectileInterceptHurtboxes,
     resolvePrimaryFireInputForGun: shipControlRuntime
       ? (gunIndex) =>
           shipControlRuntime.isComponentTriggered(resolveCannonPrimaryControlSocketId(gunIndex))
@@ -1350,6 +1360,7 @@ export function setupTopDownScene(
       },
       getPrimaryFireIntervalMultiplier: () => playerResources.getWeaponFireIntervalMultiplier(),
       targetHurtboxes: enemyTargetHurtboxes,
+      interceptTargetHurtboxes: enemyProjectileInterceptHurtboxes,
       canPrimaryFireForGun: (gunIndex) => {
         const energySnapshot = playerResources.getSnapshot().energy;
         if (energySnapshot.max > 0 && energySnapshot.current <= 0) {
@@ -1406,7 +1417,6 @@ export function setupTopDownScene(
   if (shipTorpedoLaunchers.length > 0) {
     torpedoLauncherController = createTorpedoLauncherController({
       canvas,
-      playerRoot,
       scene,
       launchers: torpedoLaunchers,
       targetHurtboxes: enemyTargetHurtboxes,
@@ -1545,6 +1555,7 @@ export function setupTopDownScene(
     cameraController.setYawLock(
       !playerIsDestroyed ? playerController.getTemporaryManeuverCameraLockYaw() : null
     );
+    updateEnemyProjectileInterceptHurtboxes();
     gunController.update(deltaTime, playerState);
     beamEmitterController?.update(deltaTime, playerState);
     const playerPrimaryFireInputActive =

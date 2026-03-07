@@ -18,6 +18,7 @@ export type ProjectileSelfMergePayload = {
 export type ProjectileInstance = {
   object: THREE.Object3D;
   hitbox?: HitboxComponent;
+  hurtbox?: HurtboxComponent;
   effectScale?: number;
   hitEffectId?: string;
   muzzleEffectId?: string;
