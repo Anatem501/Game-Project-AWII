@@ -146,15 +146,6 @@ const CRYOWAVE_FIRE_COMPONENT_ID = "cryowave_fire";
 const CANNON_FIRE_INTERVAL_SECONDS = 0.5;
 const HUD_MINIMAP_RANGE_METERS = 80;
 const ENEMY_PLASMABOLT_EXTRA_HEAT_COST = 1;
-const DEFAULT_PLAYER_RESOURCE_CONFIG: ShipResourceConfig = {
-  maxHeat: 120,
-  heatDissipationPerSecond: 14,
-  maxEnergy: 100,
-  energyRechargePerSecond: 14,
-  minEnergyRatio: 0.5,
-  plasmaHeatPerDamage: 0.7
-};
-
 const DEFAULT_ENEMY_RESOURCE_CONFIG: ShipResourceConfig = {
   maxHeat: 90,
   heatDissipationPerSecond: 10,
@@ -217,7 +208,7 @@ export function setupTopDownScene(
   const shipControlRuntime = savedShipControlConfiguration
     ? createShipControlRuntime(canvas, savedShipControlConfiguration)
     : null;
-  const playerResources = createShipResourceComponent(DEFAULT_PLAYER_RESOURCE_CONFIG);
+  const playerResources = createShipResourceComponent(selectedShip.resource);
   let enemyDualTurretResources: ShipResourceComponent | null = null;
   let enemyPlasmaboltTurretResources: ShipResourceComponent | null = null;
   let playerThrusterEffect: ReturnType<typeof createPlayerThrusterEffect> | null = null;

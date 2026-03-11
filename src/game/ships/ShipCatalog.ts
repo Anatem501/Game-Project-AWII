@@ -1,6 +1,15 @@
 import * as THREE from "three";
 import type { ShipHandlingConfig } from "../controllers/ShipController";
 import type { HealthConfig } from "../components/HealthComponent";
+import type { ShipResourceConfig } from "../components/ShipResourceComponent";
+import {
+  createDefaultShipUpgradeLevels,
+  type ShipUpgradeLevels
+} from "../components/ShipUpgradesComponent";
+import {
+  createShipPowerSystemsStateFromEnergyCoreUpgrade,
+  type ShipPowerSystemsState
+} from "../components/ShipPowerSystemsComponent";
 import type { PlayerThrusterVisualPreset } from "../effects/PlayerThrusterEffect";
 import {
   DEFAULT_CANNON_PRIMARY_COMPONENT_ID,
@@ -12,7 +21,6 @@ import {
   DEFAULT_TORPEDO_COMPONENT_ID,
   type TorpedoComponentId
 } from "../weapons/WeaponComponentCatalog";
-import playerModelUrl from "../../assets/models/SpaceShip V3.glb?url";
 import vagabondM2ShipModelUrl from "../../assets/models/Vagabond-m2-Ship-V01.glb?url";
 import azureArrowV2ShipModelUrl from "../../assets/models/Azure-Arrow-V2-ship-v02.glb?url";
 import bearclawMk2ShipModelUrl from "../../assets/models/AC-Bearclaw-mkII-Ship-V01.glb?url";
@@ -70,6 +78,9 @@ export type ShipDefinition = {
   defaultLoadout: readonly string[];
   handling: ShipHandlingConfig;
   health: HealthConfig;
+  resource: ShipResourceConfig;
+  upgrades: ShipUpgradeLevels;
+  powerSystems: ShipPowerSystemsState;
 };
 
 export const DEFAULT_SHIP_TORPEDO_COMPONENT_ID = DEFAULT_TORPEDO_COMPONENT_ID;
@@ -217,6 +228,8 @@ const HAULER_T2_BEAM_EMITTERS: readonly ShipBeamEmitterDefinition[] = [
   }
 ] as const;
 
+const TEST_FIGHTER_UPGRADES = createDefaultShipUpgradeLevels();
+
 const TEST_FIGHTER: ShipDefinition = {
   id: "test_fighter",
   displayName: "Azure Arrow V2",
@@ -240,6 +253,16 @@ const TEST_FIGHTER: ShipDefinition = {
     strafeAcceleration: 22,
     strafeDeceleration: 16
   },
+  resource: {
+    maxHeat: 120,
+    heatDissipationPerSecond: 14,
+    maxEnergy: 100,
+    energyRechargePerSecond: 14,
+    minEnergyRatio: 0.5,
+    plasmaHeatPerDamage: 0.7
+  },
+  upgrades: TEST_FIGHTER_UPGRADES,
+  powerSystems: createShipPowerSystemsStateFromEnergyCoreUpgrade(TEST_FIGHTER_UPGRADES.energyCore),
   health: {
     maxShield: 80,
     maxArmor: 0,
@@ -323,6 +346,8 @@ const BEARCLAW_MK2_MISSILE_BAYS: readonly ShipMissileBayDefinition[] = [
   }
 ] as const;
 
+const SWIFT_INTERCEPTOR_UPGRADES = createDefaultShipUpgradeLevels();
+
 const SWIFT_INTERCEPTOR: ShipDefinition = {
   id: "swift_interceptor",
   displayName: "Maurader-Intercepter",
@@ -348,6 +373,18 @@ const SWIFT_INTERCEPTOR: ShipDefinition = {
     strafeAcceleration: 24.5,
     strafeDeceleration: 18.5
   },
+  resource: {
+    maxHeat: 95,
+    heatDissipationPerSecond: 16,
+    maxEnergy: 130,
+    energyRechargePerSecond: 19,
+    minEnergyRatio: 0.45,
+    plasmaHeatPerDamage: 0.68
+  },
+  upgrades: SWIFT_INTERCEPTOR_UPGRADES,
+  powerSystems: createShipPowerSystemsStateFromEnergyCoreUpgrade(
+    SWIFT_INTERCEPTOR_UPGRADES.energyCore
+  ),
   health: {
     maxShield: 20,
     maxArmor: 0,
@@ -359,6 +396,8 @@ const SWIFT_INTERCEPTOR: ShipDefinition = {
     armorRepairEfficiency: 0.45
   }
 };
+
+const BEARCLAW_MK2_UPGRADES = createDefaultShipUpgradeLevels();
 
 const BEARCLAW_MK2: ShipDefinition = {
   id: "vanguard_mk2",
@@ -385,6 +424,16 @@ const BEARCLAW_MK2: ShipDefinition = {
     strafeAcceleration: 17.8,
     strafeDeceleration: 13.8
   },
+  resource: {
+    maxHeat: 170,
+    heatDissipationPerSecond: 11,
+    maxEnergy: 70,
+    energyRechargePerSecond: 9,
+    minEnergyRatio: 0.35,
+    plasmaHeatPerDamage: 0.58
+  },
+  upgrades: BEARCLAW_MK2_UPGRADES,
+  powerSystems: createShipPowerSystemsStateFromEnergyCoreUpgrade(BEARCLAW_MK2_UPGRADES.energyCore),
   health: {
     maxShield: 0,
     maxArmor: 100,
@@ -396,6 +445,8 @@ const BEARCLAW_MK2: ShipDefinition = {
     armorRepairEfficiency: 0.56
   }
 };
+
+const MX4_LANCER_UPGRADES = createDefaultShipUpgradeLevels();
 
 const MX4_LANCER: ShipDefinition = {
   id: "mx4_lancer",
@@ -421,6 +472,16 @@ const MX4_LANCER: ShipDefinition = {
     strafeAcceleration: 20.8,
     strafeDeceleration: 15.4
   },
+  resource: {
+    maxHeat: 140,
+    heatDissipationPerSecond: 12,
+    maxEnergy: 110,
+    energyRechargePerSecond: 12,
+    minEnergyRatio: 0.5,
+    plasmaHeatPerDamage: 0.7
+  },
+  upgrades: MX4_LANCER_UPGRADES,
+  powerSystems: createShipPowerSystemsStateFromEnergyCoreUpgrade(MX4_LANCER_UPGRADES.energyCore),
   health: {
     maxShield: 40,
     maxArmor: 20,
@@ -432,6 +493,8 @@ const MX4_LANCER: ShipDefinition = {
     armorRepairEfficiency: 0.52
   }
 };
+
+const B2_SPARROWHAWK_UPGRADES = createDefaultShipUpgradeLevels();
 
 const B2_SPARROWHAWK: ShipDefinition = {
   id: "b2_sparrowhawk",
@@ -458,6 +521,18 @@ const B2_SPARROWHAWK: ShipDefinition = {
     strafeAcceleration: 21.4,
     strafeDeceleration: 16.2
   },
+  resource: {
+    maxHeat: 115,
+    heatDissipationPerSecond: 13,
+    maxEnergy: 125,
+    energyRechargePerSecond: 15,
+    minEnergyRatio: 0.48,
+    plasmaHeatPerDamage: 0.66
+  },
+  upgrades: B2_SPARROWHAWK_UPGRADES,
+  powerSystems: createShipPowerSystemsStateFromEnergyCoreUpgrade(
+    B2_SPARROWHAWK_UPGRADES.energyCore
+  ),
   health: {
     maxShield: 45,
     maxArmor: 15,
@@ -469,6 +544,8 @@ const B2_SPARROWHAWK: ShipDefinition = {
     armorRepairEfficiency: 0.5
   }
 };
+
+const HAULER_T2_UPGRADES = createDefaultShipUpgradeLevels();
 
 const HAULER_T2: ShipDefinition = {
   id: "hauler_t2",
@@ -494,6 +571,16 @@ const HAULER_T2: ShipDefinition = {
     strafeAcceleration: 16.8,
     strafeDeceleration: 13.9
   },
+  resource: {
+    maxHeat: 155,
+    heatDissipationPerSecond: 10,
+    maxEnergy: 85,
+    energyRechargePerSecond: 11,
+    minEnergyRatio: 0.4,
+    plasmaHeatPerDamage: 0.62
+  },
+  upgrades: HAULER_T2_UPGRADES,
+  powerSystems: createShipPowerSystemsStateFromEnergyCoreUpgrade(HAULER_T2_UPGRADES.energyCore),
   health: {
     maxShield: 20,
     maxArmor: 50,
