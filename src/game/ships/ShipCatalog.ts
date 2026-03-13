@@ -11,6 +11,7 @@ import {
   type ShipPowerSystemsState
 } from "../components/ShipPowerSystemsComponent";
 import type { PlayerThrusterVisualPreset } from "../effects/PlayerThrusterEffect";
+import type { MobilityEquipmentComponentId } from "../equipment/mobility/MobilityEquipmentComponentCatalog";
 import {
   DEFAULT_CANNON_PRIMARY_COMPONENT_ID,
   type CannonPrimaryComponentId,
@@ -73,6 +74,7 @@ export type ShipDefinition = {
   beamEmitters?: readonly ShipBeamEmitterDefinition[];
   missileBays?: readonly ShipMissileBayDefinition[];
   torpedoLaunchers?: readonly ShipTorpedoLauncherDefinition[];
+  mobilityEquipmentComponentId?: MobilityEquipmentComponentId;
   builtInEquipmentAbilityId?: "aerobatic_roll";
   defaultGunFireIntervalSeconds: number;
   defaultLoadout: readonly string[];
@@ -364,7 +366,7 @@ const SWIFT_INTERCEPTOR: ShipDefinition = {
   thrusterTrailLengthScale: 0.25,
   thrusterGlowOpacityScale: 0.6,
   defaultGunFireIntervalSeconds: 0.16,
-  defaultLoadout: ["Twin Light Lasers", "EMP Dart Pod", "Overdrive Thrusters"],
+  defaultLoadout: ["Twin Light Lasers", "EMP Dart Pod", "Open Mobility Slot"],
   handling: {
     topManeuveringSpeed: 6.7,
     thrustSpeed: 8.9,

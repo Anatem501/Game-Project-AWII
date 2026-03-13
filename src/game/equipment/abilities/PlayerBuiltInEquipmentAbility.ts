@@ -5,6 +5,7 @@ export type PlayerBuiltInEquipmentAbilityInput = {
 
 export type PlayerBuiltInEquipmentAbilityHudSnapshot = {
   label: string;
+  statusLabel?: string;
   chargeProgress01BySlot: readonly number[];
   chargesAvailable: number;
   chargesMax: number;
@@ -12,8 +13,7 @@ export type PlayerBuiltInEquipmentAbilityHudSnapshot = {
   nextChargeSecondsRemaining: number;
 };
 
-// Built-in ship equipment abilities are triggered by the shared "Space" input and
-// can interpret movement keys differently per ship/ability.
+// Ship equipment abilities can interpret trigger/movement inputs differently per ability.
 export type PlayerBuiltInEquipmentAbility = {
   id: string;
   update: (deltaTime: number) => void;

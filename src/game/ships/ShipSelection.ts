@@ -1,5 +1,9 @@
 import { DEFAULT_SHIP_ID, getShipDefinition } from "./ShipCatalog";
 import {
+  MOBILITY_EQUIPMENT_COMPONENT_OPTIONS,
+  type MobilityEquipmentComponentId
+} from "../equipment/mobility/MobilityEquipmentComponentCatalog";
+import {
   CANNON_PRIMARY_COMPONENT_OPTIONS,
   BEAM_PRIMARY_COMPONENT_OPTIONS,
   ENERGY_LAUNCHER_COMPONENT_OPTIONS,
@@ -22,12 +26,14 @@ export const BEAM_PRIMARY_OPTIONS = BEAM_PRIMARY_COMPONENT_OPTIONS;
 export const MISSILE_COMPONENT_OPTIONS = MISSILE_BAY_COMPONENT_OPTIONS;
 export const ENERGY_COMPONENT_OPTIONS = ENERGY_LAUNCHER_COMPONENT_OPTIONS;
 export const TORPEDO_COMPONENT_OPTIONS = WEAPON_TORPEDO_COMPONENT_OPTIONS;
+export const MOBILITY_COMPONENT_OPTIONS = MOBILITY_EQUIPMENT_COMPONENT_OPTIONS;
 
 export type PrimaryFireComponentId = CannonPrimaryComponentId;
 export type BeamPrimaryComponentId = WeaponBeamPrimaryComponentId;
 export type MissileComponentId = MissileBayComponentId;
 export type EnergyComponentId = EnergyLauncherComponentId;
 export type TorpedoFireComponentId = TorpedoComponentId;
+export type MobilityComponentId = MobilityEquipmentComponentId;
 
 export type ShipSelectionConfig = {
   shipId: string;
@@ -36,6 +42,7 @@ export type ShipSelectionConfig = {
   missileBayComponentId: MissileComponentId;
   energyComponentId: EnergyComponentId;
   torpedoComponentId: TorpedoFireComponentId;
+  mobilityEquipmentComponentId: MobilityComponentId | null;
 };
 
 export function createDefaultShipSelection(shipId = DEFAULT_SHIP_ID): ShipSelectionConfig {
@@ -45,7 +52,8 @@ export function createDefaultShipSelection(shipId = DEFAULT_SHIP_ID): ShipSelect
     beamPrimaryComponentId: resolveBeamPrimaryComponentId(shipId),
     missileBayComponentId: resolveMissileBayComponentId(shipId),
     energyComponentId: DEFAULT_ENERGY_LAUNCHER_COMPONENT_ID,
-    torpedoComponentId: resolveTorpedoComponentId(shipId)
+    torpedoComponentId: resolveTorpedoComponentId(shipId),
+    mobilityEquipmentComponentId: resolveMobilityEquipmentComponentId(shipId)
   };
 }
 
@@ -95,4 +103,19 @@ export function resolveTorpedoComponentId(
     ship.torpedoLaunchers?.[0]?.defaultTorpedoComponentId ??
     DEFAULT_TORPEDO_COMPONENT_ID
   );
+}
+
+export function resolveMobilityEquipmentComponentId(
+  shipId: string,
+  componentId?: MobilityComponentId | null
+): MobilityComponentId | null {
+  const ship = getShipDefinition(shipId);
+  const resolvedComponentId = componentId ?? ship.mobilityEquipmentComponentId ?? null;
+  if (!resolvedComponentId) {
+    return null;
+  }
+  if (MOBILITY_COMPONENT_OPTIONS.includes(resolvedComponentId)) {
+    return resolvedComponentId;
+  }
+  return null;
 }

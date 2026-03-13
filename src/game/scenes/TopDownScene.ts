@@ -38,6 +38,7 @@ import { createShipCryoFreezeSurfaceEffect } from "../effects/ShipCryoFreezeSurf
 import { createShipElectroshockArcEmitterEffect } from "../effects/ShipElectroshockArcEmitterEffect";
 import { createShipElectroshockSurfaceEffect } from "../effects/ShipElectroshockSurfaceEffect";
 import { createPlayerBuiltInEquipmentAbility } from "../equipment/abilities/PlayerBuiltInEquipmentAbilityFactory";
+import { createPlayerMobilityEquipmentAbility } from "../equipment/abilities/PlayerMobilityEquipmentAbilityFactory";
 import { EnemyDualLaserBoltTurret } from "../entities/EnemyDualLaserBoltTurret";
 import { EnemyPlasmaboltTurret } from "../entities/EnemyPlasmaboltTurret";
 import { EnemyCannonShipController } from "../enemies/EnemyCannonShipController";
@@ -48,6 +49,7 @@ import {
   createDefaultShipSelection,
   resolveBeamPrimaryComponentId,
   resolveCannonPrimaryComponentId,
+  resolveMobilityEquipmentComponentId,
   resolveMissileBayComponentId,
   resolveTorpedoComponentId,
   type ShipSelectionConfig
@@ -178,7 +180,14 @@ export function setupTopDownScene(
 ): TopDownSceneController {
   const selection = options.selection ?? createDefaultShipSelection();
   const mapId = options.mapId ?? "test_map";
-  const selectedShip = getShipDefinition(selection.shipId);
+  const selectedShipCatalogDefinition = getShipDefinition(selection.shipId);
+  const selectedShip = {
+    ...selectedShipCatalogDefinition,
+    mobilityEquipmentComponentId: resolveMobilityEquipmentComponentId(
+      selectedShipCatalogDefinition.id,
+      selection.mobilityEquipmentComponentId
+    )
+  };
   const selectedCannonPrimaryComponentId = resolveCannonPrimaryComponentId(
     selectedShip.id,
     selection.cannonPrimaryComponentId
@@ -552,6 +561,15 @@ export function setupTopDownScene(
     shipDefinition: selectedShip,
     shipController
   });
+  const playerMobilityEquipmentAbility = createPlayerMobilityEquipmentAbility({
+    shipDefinition: selectedShip,
+    shipController
+  });
+  const hasBuiltInEquipmentBinding =
+    shipControlRuntime?.hasComponentBinding(GENERAL_COMPONENT_SOCKET_IDS.builtInEquipment) ?? false;
+  const hasMobilityEquipmentBinding =
+    shipControlRuntime?.hasComponentBinding(GENERAL_COMPONENT_SOCKET_IDS.mobilityEquipment) ?? false;
+  const activeShipControlRuntime = shipControlRuntime;
 
   const playerController = createPlayerController({
     canvas,
@@ -559,12 +577,24 @@ export function setupTopDownScene(
     shipController,
     trueAimReticle,
     builtInEquipmentAbility: playerBuiltInEquipmentAbility,
+    mobilityEquipmentAbility: playerMobilityEquipmentAbility,
     getLockedAimForward: (out) => playerStatus.getLockedAimForward(out),
     canUseBuiltInEquipment: () => playerStatus.canUseEquipment(),
-    builtInEquipmentTriggerResolver: shipControlRuntime
-      ? () => shipControlRuntime.isComponentTriggered(GENERAL_COMPONENT_SOCKET_IDS.builtInEquipment)
+    canUseMobilityEquipment: () => playerStatus.canUseEquipment(),
+    builtInEquipmentTriggerResolver: hasBuiltInEquipmentBinding && activeShipControlRuntime
+      ? () =>
+          activeShipControlRuntime.isComponentTriggered(
+            GENERAL_COMPONENT_SOCKET_IDS.builtInEquipment
+          )
       : undefined,
-    disableDefaultBuiltInEquipmentTrigger: shipControlRuntime !== null
+    mobilityEquipmentTriggerResolver: hasMobilityEquipmentBinding && activeShipControlRuntime
+      ? () =>
+          activeShipControlRuntime.isComponentTriggered(
+            GENERAL_COMPONENT_SOCKET_IDS.mobilityEquipment
+          )
+      : undefined,
+    disableDefaultBuiltInEquipmentTrigger: hasBuiltInEquipmentBinding,
+    disableDefaultMobilityEquipmentTrigger: hasMobilityEquipmentBinding
   });
 
   const playerHealth = createHealthComponent(selectedShip.health);
@@ -2039,12 +2069,14 @@ export function setupTopDownScene(
       0,
       1
     );
+    const boostRatio = shipController.getForwardBoostRatio();
+    const thrusterIntensity = boostRatio > 0.0001 ? Math.max(thrusterGrowth, 0.9) : thrusterGrowth;
     const playerSpeed01 = THREE.MathUtils.clamp(
       playerVelocity.length() / Math.max(0.001, selectedShip.handling.thrustSpeed),
       0,
       1
     );
-    playerThrusterEffect?.update(deltaTime, thrusterGrowth);
+    playerThrusterEffect?.update(deltaTime, thrusterIntensity, boostRatio > 0.0001 ? 1.35 : 1);
     cameraController.update(deltaTime, playerState.position, playerState.yaw);
     environment.update(deltaTime, {
       playerPosition: playerState.position,

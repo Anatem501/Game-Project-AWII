@@ -33,10 +33,14 @@ type PlayerControllerParams = {
   inputAimReticle: THREE.Object3D;
   trueAimReticle: THREE.Object3D;
   builtInEquipmentAbility?: PlayerBuiltInEquipmentAbility | null;
+  mobilityEquipmentAbility?: PlayerBuiltInEquipmentAbility | null;
   getLockedAimForward?: (out: THREE.Vector3) => THREE.Vector3 | null;
   canUseBuiltInEquipment?: () => boolean;
+  canUseMobilityEquipment?: () => boolean;
   builtInEquipmentTriggerResolver?: () => boolean;
+  mobilityEquipmentTriggerResolver?: () => boolean;
   disableDefaultBuiltInEquipmentTrigger?: boolean;
+  disableDefaultMobilityEquipmentTrigger?: boolean;
 };
 
 export type PlayerControllerState = ShipControllerState;
@@ -51,6 +55,7 @@ export type PlayerController = {
 };
 
 const BUILT_IN_EQUIPMENT_TRIGGER_KEY = " ";
+const MOBILITY_EQUIPMENT_TRIGGER_KEY = "shift";
 
 export function createPlayerController({
   canvas,
@@ -58,10 +63,14 @@ export function createPlayerController({
   inputAimReticle,
   trueAimReticle,
   builtInEquipmentAbility = null,
+  mobilityEquipmentAbility = null,
   getLockedAimForward,
   canUseBuiltInEquipment,
+  canUseMobilityEquipment,
   builtInEquipmentTriggerResolver,
-  disableDefaultBuiltInEquipmentTrigger = false
+  mobilityEquipmentTriggerResolver,
+  disableDefaultBuiltInEquipmentTrigger = false,
+  disableDefaultMobilityEquipmentTrigger = false
 }: PlayerControllerParams): PlayerController {
   const pressedKeys = new Set<string>();
   const pointerNdc = new THREE.Vector2(0, 0);
@@ -82,6 +91,7 @@ export function createPlayerController({
   const movementPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   let hasLastMouseWorld = false;
   let customBuiltInEquipmentTriggerHeld = false;
+  let customMobilityEquipmentTriggerHeld = false;
   inputAimReticle.rotation.order = "XYZ";
   trueAimReticle.rotation.order = "XYZ";
 
@@ -101,6 +111,20 @@ export function createPlayerController({
       event.preventDefault();
       return;
     }
+    if (
+      !disableDefaultMobilityEquipmentTrigger &&
+      mobilityEquipmentAbility &&
+      key === MOBILITY_EQUIPMENT_TRIGGER_KEY
+    ) {
+      if (canUseMobilityEquipment && !canUseMobilityEquipment()) {
+        mobilityEquipmentAbility.onInputsCleared();
+        event.preventDefault();
+        return;
+      }
+      mobilityEquipmentAbility.onTriggerPressed({ pressedKeys, repeat: event.repeat });
+      event.preventDefault();
+      return;
+    }
     if (!MOVEMENT_KEYS.has(key)) {
       return;
     }
@@ -108,6 +132,9 @@ export function createPlayerController({
     pressedKeys.add(key);
     if (builtInEquipmentAbility) {
       builtInEquipmentAbility.onMovementKeysChanged({ pressedKeys, repeat: event.repeat });
+    }
+    if (mobilityEquipmentAbility) {
+      mobilityEquipmentAbility.onMovementKeysChanged({ pressedKeys, repeat: event.repeat });
     }
     event.preventDefault();
   };
@@ -123,12 +150,22 @@ export function createPlayerController({
       event.preventDefault();
       return;
     }
+    if (
+      !disableDefaultMobilityEquipmentTrigger &&
+      mobilityEquipmentAbility &&
+      key === MOBILITY_EQUIPMENT_TRIGGER_KEY
+    ) {
+      mobilityEquipmentAbility.onTriggerReleased();
+      event.preventDefault();
+      return;
+    }
     if (!MOVEMENT_KEYS.has(key)) {
       return;
     }
 
     pressedKeys.delete(key);
     builtInEquipmentAbility?.onMovementKeysChanged({ pressedKeys, repeat: event.repeat });
+    mobilityEquipmentAbility?.onMovementKeysChanged({ pressedKeys, repeat: event.repeat });
     event.preventDefault();
   };
 
@@ -138,7 +175,12 @@ export function createPlayerController({
       builtInEquipmentAbility?.onTriggerReleased();
       customBuiltInEquipmentTriggerHeld = false;
     }
+    if (customMobilityEquipmentTriggerHeld) {
+      mobilityEquipmentAbility?.onTriggerReleased();
+      customMobilityEquipmentTriggerHeld = false;
+    }
     builtInEquipmentAbility?.onInputsCleared();
+    mobilityEquipmentAbility?.onInputsCleared();
   };
 
   const updatePointerFromScreen = (clientX: number, clientY: number): void => {
@@ -185,6 +227,7 @@ export function createPlayerController({
   const update = (deltaTime: number, camera: THREE.PerspectiveCamera): PlayerControllerState => {
     const currentShipState = shipController.getState();
     const canUseBuiltInNow = canUseBuiltInEquipment ? canUseBuiltInEquipment() : true;
+    const canUseMobilityNow = canUseMobilityEquipment ? canUseMobilityEquipment() : true;
     if (builtInEquipmentAbility && !canUseBuiltInNow) {
       if (customBuiltInEquipmentTriggerHeld) {
         builtInEquipmentAbility.onTriggerReleased();
@@ -200,7 +243,23 @@ export function createPlayerController({
       }
       customBuiltInEquipmentTriggerHeld = customTriggerHeld;
     }
+    if (mobilityEquipmentAbility && !canUseMobilityNow) {
+      if (customMobilityEquipmentTriggerHeld) {
+        mobilityEquipmentAbility.onTriggerReleased();
+        customMobilityEquipmentTriggerHeld = false;
+      }
+      mobilityEquipmentAbility.onInputsCleared();
+    } else if (mobilityEquipmentAbility && mobilityEquipmentTriggerResolver) {
+      const customTriggerHeld = mobilityEquipmentTriggerResolver();
+      if (customTriggerHeld && !customMobilityEquipmentTriggerHeld) {
+        mobilityEquipmentAbility.onTriggerPressed({ pressedKeys, repeat: false });
+      } else if (!customTriggerHeld && customMobilityEquipmentTriggerHeld) {
+        mobilityEquipmentAbility.onTriggerReleased();
+      }
+      customMobilityEquipmentTriggerHeld = customTriggerHeld;
+    }
     builtInEquipmentAbility?.update(Math.max(0, deltaTime));
+    mobilityEquipmentAbility?.update(Math.max(0, deltaTime));
 
     if (deltaTime <= 0) {
       return currentShipState;
@@ -384,7 +443,8 @@ export function createPlayerController({
     isTemporaryManeuverActive: () => shipController.isTemporaryManeuverActive(),
     isTemporaryManeuverInvulnerable: () => shipController.isTemporaryManeuverInvulnerable(),
     getTemporaryManeuverCameraLockYaw: () => shipController.getTemporaryManeuverCameraLockYaw(),
-    getBuiltInEquipmentAbilityHudSnapshot: () => builtInEquipmentAbility?.getHudSnapshot() ?? null,
+    getBuiltInEquipmentAbilityHudSnapshot: () =>
+      mobilityEquipmentAbility?.getHudSnapshot() ?? builtInEquipmentAbility?.getHudSnapshot() ?? null,
     dispose
   };
 }

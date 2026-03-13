@@ -15,6 +15,20 @@ type VerticalResourceElements = {
   value: HTMLSpanElement;
 };
 
+type AbilitySegmentElements = {
+  fill: HTMLDivElement;
+  segment: HTMLDivElement;
+};
+
+type AbilityPanelElements = {
+  label: HTMLSpanElement;
+  panel: HTMLDivElement;
+  segments: AbilitySegmentElements[];
+  status: HTMLSpanElement;
+  track: HTMLDivElement;
+  value: HTMLSpanElement;
+};
+
 type MissileHudSnapshot = {
   ammoCapacity: number;
   ammoLoaded: number;
@@ -76,7 +90,7 @@ export function createPlayerHealthHud(root: HTMLElement): PlayerHealthHud {
   const hull = createLayerRow("Hull", "player-health-fill-hull");
   const resourceMeters = createVerticalResourceMeters();
   const missile = createMissileRow();
-  const ability = createAbilityRow();
+  const abilityPanel = createAbilityPanel();
   const minimap = createMinimapPanel();
   const boundaryMinimap = createBoundaryMinimapPanel();
 
@@ -84,10 +98,10 @@ export function createPlayerHealthHud(root: HTMLElement): PlayerHealthHud {
   mainColumn.appendChild(armor.row);
   mainColumn.appendChild(hull.row);
   mainColumn.appendChild(missile.row);
-  mainColumn.appendChild(ability.row);
   content.appendChild(mainColumn);
-  content.appendChild(resourceMeters.panel);
+  container.appendChild(resourceMeters.panel);
   container.appendChild(content);
+  container.appendChild(abilityPanel.panel);
   root.appendChild(container);
   root.appendChild(minimap.panel);
   root.appendChild(boundaryMinimap.panel);
@@ -109,13 +123,14 @@ export function createPlayerHealthHud(root: HTMLElement): PlayerHealthHud {
     updateVerticalHeat(resourceMeters.heat, resourceSnapshot);
     updateVerticalEnergy(resourceMeters.energy, resourceSnapshot);
     updateMissiles(missile, missileSnapshot);
-    updateBuiltInAbility(ability, builtInAbilitySnapshot ?? null);
+    updateBuiltInAbilityPanel(abilityPanel, builtInAbilitySnapshot ?? null);
     updateMinimap(minimap, minimapSnapshot);
     updateBoundaryMinimap(boundaryMinimap, boundarySnapshot);
   };
 
   const dispose = (): void => {
     container.remove();
+    resourceMeters.panel.remove();
     minimap.panel.remove();
     boundaryMinimap.panel.remove();
   };
@@ -450,7 +465,7 @@ function createVerticalResourceMeters(): {
   panel: HTMLDivElement;
 } {
   const panel = document.createElement("div");
-  panel.className = "player-resource-verticals";
+  panel.className = "player-resource-panel player-resource-verticals";
 
   const heat = createVerticalResourceMeter("Heat", "player-resource-fill-heat");
   const energy = createVerticalResourceMeter("Energy", "player-resource-fill-energy");
@@ -540,40 +555,32 @@ function createMissileRow(): {
   return { dots, lockProgress, progress, row, track, value };
 }
 
-function createAbilityRow(): {
-  dots: HTMLSpanElement[];
-  progress: HTMLDivElement;
-  row: HTMLDivElement;
-  track: HTMLDivElement;
-  value: HTMLSpanElement;
-} {
-  const row = document.createElement("div");
-  row.className = "player-health-row player-missile-row";
-  row.style.display = "none";
+function createAbilityPanel(): AbilityPanelElements {
+  const panel = document.createElement("div");
+  panel.className = "player-ability-panel";
+  panel.style.display = "none";
 
   const label = document.createElement("span");
   label.className = "player-health-label";
-  label.textContent = "Ability";
+  label.textContent = "Equipment";
 
   const value = document.createElement("span");
   value.className = "player-health-value player-missile-state";
-  value.textContent = "";
+  value.textContent = "0 / 0";
+
+  const status = document.createElement("span");
+  status.className = "player-resource-state";
+  status.textContent = "";
 
   const track = document.createElement("div");
-  track.className = "player-missile-track";
-  track.style.minHeight = "14px";
+  track.className = "player-ability-segment-track";
 
-  const progress = document.createElement("div");
-  progress.className = "player-missile-reload-progress";
-  track.appendChild(progress);
+  panel.appendChild(label);
+  panel.appendChild(value);
+  panel.appendChild(track);
+  panel.appendChild(status);
 
-  const dots: HTMLSpanElement[] = [];
-  ensureMissileDotPool(track, dots, 2);
-
-  row.appendChild(label);
-  row.appendChild(value);
-  row.appendChild(track);
-  return { dots, progress, row, track, value };
+  return { label, panel, segments: [], status, track, value };
 }
 
 function updateMissiles(
@@ -662,59 +669,55 @@ function updateMissiles(
   missile.value.textContent = `${snapshot.ammoLoaded}/${snapshot.ammoCapacity} (${launcherCount}x${cellsPerLauncher}) ${statusFlags.join(" ")}`;
 }
 
-function updateBuiltInAbility(
-  ability: {
-    dots: HTMLSpanElement[];
-    progress: HTMLDivElement;
-    row: HTMLDivElement;
-    track: HTMLDivElement;
-    value: HTMLSpanElement;
-  },
+function updateBuiltInAbilityPanel(
+  ability: AbilityPanelElements,
   snapshot: PlayerBuiltInEquipmentAbilityHudSnapshot | null
 ): void {
   if (!snapshot || snapshot.chargesMax <= 0) {
-    ability.row.style.display = "none";
+    ability.panel.style.display = "none";
     return;
   }
-  ability.row.style.display = "";
+  ability.panel.style.display = "";
+  ability.label.textContent = snapshot.label;
 
-  const chargesMax = clampInt(snapshot.chargesMax, 1, 8);
-  ensureMissileDotPool(ability.track, ability.dots, chargesMax);
+  const chargesMax = clampInt(snapshot.chargesMax, 1, 16);
+  ensureAbilitySegmentPool(ability.track, ability.segments, chargesMax);
   ability.track.style.gridTemplateColumns = `repeat(${chargesMax}, minmax(0, 1fr))`;
 
-  for (let i = 0; i < ability.dots.length; i += 1) {
-    const dot = ability.dots[i];
+  for (let i = 0; i < ability.segments.length; i += 1) {
+    const segment = ability.segments[i];
     if (i >= chargesMax) {
-      dot.style.display = "none";
+      segment.segment.style.display = "none";
       continue;
     }
-    dot.style.display = "";
-    dot.className = "player-missile-dot";
+    segment.segment.style.display = "";
+    segment.segment.classList.remove("is-loaded", "is-reloading", "is-empty");
     const progress01 = THREE.MathUtils.clamp(snapshot.chargeProgress01BySlot[i] ?? 0, 0, 1);
+    segment.fill.style.width = `${Math.round(progress01 * 100)}%`;
     if (progress01 >= 0.999) {
-      dot.classList.add("is-loaded");
+      segment.segment.classList.add("is-loaded");
+    } else if (progress01 <= 0.001) {
+      segment.segment.classList.add("is-empty");
     } else {
-      dot.classList.add("is-fired");
-      if (progress01 > 0.001) {
-        dot.classList.add("is-reloading");
-      }
+      segment.segment.classList.add("is-reloading");
     }
   }
 
-  const nextChargeProgress01 = snapshot.isRecharging
-    ? Math.max(
-        0,
-        ...snapshot.chargeProgress01BySlot
-          .filter((progress01) => progress01 < 0.999)
-          .map((progress01) => THREE.MathUtils.clamp(progress01, 0, 1))
-      )
-    : 0;
-  ability.progress.style.width = `${Math.round(nextChargeProgress01 * 100)}%`;
+  const chargesAvailableText = Number.isInteger(snapshot.chargesAvailable)
+    ? `${snapshot.chargesAvailable}`
+    : snapshot.chargesAvailable.toFixed(1);
+  ability.value.textContent = `${chargesAvailableText} / ${snapshot.chargesMax}`;
 
-  const statusSuffix = snapshot.isRecharging
-    ? ` Recharging ${snapshot.nextChargeSecondsRemaining.toFixed(1)}s`
-    : " Ready";
-  ability.value.textContent = `${snapshot.label} ${snapshot.chargesAvailable}/${snapshot.chargesMax}${statusSuffix}`;
+  if (snapshot.statusLabel) {
+    ability.status.textContent =
+      snapshot.isRecharging && snapshot.nextChargeSecondsRemaining > 0.0001
+        ? `${snapshot.statusLabel} ${snapshot.nextChargeSecondsRemaining.toFixed(1)}s`
+        : snapshot.statusLabel;
+  } else if (snapshot.isRecharging) {
+    ability.status.textContent = `Recharging ${snapshot.nextChargeSecondsRemaining.toFixed(1)}s`;
+  } else {
+    ability.status.textContent = "Ready";
+  }
 }
 
 function clampInt(value: number, min: number, max: number): number {
@@ -731,5 +734,21 @@ function ensureMissileDotPool(
     dot.className = "player-missile-dot";
     track.appendChild(dot);
     dots.push(dot);
+  }
+}
+
+function ensureAbilitySegmentPool(
+  track: HTMLDivElement,
+  segments: AbilitySegmentElements[],
+  requiredCount: number
+): void {
+  for (let i = segments.length; i < requiredCount; i += 1) {
+    const segment = document.createElement("div");
+    segment.className = "player-ability-segment";
+    const fill = document.createElement("div");
+    fill.className = "player-ability-segment-fill";
+    segment.appendChild(fill);
+    track.appendChild(segment);
+    segments.push({ fill, segment });
   }
 }

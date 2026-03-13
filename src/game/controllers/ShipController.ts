@@ -65,6 +65,8 @@ export type ShipController = {
   update: (deltaTime: number, intent: ShipControlIntent) => ShipControllerState;
   getState: () => ShipControllerState;
   reset: (position?: THREE.Vector3, yaw?: number) => ShipControllerState;
+  setForwardBoostRatio: (ratio: number) => void;
+  getForwardBoostRatio: () => number;
   startTemporaryManeuver: (kind: ShipTemporaryManeuverKind) => boolean;
   isTemporaryManeuverActive: () => boolean;
   isTemporaryManeuverInvulnerable: () => boolean;
@@ -93,6 +95,7 @@ export function createShipController({
   let shipYaw = initialYaw;
   let visualRoll = 0;
   let visualPitch = 0;
+  let forwardBoostRatio = 0;
   let activeTemporaryManeuver: ShipTemporaryManeuverState | null = null;
 
   const state: ShipControllerState = {
@@ -222,6 +225,12 @@ export function createShipController({
     if (worldVelocity.lengthSq() > thrustSpeedSq) {
       worldVelocity.setLength(effectiveThrustSpeed);
     }
+    if (forwardBoostRatio > 0.0001) {
+      worldVelocity.addScaledVector(
+        forward,
+        effectiveThrustSpeed * THREE.MathUtils.clamp(forwardBoostRatio, 0, 2)
+      );
+    }
 
     shipRoot.position.addScaledVector(worldVelocity, deltaTime);
     stateVelocity.copy(worldVelocity);
@@ -332,6 +341,7 @@ export function createShipController({
       shipYaw = yaw;
       visualRoll = 0;
       visualPitch = 0;
+      forwardBoostRatio = 0;
       activeTemporaryManeuver = null;
       shipRoot.rotation.set(visualPitch, shipYaw, visualRoll, SHIP_ROTATION_ORDER);
       if (position) {
@@ -344,6 +354,10 @@ export function createShipController({
       state.yaw = shipYaw;
       return state;
     },
+    setForwardBoostRatio: (ratio: number): void => {
+      forwardBoostRatio = THREE.MathUtils.clamp(ratio, 0, 2);
+    },
+    getForwardBoostRatio: (): number => forwardBoostRatio,
     startTemporaryManeuver: (kind: ShipTemporaryManeuverKind): boolean => {
       if (activeTemporaryManeuver) {
         return false;

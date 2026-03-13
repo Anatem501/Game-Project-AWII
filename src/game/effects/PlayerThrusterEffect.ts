@@ -14,7 +14,7 @@ export type PlayerThrusterEffectConfig = {
 };
 
 export type PlayerThrusterEffect = {
-  update: (deltaTime: number, intensityFactor: number) => void;
+  update: (deltaTime: number, intensityFactor: number, sizeMultiplier?: number) => void;
   dispose: () => void;
 };
 
@@ -126,19 +126,20 @@ export function createPlayerThrusterEffect(
 
   let time = 0;
 
-  const update = (deltaTime: number, intensityFactor: number): void => {
+  const update = (deltaTime: number, intensityFactor: number, sizeMultiplier = 1): void => {
     if (deltaTime <= 0) {
       return;
     }
 
     time += deltaTime;
     const intensity = THREE.MathUtils.clamp(intensityFactor, 0, 1);
+    const scaleMultiplier = Math.max(0.2, sizeMultiplier);
 
     for (let i = 0; i < emitters.length; i += 1) {
       const emitter = emitters[i];
       const pulse = THRUSTER_PULSE_BASE + Math.sin(time * 26 + i * 1.2) * THRUSTER_PULSE_AMPLITUDE;
-      const coreScale = emitter.baseScale * (0.7 + intensity * 1.35) * pulse;
-      let glowScale = emitter.baseScale * (1.1 + intensity * 1.7) * pulse;
+      const coreScale = emitter.baseScale * (0.7 + intensity * 1.35) * pulse * scaleMultiplier;
+      let glowScale = emitter.baseScale * (1.1 + intensity * 1.7) * pulse * scaleMultiplier;
       let glowOpacityBase = 0.28;
       let glowOpacityGain = 0.32;
       const trailVisibility = THREE.MathUtils.smoothstep(
@@ -169,8 +170,12 @@ export function createPlayerThrusterEffect(
         emitter.trail.visible = false;
       } else {
         const trailLength =
-          emitter.baseScale * (0.55 + trailVisibility * 2.8) * pulse * trailLengthScale;
-        const trailRadius = emitter.baseScale * (0.5 + trailVisibility * 0.5);
+          emitter.baseScale *
+          (0.55 + trailVisibility * 2.8) *
+          pulse *
+          trailLengthScale *
+          scaleMultiplier;
+        const trailRadius = emitter.baseScale * (0.5 + trailVisibility * 0.5) * scaleMultiplier;
         emitter.trail.visible = true;
         emitter.trail.scale.set(trailRadius, trailLength, trailRadius);
         emitter.trail.position.set(0, 0, trailLength * 0.5);
