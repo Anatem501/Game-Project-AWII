@@ -34,11 +34,13 @@ import { createCannonOverheatGlowEffect } from "../effects/CannonOverheatGlowEff
 import { createCannonOverheatSteamEffect } from "../effects/CannonOverheatSteamEffect";
 import { createPlayerThrusterEffect } from "../effects/PlayerThrusterEffect";
 import { createShieldBubbleEffect } from "../effects/ShieldBubbleEffect";
+import { createBubbleShieldEquipmentEffect } from "../effects/BubbleShieldEquipmentEffect";
 import { createShipCryoFreezeSurfaceEffect } from "../effects/ShipCryoFreezeSurfaceEffect";
 import { createShipElectroshockArcEmitterEffect } from "../effects/ShipElectroshockArcEmitterEffect";
 import { createShipElectroshockSurfaceEffect } from "../effects/ShipElectroshockSurfaceEffect";
 import { createPlayerBuiltInEquipmentAbility } from "../equipment/abilities/PlayerBuiltInEquipmentAbilityFactory";
 import { createPlayerMobilityEquipmentAbility } from "../equipment/abilities/PlayerMobilityEquipmentAbilityFactory";
+import { createPlayerDefenseEquipmentAbility } from "../equipment/abilities/PlayerDefenseEquipmentAbilityFactory";
 import { EnemyDualLaserBoltTurret } from "../entities/EnemyDualLaserBoltTurret";
 import { EnemyPlasmaboltTurret } from "../entities/EnemyPlasmaboltTurret";
 import { EnemyCannonShipController } from "../enemies/EnemyCannonShipController";
@@ -47,9 +49,11 @@ import type { GameMapId } from "../modes/GameMode";
 import { getShipDefinition } from "../ships/ShipCatalog";
 import {
   createDefaultShipSelection,
+  resolveEquipmentComponentIds,
   resolveBeamPrimaryComponentId,
   resolveCannonPrimaryComponentId,
   resolveMobilityEquipmentComponentId,
+  resolveDefenseEquipmentComponentId,
   resolveMissileBayComponentId,
   resolveTorpedoComponentId,
   type ShipSelectionConfig
@@ -181,11 +185,22 @@ export function setupTopDownScene(
   const selection = options.selection ?? createDefaultShipSelection();
   const mapId = options.mapId ?? "test_map";
   const selectedShipCatalogDefinition = getShipDefinition(selection.shipId);
+  const selectedEquipmentComponentIds = resolveEquipmentComponentIds(
+    selectedShipCatalogDefinition.id,
+    selection.equipmentComponentIds
+  );
   const selectedShip = {
     ...selectedShipCatalogDefinition,
+    equipmentComponentIds: selectedEquipmentComponentIds,
     mobilityEquipmentComponentId: resolveMobilityEquipmentComponentId(
       selectedShipCatalogDefinition.id,
-      selection.mobilityEquipmentComponentId
+      selection.mobilityEquipmentComponentId,
+      selectedEquipmentComponentIds
+    ),
+    defenseEquipmentComponentId: resolveDefenseEquipmentComponentId(
+      selectedShipCatalogDefinition.id,
+      selection.defenseEquipmentComponentId,
+      selectedEquipmentComponentIds
     )
   };
   const selectedCannonPrimaryComponentId = resolveCannonPrimaryComponentId(
@@ -222,6 +237,7 @@ export function setupTopDownScene(
   let enemyPlasmaboltTurretResources: ShipResourceComponent | null = null;
   let playerThrusterEffect: ReturnType<typeof createPlayerThrusterEffect> | null = null;
   let playerShieldBubbleEffect: ReturnType<typeof createShieldBubbleEffect> | null = null;
+  let playerDefenseBubbleEffect: ReturnType<typeof createBubbleShieldEquipmentEffect> | null = null;
   let cannonOverheatGlowEffect: ReturnType<typeof createCannonOverheatGlowEffect> | null = null;
   let cannonOverheatSteamEffect: ReturnType<typeof createCannonOverheatSteamEffect> | null = null;
   let beamEmitterController: ReturnType<typeof createGunController> | null = null;
@@ -565,10 +581,16 @@ export function setupTopDownScene(
     shipDefinition: selectedShip,
     shipController
   });
+  const playerDefenseEquipmentAbility = createPlayerDefenseEquipmentAbility({
+    shipDefinition: selectedShip,
+    shipController
+  });
   const hasBuiltInEquipmentBinding =
     shipControlRuntime?.hasComponentBinding(GENERAL_COMPONENT_SOCKET_IDS.builtInEquipment) ?? false;
   const hasMobilityEquipmentBinding =
     shipControlRuntime?.hasComponentBinding(GENERAL_COMPONENT_SOCKET_IDS.mobilityEquipment) ?? false;
+  const hasDefenseEquipmentBinding =
+    shipControlRuntime?.hasComponentBinding(GENERAL_COMPONENT_SOCKET_IDS.defenseEquipment) ?? false;
   const activeShipControlRuntime = shipControlRuntime;
 
   const playerController = createPlayerController({
@@ -578,9 +600,11 @@ export function setupTopDownScene(
     trueAimReticle,
     builtInEquipmentAbility: playerBuiltInEquipmentAbility,
     mobilityEquipmentAbility: playerMobilityEquipmentAbility,
+    defenseEquipmentAbility: playerDefenseEquipmentAbility,
     getLockedAimForward: (out) => playerStatus.getLockedAimForward(out),
     canUseBuiltInEquipment: () => playerStatus.canUseEquipment(),
     canUseMobilityEquipment: () => playerStatus.canUseEquipment(),
+    canUseDefenseEquipment: () => playerStatus.canUseEquipment(),
     builtInEquipmentTriggerResolver: hasBuiltInEquipmentBinding && activeShipControlRuntime
       ? () =>
           activeShipControlRuntime.isComponentTriggered(
@@ -593,13 +617,23 @@ export function setupTopDownScene(
             GENERAL_COMPONENT_SOCKET_IDS.mobilityEquipment
           )
       : undefined,
+    defenseEquipmentTriggerResolver: hasDefenseEquipmentBinding && activeShipControlRuntime
+      ? () =>
+          activeShipControlRuntime.isComponentTriggered(
+            GENERAL_COMPONENT_SOCKET_IDS.defenseEquipment
+          )
+      : undefined,
     disableDefaultBuiltInEquipmentTrigger: hasBuiltInEquipmentBinding,
-    disableDefaultMobilityEquipmentTrigger: hasMobilityEquipmentBinding
+    disableDefaultMobilityEquipmentTrigger: hasMobilityEquipmentBinding,
+    disableDefaultDefenseEquipmentTrigger: hasDefenseEquipmentBinding
   });
 
   const playerHealth = createHealthComponent(selectedShip.health);
   if (selectedShip.health.maxShield > 0) {
     playerShieldBubbleEffect = createShieldBubbleEffect(playerRoot);
+  }
+  if (selectedShip.defenseEquipmentComponentId === "bubble_shield") {
+    playerDefenseBubbleEffect = createBubbleShieldEquipmentEffect(playerRoot);
   }
   const handlePlayerIncomingHit = (damagePacket: Parameters<typeof playerStatus.applyHitStatusPayloads>[0], breakdown: Parameters<typeof playerStatus.applyHitStatusPayloads>[1]): void => {
     playerResources.applyIncomingDamageHeat(damagePacket.damageType, breakdown.incomingBaseDamage);
@@ -619,10 +653,20 @@ export function setupTopDownScene(
       handlePlayerIncomingHit(event.damagePacket, event.breakdown);
     }
   });
+  const playerDefenseBarrierHealth = createHealthComponent({
+    maxShield: 1,
+    maxArmor: 0,
+    maxHull: 1,
+    shieldChargeRate: 0
+  });
   let playerShieldHurtbox: HurtboxComponent | null = null;
+  let playerDefenseShieldHurtbox: HurtboxComponent | null = null;
   const playerTargetHurtboxes: HurtboxComponent[] = [];
   const updatePlayerTargetHurtboxes = (): void => {
     playerTargetHurtboxes.length = 0;
+    if (playerDefenseShieldHurtbox?.isEnabled()) {
+      playerTargetHurtboxes.push(playerDefenseShieldHurtbox);
+    }
     if (playerShieldHurtbox?.isEnabled()) {
       playerTargetHurtboxes.push(playerShieldHurtbox);
     }
@@ -647,6 +691,20 @@ export function setupTopDownScene(
     const shieldActive = snapshot.shield.max > 0 && snapshot.shield.current > 0 && !snapshot.destroyed;
     shieldHurtbox.setEnabled(shieldActive);
   };
+  const syncDefenseShieldHurtboxCollision = (
+    defenseBubbleEffect: ReturnType<typeof createBubbleShieldEquipmentEffect> | null,
+    defenseShieldHurtbox: HurtboxComponent | null
+  ): void => {
+    if (!defenseBubbleEffect || !defenseShieldHurtbox) {
+      return;
+    }
+
+    const collisionArea = defenseBubbleEffect.getCollisionArea();
+    defenseShieldHurtbox.setCollisionArea({
+      radius: collisionArea.radius + SHIELD_HURTBOX_RADIUS_PADDING,
+      localOffset: collisionArea.localOffset
+    });
+  };
   if (playerShieldBubbleEffect && selectedShip.health.maxShield > 0) {
     const shieldCollisionArea = playerShieldBubbleEffect.getCollisionArea();
     playerShieldHurtbox = createHurtboxComponent({
@@ -665,6 +723,25 @@ export function setupTopDownScene(
           playerElectroshockSurfaceEffect.registerImpact(event.worldHitPosition);
         }
         handlePlayerIncomingHit(event.damagePacket, event.breakdown);
+      }
+    });
+  }
+  if (playerDefenseBubbleEffect) {
+    const defenseCollisionArea = playerDefenseBubbleEffect.getCollisionArea();
+    playerDefenseShieldHurtbox = createHurtboxComponent({
+      collisionArea: {
+        radius: defenseCollisionArea.radius + SHIELD_HURTBOX_RADIUS_PADDING,
+        localOffset: defenseCollisionArea.localOffset
+      },
+      faction: "player",
+      health: playerDefenseBarrierHealth,
+      owner: playerRoot,
+      enabled: false,
+      onHit: (event) => {
+        playerDefenseBarrierHealth.reset();
+        if (event.worldHitPosition) {
+          playerElectroshockSurfaceEffect.registerImpact(event.worldHitPosition);
+        }
       }
     });
   }
@@ -1576,6 +1653,13 @@ export function setupTopDownScene(
     cameraController.setYawLock(
       !playerIsDestroyed ? playerController.getTemporaryManeuverCameraLockYaw() : null
     );
+    const playerDefenseShieldActive =
+      !playerIsDestroyed && (playerDefenseEquipmentAbility?.isActive?.() ?? false);
+    const playerWeaponsEnabled = !playerIsDestroyed && !playerDefenseShieldActive;
+    gunController.setEnabled(playerWeaponsEnabled);
+    beamEmitterController?.setEnabled(playerWeaponsEnabled);
+    missileBayController?.setEnabled(playerWeaponsEnabled);
+    torpedoLauncherController?.setEnabled(playerWeaponsEnabled);
     updateEnemyProjectileInterceptHurtboxes();
     gunController.update(deltaTime, playerState);
     beamEmitterController?.update(deltaTime, playerState);
@@ -1759,13 +1843,24 @@ export function setupTopDownScene(
       playerShieldHurtbox,
       playerShieldCollisionSnapshot
     );
+    syncDefenseShieldHurtboxCollision(playerDefenseBubbleEffect, playerDefenseShieldHurtbox);
     const playerManeuverInvulnerable =
       !playerIsDestroyed && playerController.isTemporaryManeuverInvulnerable();
     if (!playerIsDestroyed) {
-      playerHurtbox.setEnabled(!playerManeuverInvulnerable);
-      if (playerManeuverInvulnerable) {
+      if (playerDefenseShieldActive) {
+        playerDefenseBarrierHealth.reset();
+        playerDefenseShieldHurtbox?.setEnabled(true);
         playerShieldHurtbox?.setEnabled(false);
+        playerHurtbox.setEnabled(false);
+      } else {
+        playerDefenseShieldHurtbox?.setEnabled(false);
+        playerHurtbox.setEnabled(!playerManeuverInvulnerable);
+        if (playerManeuverInvulnerable) {
+          playerShieldHurtbox?.setEnabled(false);
+        }
       }
+    } else {
+      playerDefenseShieldHurtbox?.setEnabled(false);
     }
     updatePlayerTargetHurtboxes();
 
@@ -1937,6 +2032,7 @@ export function setupTopDownScene(
         playerRespawnSecondsRemaining = PLAYER_RESPAWN_SECONDS;
         playerHurtbox.setEnabled(false);
         playerShieldHurtbox?.setEnabled(false);
+        playerDefenseShieldHurtbox?.setEnabled(false);
         updatePlayerTargetHurtboxes();
         gunController.setEnabled(false);
         beamEmitterController?.setEnabled(false);
@@ -1953,6 +2049,7 @@ export function setupTopDownScene(
         cameraController.setYawLock(null);
         playerHurtbox.setEnabled(true);
         playerShieldHurtbox?.setEnabled(playerHealth.getSnapshot().shield.current > 0);
+        playerDefenseShieldHurtbox?.setEnabled(false);
         updatePlayerTargetHurtboxes();
         gunController.setEnabled(true);
         beamEmitterController?.setEnabled(true);
@@ -2034,6 +2131,9 @@ export function setupTopDownScene(
 
     const playerHealthSnapshot = playerHealth.getSnapshot();
     playerShieldBubbleEffect?.update(deltaTime, playerHealthSnapshot);
+    const defenseShieldVisualActive =
+      !playerIsDestroyed && (playerDefenseEquipmentAbility?.isActive?.() ?? false);
+    playerDefenseBubbleEffect?.update(deltaTime, defenseShieldVisualActive);
     const rogueEnemyDebugSnapshot =
       rogueEnemyCannonShip?.getDebugSnapshot() ??
       rogueEnemyPlasmaCannonShip?.getDebugSnapshot() ??
@@ -2118,6 +2218,8 @@ export function setupTopDownScene(
     playerThrusterEffect = null;
     playerShieldBubbleEffect?.dispose();
     playerShieldBubbleEffect = null;
+    playerDefenseBubbleEffect?.dispose();
+    playerDefenseBubbleEffect = null;
     playerCryoSurfaceEffect.dispose();
     playerElectroshockSurfaceEffect.dispose();
     playerElectroshockArcEmitterEffect.dispose();

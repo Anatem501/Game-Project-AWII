@@ -22,4 +22,5 @@ export type PlayerBuiltInEquipmentAbility = {
   onMovementKeysChanged: (input: PlayerBuiltInEquipmentAbilityInput) => void;
   onInputsCleared: () => void;
   getHudSnapshot: () => PlayerBuiltInEquipmentAbilityHudSnapshot | null;
+  isActive?: () => boolean;
 };

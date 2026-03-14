@@ -3,17 +3,21 @@ import { getGameModeLabel, type GameModeId } from "../modes/GameMode";
 import {
   BEAM_PRIMARY_OPTIONS,
   MISSILE_COMPONENT_OPTIONS,
-  MOBILITY_COMPONENT_OPTIONS,
+  EQUIPMENT_COMPONENT_OPTIONS,
   PRIMARY_FIRE_COMPONENT_OPTIONS,
   TORPEDO_COMPONENT_OPTIONS,
   resolveBeamPrimaryComponentId,
   createDefaultShipSelection,
   resolveCannonPrimaryComponentId,
-  resolveMobilityEquipmentComponentId,
+  resolveDefenseEquipmentComponentIdFromEquipmentList,
+  resolveEquipmentComponentIds,
+  resolveMobilityEquipmentComponentIdFromEquipmentList,
   resolveMissileBayComponentId,
   resolveTorpedoComponentId,
   type BeamPrimaryComponentId,
   type MobilityComponentId,
+  type DefenseComponentId,
+  type EquipmentComponentId,
   type MissileComponentId,
   type PrimaryFireComponentId,
   type TorpedoFireComponentId,
@@ -25,7 +29,13 @@ import {
   getMissileBayComponentDefinition,
   getTorpedoComponentDefinition
 } from "../weapons/WeaponComponentCatalog";
+import {
+  getEquipmentComponentDefinition,
+  isDefenseEquipmentComponentId,
+  isMobilityEquipmentComponentId
+} from "../equipment/EquipmentComponentCatalog";
 import { getMobilityEquipmentComponentDefinition } from "../equipment/mobility/MobilityEquipmentComponentCatalog";
+import { getDefenseEquipmentComponentDefinition } from "../equipment/defense/DefenseEquipmentComponentCatalog";
 import {
   GENERAL_COMPONENT_SOCKET_IDS,
   getShipControlConfiguration,
@@ -49,7 +59,7 @@ type ComponentSlotId =
   | "beam_primary"
   | "missile_payload"
   | "torpedo_payload"
-  | "mobility_equipment";
+  | "equipment";
 type ControlConfigurationComponentGroupId = "cannon" | "beam" | "missile" | "torpedo";
 type ControlConfigurationComponentSocket = {
   id: string;
@@ -66,13 +76,14 @@ const GUN_PRIMARY_FIRE_SLOT_LABEL = "Cannons Primary Fire";
 const BEAM_PRIMARY_SLOT_LABEL = "Beam Emitter Primary";
 const MISSILE_PAYLOAD_SLOT_LABEL = "Missile Bay Payload";
 const TORPEDO_PAYLOAD_SLOT_LABEL = "Torpedo Launcher";
-const MOBILITY_SLOT_LABEL = "Mobility Equipment";
+const EQUIPMENT_SLOT_LABEL = "Equipment";
 const CONTROL_CONFIG_GENERAL_CANNON_LABEL = "Cannon Primary Fire";
 const CONTROL_CONFIG_GENERAL_BEAM_LABEL = "Beam Emitter Primary";
 const CONTROL_CONFIG_GENERAL_MISSILE_LABEL = "Missile Bay Payload";
 const CONTROL_CONFIG_GENERAL_TORPEDO_LABEL = "Torpedo Launcher Payload";
 const CONTROL_CONFIG_GENERAL_BUILT_IN_LABEL = "Built-In Equipment";
 const CONTROL_CONFIG_GENERAL_MOBILITY_LABEL = "Mobility Equipment";
+const CONTROL_CONFIG_GENERAL_DEFENSE_LABEL = "Defense Equipment";
 const CONTROL_CONFIGURATION_TABS: readonly ControlConfigurationTab[] = ["kbm", "controller"];
 const CONTROL_CONFIGURATION_DEFAULT_CONTROL_LABELS: Record<
   ControlConfigurationTab,
@@ -153,8 +164,9 @@ export class MainMenu {
   private selectedModeId: GameModeId = "testing_mode";
   private currentShipIndex = 0;
   private shipSelection = createDefaultShipSelection(DEFAULT_SHIP_ID);
-  private readonly mobilitySelectionByShipId = new Map<string, MobilityComponentId | null>();
+  private readonly equipmentSelectionByShipId = new Map<string, EquipmentComponentId[]>();
   private selectedComponentSlot: ComponentSlotId | null = null;
+  private selectedEquipmentSlotIndex: number | null = null;
   private isComponentPickerOpen = false;
   private isAddComponentMode = false;
   private controlConfigurationTab: ControlConfigurationTab = "kbm";
@@ -177,7 +189,7 @@ export class MainMenu {
   private hoveredBeamPrimaryComponentId: BeamPrimaryComponentId | null = null;
   private hoveredMissileComponentId: MissileComponentId | null = null;
   private hoveredTorpedoComponentId: TorpedoFireComponentId | null = null;
-  private hoveredMobilityComponentId: MobilityComponentId | null = null;
+  private hoveredEquipmentComponentId: EquipmentComponentId | null = null;
   private preview: ShipCarouselPreview | null = null;
   private focusables: HTMLElement[] = [];
   private focusedIndex = 0;
@@ -195,10 +207,9 @@ export class MainMenu {
       this.ships.findIndex((ship) => ship.id === this.shipSelection.shipId)
     );
     for (const ship of this.ships) {
-      this.mobilitySelectionByShipId.set(ship.id, resolveMobilityEquipmentComponentId(ship.id));
+      this.equipmentSelectionByShipId.set(ship.id, resolveEquipmentComponentIds(ship.id));
     }
-    this.shipSelection.mobilityEquipmentComponentId =
-      this.mobilitySelectionByShipId.get(this.shipSelection.shipId) ?? null;
+    this.syncMobilitySelectionWithCurrentShip();
 
     this.overlay = document.createElement("div");
     this.overlay.className = "menu-overlay";
@@ -284,6 +295,7 @@ export class MainMenu {
     this.syncMissileBaySelectionWithCurrentShip();
     this.syncTorpedoSelectionWithCurrentShip();
     this.syncMobilitySelectionWithCurrentShip();
+    this.syncDefenseSelectionWithCurrentShip();
 
     this.show(`
       <h1>Ship Selection</h1>
@@ -374,6 +386,7 @@ export class MainMenu {
   private showShipConfirmMenu(): void {
     this.currentView = "ship-confirm";
     this.selectedComponentSlot = null;
+    this.selectedEquipmentSlotIndex = null;
     this.isComponentPickerOpen = false;
     this.isAddComponentMode = false;
 
@@ -402,7 +415,7 @@ export class MainMenu {
             <div data-role="confirm-missile-slot-list"></div>
             <div data-role="confirm-torpedo-slot-list"></div>
             <div data-role="confirm-built-in-slot-list"></div>
-            <div data-role="confirm-mobility-slot-list"></div>
+            <div data-role="confirm-equipment-slot-list"></div>
             <div class="component-panel-actions">
               <div class="component-panel-footer">
                 <button class="menu-button menu-button-secondary" data-action="add-component" type="button">Add Component</button>
@@ -476,6 +489,7 @@ export class MainMenu {
     this.syncMissileBaySelectionWithCurrentShip();
     this.syncTorpedoSelectionWithCurrentShip();
     this.syncMobilitySelectionWithCurrentShip();
+    this.syncDefenseSelectionWithCurrentShip();
     const componentSockets = this.buildControlConfigurationComponentSockets(currentShip);
     this.ensureControlConfigurationDraft(currentShip, componentSockets);
     const draftConnections = this.controlConfigurationDraftConnections;
@@ -795,6 +809,18 @@ export class MainMenu {
         groupId: "general"
       });
     }
+    const defenseEquipmentName = resolveDefenseEquipmentName(
+      ship,
+      this.shipSelection.defenseEquipmentComponentId
+    );
+    if (defenseEquipmentName) {
+      sockets.push({
+        id: GENERAL_COMPONENT_SOCKET_IDS.defenseEquipment,
+        label: CONTROL_CONFIG_GENERAL_DEFENSE_LABEL,
+        componentName: defenseEquipmentName,
+        groupId: "general"
+      });
+    }
 
     for (const mount of cannonMounts) {
       sockets.push({
@@ -963,6 +989,10 @@ export class MainMenu {
     if (componentSocketIds.has(GENERAL_COMPONENT_SOCKET_IDS.mobilityEquipment)) {
       usedControlsByTab.controller.add("controller_lb");
       connections.controller[GENERAL_COMPONENT_SOCKET_IDS.mobilityEquipment] = ["controller_lb"];
+    }
+    if (componentSocketIds.has(GENERAL_COMPONENT_SOCKET_IDS.defenseEquipment)) {
+      usedControlsByTab.controller.add("controller_y");
+      connections.controller[GENERAL_COMPONENT_SOCKET_IDS.defenseEquipment] = ["controller_y"];
     }
 
     const controls: ControlConfigurationControlsByTab = {
@@ -1760,6 +1790,7 @@ export class MainMenu {
     this.syncMissileBaySelectionWithCurrentShip();
     this.syncTorpedoSelectionWithCurrentShip();
     this.syncMobilitySelectionWithCurrentShip();
+    this.syncDefenseSelectionWithCurrentShip();
     this.refreshShipSelectContent();
   }
 
@@ -1788,6 +1819,7 @@ export class MainMenu {
       this.shipSelection.torpedoComponentId
     );
     this.syncMobilitySelectionWithCurrentShip();
+    this.syncDefenseSelectionWithCurrentShip();
     this.shipSelection.shipId = current.id;
 
     this.setTextContent('[data-role="ship-prev-label"]', previous.displayName);
@@ -1865,10 +1897,6 @@ export class MainMenu {
     );
     if (shipSelectBuiltInSlots) {
       const builtInEquipmentName = resolveBuiltInEquipmentName(current);
-      const mobilityEquipmentName = resolveMobilityEquipmentName(
-        current,
-        this.shipSelection.mobilityEquipmentComponentId
-      );
       const equipmentRows: string[] = [];
       if (builtInEquipmentName) {
         equipmentRows.push(`
@@ -1878,14 +1906,15 @@ export class MainMenu {
           </div>
         `);
       }
-      if (mobilityEquipmentName) {
+      this.shipSelection.equipmentComponentIds.forEach((componentId, slotIndex) => {
+        const component = getEquipmentComponentDefinition(componentId);
         equipmentRows.push(`
           <div class="menu-button menu-button-secondary component-slot-button component-slot-readonly">
-            <span class="component-slot-title">${MOBILITY_SLOT_LABEL}</span>
-            <span class="component-slot-value">Equipped: ${mobilityEquipmentName}</span>
+            <span class="component-slot-title">${EQUIPMENT_SLOT_LABEL} ${slotIndex + 1}</span>
+            <span class="component-slot-value">${component.name} (${component.equipmentClass})</span>
           </div>
         `);
-      }
+      });
       shipSelectBuiltInSlots.innerHTML = equipmentRows.join("");
     }
 
@@ -1936,6 +1965,7 @@ export class MainMenu {
       this.shipSelection.torpedoComponentId
     );
     this.syncMobilitySelectionWithCurrentShip();
+    this.syncDefenseSelectionWithCurrentShip();
     this.setTextContent('[data-role="ship-current-label"]', selectedShip.displayName);
     this.setTextContent('[data-role="ship-description"]', selectedShip.description);
 
@@ -1943,26 +1973,25 @@ export class MainMenu {
     const hasBeamSlot = beamEmitters.length > 0;
     const hasMissileSlot = missileBays.length > 0;
     const hasTorpedoSlot = torpedoLaunchers.length > 0;
-    const hasMobilitySlot = this.shipSelection.mobilityEquipmentComponentId !== null;
-    const addingMobilityComponent =
-      this.isAddComponentMode && this.selectedComponentSlot === "mobility_equipment";
+    const hasEquipmentSlot = this.shipSelection.equipmentComponentIds.length > 0;
+    const addingEquipmentComponent =
+      this.isAddComponentMode && this.selectedComponentSlot === "equipment";
     if (
       (this.selectedComponentSlot === "cannon_primary_fire" && !hasCannonSlot) ||
       (this.selectedComponentSlot === "beam_primary" && !hasBeamSlot) ||
       (this.selectedComponentSlot === "missile_payload" && !hasMissileSlot) ||
       (this.selectedComponentSlot === "torpedo_payload" && !hasTorpedoSlot) ||
-      (this.selectedComponentSlot === "mobility_equipment" &&
-        !hasMobilitySlot &&
-        !addingMobilityComponent)
+      (this.selectedComponentSlot === "equipment" && !hasEquipmentSlot && !addingEquipmentComponent)
     ) {
       this.selectedComponentSlot = null;
+      this.selectedEquipmentSlotIndex = null;
       this.isComponentPickerOpen = false;
       this.isAddComponentMode = false;
       this.hoveredPrimaryFireComponentId = null;
       this.hoveredBeamPrimaryComponentId = null;
       this.hoveredMissileComponentId = null;
       this.hoveredTorpedoComponentId = null;
-      this.hoveredMobilityComponentId = null;
+      this.hoveredEquipmentComponentId = null;
     }
     if (this.selectedComponentSlot === null) {
       if (hasCannonSlot) {
@@ -1973,11 +2002,26 @@ export class MainMenu {
         this.selectedComponentSlot = "missile_payload";
       } else if (hasTorpedoSlot) {
         this.selectedComponentSlot = "torpedo_payload";
-      } else if (hasMobilitySlot) {
-        this.selectedComponentSlot = "mobility_equipment";
+      } else if (hasEquipmentSlot) {
+        this.selectedComponentSlot = "equipment";
+        this.selectedEquipmentSlotIndex = 0;
       } else if (this.isAddComponentMode) {
-        this.selectedComponentSlot = "mobility_equipment";
+        this.selectedComponentSlot = "equipment";
+        this.selectedEquipmentSlotIndex = this.shipSelection.equipmentComponentIds.length;
       }
+    }
+    if (this.selectedComponentSlot === "equipment") {
+      if (this.shipSelection.equipmentComponentIds.length <= 0) {
+        this.selectedEquipmentSlotIndex = this.isAddComponentMode ? 0 : null;
+      } else {
+        const fallbackIndex = this.isAddComponentMode
+          ? this.shipSelection.equipmentComponentIds.length
+          : this.shipSelection.equipmentComponentIds.length - 1;
+        const preferredIndex = this.selectedEquipmentSlotIndex ?? 0;
+        this.selectedEquipmentSlotIndex = Math.max(0, Math.min(preferredIndex, fallbackIndex));
+      }
+    } else {
+      this.selectedEquipmentSlotIndex = null;
     }
 
     const confirmCannonSlotList = this.panel.querySelector<HTMLElement>(
@@ -2112,34 +2156,39 @@ export class MainMenu {
       }
     }
 
-    const confirmMobilitySlotList = this.panel.querySelector<HTMLElement>(
-      '[data-role="confirm-mobility-slot-list"]'
+    const confirmEquipmentSlotList = this.panel.querySelector<HTMLElement>(
+      '[data-role="confirm-equipment-slot-list"]'
     );
-    if (confirmMobilitySlotList) {
-      if (hasMobilitySlot && this.shipSelection.mobilityEquipmentComponentId) {
-        const component = getMobilityEquipmentComponentDefinition(
-          this.shipSelection.mobilityEquipmentComponentId
-        );
-        const selectedClass =
-          this.selectedComponentSlot === "mobility_equipment" ? " component-slot-selected" : "";
+    if (confirmEquipmentSlotList) {
+      if (hasEquipmentSlot) {
         const focusable = !this.isComponentPickerOpen ? ' data-focusable="true"' : "";
-        confirmMobilitySlotList.innerHTML = `
-          <button class="menu-button menu-button-secondary component-slot-button${selectedClass}" data-action="select-component-slot" data-slot="mobility_equipment"${focusable} type="button">
-            <span class="component-slot-title">${MOBILITY_SLOT_LABEL}</span>
-            <span class="component-slot-value">${component.name}</span>
-          </button>
-        `;
+        confirmEquipmentSlotList.innerHTML = this.shipSelection.equipmentComponentIds
+          .map((componentId, slotIndex) => {
+            const component = getEquipmentComponentDefinition(componentId);
+            const selectedClass =
+              this.selectedComponentSlot === "equipment" &&
+              this.selectedEquipmentSlotIndex === slotIndex
+                ? " component-slot-selected"
+                : "";
+            return `
+              <button class="menu-button menu-button-secondary component-slot-button${selectedClass}" data-action="select-equipment-slot" data-slot-index="${slotIndex}"${focusable} type="button">
+                <span class="component-slot-title">${EQUIPMENT_SLOT_LABEL} ${slotIndex + 1}</span>
+                <span class="component-slot-value">${component.name} (${component.equipmentClass})</span>
+              </button>
+            `;
+          })
+          .join("");
       } else {
-        confirmMobilitySlotList.innerHTML = "";
+        confirmEquipmentSlotList.innerHTML = "";
       }
-      confirmMobilitySlotList
-        .querySelectorAll<HTMLButtonElement>('[data-action="select-component-slot"]')
+      confirmEquipmentSlotList
+        .querySelectorAll<HTMLButtonElement>('[data-action="select-equipment-slot"]')
         .forEach((button) => {
-          const slot = button.dataset.slot as ComponentSlotId | undefined;
-          if (!slot) {
+          const slotIndex = Number.parseInt(button.dataset.slotIndex ?? "", 10);
+          if (!Number.isFinite(slotIndex)) {
             return;
           }
-          button.addEventListener("click", () => this.selectComponentSlot(slot));
+          button.addEventListener("click", () => this.selectEquipmentSlot(slotIndex));
         });
     }
 
@@ -2172,14 +2221,13 @@ export class MainMenu {
     const panelContent = this.panel.querySelector<HTMLElement>('[data-role="component-panel-content"]');
     const optionList = this.panel.querySelector<HTMLElement>('[data-role="component-option-list"]');
     const canShowChangeButton = this.selectedComponentSlot !== null;
-    const canAddMobilityComponent = !hasMobilitySlot && MOBILITY_COMPONENT_OPTIONS.length > 0;
-    const canRemoveAddedMobilityComponent =
-      hasMobilitySlot && (selectedShip.mobilityEquipmentComponentId ?? null) === null;
+    const canAddAnyComponent = EQUIPMENT_COMPONENT_OPTIONS.length > 0;
+    const canRemoveAddedComponent = hasEquipmentSlot;
     const showBottomActionButtons = !this.isComponentPickerOpen;
     if (addComponentButton) {
       addComponentButton.style.display = showBottomActionButtons ? "" : "none";
-      addComponentButton.disabled = !canAddMobilityComponent;
-      if (showBottomActionButtons && canAddMobilityComponent) {
+      addComponentButton.disabled = !canAddAnyComponent;
+      if (showBottomActionButtons && canAddAnyComponent) {
         addComponentButton.setAttribute("data-focusable", "true");
       } else {
         addComponentButton.removeAttribute("data-focusable");
@@ -2187,8 +2235,8 @@ export class MainMenu {
     }
     if (removeComponentButton) {
       removeComponentButton.style.display = showBottomActionButtons ? "" : "none";
-      removeComponentButton.disabled = !canRemoveAddedMobilityComponent;
-      if (showBottomActionButtons && canRemoveAddedMobilityComponent) {
+      removeComponentButton.disabled = !canRemoveAddedComponent;
+      if (showBottomActionButtons && canRemoveAddedComponent) {
         removeComponentButton.setAttribute("data-focusable", "true");
       } else {
         removeComponentButton.removeAttribute("data-focusable");
@@ -2228,8 +2276,8 @@ export class MainMenu {
     }
     if (pickerCopy) {
       pickerCopy.textContent = this.isAddComponentMode
-        ? "Select an unequipped component to install."
-        : "Select a component to equip in this slot.";
+        ? "Select equipment to install in a new slot."
+        : "Select equipment to equip in this slot.";
     }
     if (panelContent) {
       panelContent.setAttribute("aria-hidden", this.isComponentPickerOpen ? "true" : "false");
@@ -2239,7 +2287,7 @@ export class MainMenu {
       this.hoveredBeamPrimaryComponentId = null;
       this.hoveredMissileComponentId = null;
       this.hoveredTorpedoComponentId = null;
-      this.hoveredMobilityComponentId = null;
+      this.hoveredEquipmentComponentId = null;
     }
 
     if (optionList) {
@@ -2338,39 +2386,31 @@ export class MainMenu {
               button.addEventListener("mouseleave", () => this.clearTorpedoComponentPreview());
               button.addEventListener("blur", () => this.clearTorpedoComponentPreview());
             });
-        } else if (this.selectedComponentSlot === "mobility_equipment") {
-          const mobilityOptions = this.isAddComponentMode
-            ? MOBILITY_COMPONENT_OPTIONS.filter(
-                (componentId) => componentId !== this.shipSelection.mobilityEquipmentComponentId
-              )
-            : MOBILITY_COMPONENT_OPTIONS;
+        } else if (this.selectedComponentSlot === "equipment") {
+          const equipmentOptions = EQUIPMENT_COMPONENT_OPTIONS;
           optionList.innerHTML =
-            mobilityOptions.length > 0
-              ? mobilityOptions
+            equipmentOptions.length > 0
+              ? equipmentOptions
                   .map((componentId) => {
-                    const option = getMobilityEquipmentComponentDefinition(componentId);
-                    const equippedSuffix =
-                      componentId === this.shipSelection.mobilityEquipmentComponentId
-                        ? " (Equipped)"
-                        : "";
-                    return `<button class="menu-button menu-button-secondary component-option-button" data-action="select-mobility-component-option" data-component-id="${componentId}" data-focusable="true">${option.name}${equippedSuffix}</button>`;
+                    const option = getEquipmentComponentDefinition(componentId);
+                    return `<button class="menu-button menu-button-secondary component-option-button" data-action="select-equipment-component-option" data-component-id="${componentId}" data-focusable="true">${option.name} (${option.equipmentClass})</button>`;
                   })
                   .join("")
-              : '<p class="ship-description">No unequipped mobility components are available.</p>';
+              : '<p class="ship-description">No equipment components are available.</p>';
           optionList
-            .querySelectorAll<HTMLButtonElement>('[data-action="select-mobility-component-option"]')
+            .querySelectorAll<HTMLButtonElement>('[data-action="select-equipment-component-option"]')
             .forEach((button) => {
-              const componentId = button.dataset.componentId as MobilityComponentId | undefined;
+              const componentId = button.dataset.componentId as EquipmentComponentId | undefined;
               if (!componentId) {
                 return;
               }
               button.addEventListener("click", () => {
-                this.selectMobilityComponent(componentId);
+                this.selectEquipmentComponent(componentId);
               });
-              button.addEventListener("mouseenter", () => this.previewMobilityComponent(componentId));
-              button.addEventListener("focus", () => this.previewMobilityComponent(componentId));
-              button.addEventListener("mouseleave", () => this.clearMobilityComponentPreview());
-              button.addEventListener("blur", () => this.clearMobilityComponentPreview());
+              button.addEventListener("mouseenter", () => this.previewEquipmentComponent(componentId));
+              button.addEventListener("focus", () => this.previewEquipmentComponent(componentId));
+              button.addEventListener("mouseleave", () => this.clearEquipmentComponentPreview());
+              button.addEventListener("blur", () => this.clearEquipmentComponentPreview());
             });
         } else {
           optionList.innerHTML = "";
@@ -2393,19 +2433,44 @@ export class MainMenu {
       missileBayComponentId: this.shipSelection.missileBayComponentId,
       energyComponentId: this.shipSelection.energyComponentId,
       torpedoComponentId: this.shipSelection.torpedoComponentId,
-      mobilityEquipmentComponentId: this.shipSelection.mobilityEquipmentComponentId
+      equipmentComponentIds: [...this.shipSelection.equipmentComponentIds],
+      mobilityEquipmentComponentId: this.shipSelection.mobilityEquipmentComponentId,
+      defenseEquipmentComponentId: this.shipSelection.defenseEquipmentComponentId
     });
   }
 
   private selectComponentSlot(slot: ComponentSlotId): void {
     this.selectedComponentSlot = slot;
+    if (slot !== "equipment") {
+      this.selectedEquipmentSlotIndex = null;
+    } else if (
+      this.selectedEquipmentSlotIndex === null ||
+      !Number.isFinite(this.selectedEquipmentSlotIndex)
+    ) {
+      this.selectedEquipmentSlotIndex = 0;
+    }
     this.isComponentPickerOpen = false;
     this.isAddComponentMode = false;
     this.hoveredPrimaryFireComponentId = null;
     this.hoveredBeamPrimaryComponentId = null;
     this.hoveredMissileComponentId = null;
     this.hoveredTorpedoComponentId = null;
-    this.hoveredMobilityComponentId = null;
+    this.hoveredEquipmentComponentId = null;
+    this.refreshShipConfirmContent();
+    this.refreshFocusables(0);
+    this.focusElement('[data-action="change-component"]');
+  }
+
+  private selectEquipmentSlot(slotIndex: number): void {
+    this.selectedComponentSlot = "equipment";
+    this.selectedEquipmentSlotIndex = Math.max(0, slotIndex);
+    this.isComponentPickerOpen = false;
+    this.isAddComponentMode = false;
+    this.hoveredPrimaryFireComponentId = null;
+    this.hoveredBeamPrimaryComponentId = null;
+    this.hoveredMissileComponentId = null;
+    this.hoveredTorpedoComponentId = null;
+    this.hoveredEquipmentComponentId = null;
     this.refreshShipConfirmContent();
     this.refreshFocusables(0);
     this.focusElement('[data-action="change-component"]');
@@ -2422,15 +2487,15 @@ export class MainMenu {
     this.hoveredBeamPrimaryComponentId = null;
     this.hoveredMissileComponentId = null;
     this.hoveredTorpedoComponentId = null;
-    this.hoveredMobilityComponentId = null;
+    this.hoveredEquipmentComponentId = null;
     this.refreshShipConfirmContent();
     this.refreshFocusables(0);
     if (this.selectedComponentSlot === "missile_payload") {
       this.focusElement('[data-action="select-missile-component-option"]');
     } else if (this.selectedComponentSlot === "torpedo_payload") {
       this.focusElement('[data-action="select-torpedo-component-option"]');
-    } else if (this.selectedComponentSlot === "mobility_equipment") {
-      this.focusElement('[data-action="select-mobility-component-option"]');
+    } else if (this.selectedComponentSlot === "equipment") {
+      this.focusElement('[data-action="select-equipment-component-option"]');
     } else if (this.selectedComponentSlot === "beam_primary") {
       this.focusElement('[data-action="select-beam-component-option"]');
     } else {
@@ -2449,49 +2514,61 @@ export class MainMenu {
     this.hoveredBeamPrimaryComponentId = null;
     this.hoveredMissileComponentId = null;
     this.hoveredTorpedoComponentId = null;
-    this.hoveredMobilityComponentId = null;
+    this.hoveredEquipmentComponentId = null;
     this.refreshShipConfirmContent();
     this.refreshFocusables(0);
     this.focusElement('[data-action="change-component"]');
   }
 
   private addComponentToShip(): void {
-    if (
-      this.shipSelection.mobilityEquipmentComponentId !== null ||
-      MOBILITY_COMPONENT_OPTIONS.length <= 0
-    ) {
+    if (EQUIPMENT_COMPONENT_OPTIONS.length <= 0) {
       return;
     }
 
-    this.selectedComponentSlot = "mobility_equipment";
+    this.selectedComponentSlot = "equipment";
+    this.selectedEquipmentSlotIndex = this.shipSelection.equipmentComponentIds.length;
     this.isComponentPickerOpen = true;
     this.isAddComponentMode = true;
     this.hoveredPrimaryFireComponentId = null;
     this.hoveredBeamPrimaryComponentId = null;
     this.hoveredMissileComponentId = null;
     this.hoveredTorpedoComponentId = null;
-    this.hoveredMobilityComponentId = null;
+    this.hoveredEquipmentComponentId = null;
     this.refreshShipConfirmContent();
     this.refreshFocusables(0);
-    this.focusElement('[data-action="select-mobility-component-option"]');
+    this.focusElement('[data-action="select-equipment-component-option"]');
   }
 
   private removeComponentFromShip(): void {
-    const currentShip = this.ships[this.currentShipIndex];
-    const hasBaseMobilityComponent = (currentShip.mobilityEquipmentComponentId ?? null) !== null;
-    if (hasBaseMobilityComponent || this.shipSelection.mobilityEquipmentComponentId === null) {
+    if (this.shipSelection.equipmentComponentIds.length <= 0) {
       return;
     }
 
-    this.shipSelection.mobilityEquipmentComponentId = null;
-    this.mobilitySelectionByShipId.set(currentShip.id, null);
+    const removeIndex =
+      this.selectedComponentSlot === "equipment" &&
+      this.selectedEquipmentSlotIndex !== null &&
+      this.selectedEquipmentSlotIndex >= 0 &&
+      this.selectedEquipmentSlotIndex < this.shipSelection.equipmentComponentIds.length
+        ? this.selectedEquipmentSlotIndex
+        : this.shipSelection.equipmentComponentIds.length - 1;
+    const nextEquipmentIds = [...this.shipSelection.equipmentComponentIds];
+    nextEquipmentIds.splice(removeIndex, 1);
+    this.applyEquipmentSelectionForCurrentShip(nextEquipmentIds);
+    if (nextEquipmentIds.length <= 0) {
+      this.selectedComponentSlot = null;
+      this.selectedEquipmentSlotIndex = null;
+    } else {
+      this.selectedComponentSlot = "equipment";
+      this.selectedEquipmentSlotIndex = Math.min(removeIndex, nextEquipmentIds.length - 1);
+    }
+
     this.isComponentPickerOpen = false;
     this.isAddComponentMode = false;
     this.hoveredPrimaryFireComponentId = null;
     this.hoveredBeamPrimaryComponentId = null;
     this.hoveredMissileComponentId = null;
     this.hoveredTorpedoComponentId = null;
-    this.hoveredMobilityComponentId = null;
+    this.hoveredEquipmentComponentId = null;
     this.refreshShipConfirmContent();
     this.refreshShipSelectContent();
     this.refreshFocusables(0);
@@ -2506,7 +2583,7 @@ export class MainMenu {
     this.hoveredBeamPrimaryComponentId = null;
     this.hoveredMissileComponentId = null;
     this.hoveredTorpedoComponentId = null;
-    this.hoveredMobilityComponentId = null;
+    this.hoveredEquipmentComponentId = null;
     this.refreshShipConfirmContent();
     this.refreshShipSelectContent();
     this.refreshFocusables(0);
@@ -2521,7 +2598,7 @@ export class MainMenu {
     this.hoveredBeamPrimaryComponentId = null;
     this.hoveredMissileComponentId = null;
     this.hoveredTorpedoComponentId = null;
-    this.hoveredMobilityComponentId = null;
+    this.hoveredEquipmentComponentId = null;
     this.refreshShipConfirmContent();
     this.refreshShipSelectContent();
     this.refreshFocusables(0);
@@ -2536,7 +2613,7 @@ export class MainMenu {
     this.hoveredBeamPrimaryComponentId = null;
     this.hoveredMissileComponentId = null;
     this.hoveredTorpedoComponentId = null;
-    this.hoveredMobilityComponentId = null;
+    this.hoveredEquipmentComponentId = null;
     this.refreshShipConfirmContent();
     this.refreshShipSelectContent();
     this.refreshFocusables(0);
@@ -2551,24 +2628,43 @@ export class MainMenu {
     this.hoveredBeamPrimaryComponentId = null;
     this.hoveredMissileComponentId = null;
     this.hoveredTorpedoComponentId = null;
-    this.hoveredMobilityComponentId = null;
+    this.hoveredEquipmentComponentId = null;
     this.refreshShipConfirmContent();
     this.refreshShipSelectContent();
     this.refreshFocusables(0);
     this.focusElement('[data-action="change-component"]');
   }
 
-  private selectMobilityComponent(componentId: MobilityComponentId): void {
-    const selectedShip = this.ships[this.currentShipIndex];
-    this.shipSelection.mobilityEquipmentComponentId = componentId;
-    this.mobilitySelectionByShipId.set(selectedShip.id, componentId);
+  private selectEquipmentComponent(componentId: EquipmentComponentId): void {
+    const nextEquipmentIds = [...this.shipSelection.equipmentComponentIds];
+    if (this.isAddComponentMode) {
+      nextEquipmentIds.push(componentId);
+      this.selectedEquipmentSlotIndex = nextEquipmentIds.length - 1;
+    } else {
+      const targetIndex =
+        this.selectedComponentSlot === "equipment" &&
+        this.selectedEquipmentSlotIndex !== null &&
+        this.selectedEquipmentSlotIndex >= 0 &&
+        this.selectedEquipmentSlotIndex < nextEquipmentIds.length
+          ? this.selectedEquipmentSlotIndex
+          : 0;
+      if (nextEquipmentIds.length <= 0) {
+        nextEquipmentIds.push(componentId);
+        this.selectedEquipmentSlotIndex = 0;
+      } else {
+        nextEquipmentIds[targetIndex] = componentId;
+        this.selectedEquipmentSlotIndex = targetIndex;
+      }
+    }
+    this.applyEquipmentSelectionForCurrentShip(nextEquipmentIds);
+    this.selectedComponentSlot = "equipment";
     this.isComponentPickerOpen = false;
     this.isAddComponentMode = false;
     this.hoveredPrimaryFireComponentId = null;
     this.hoveredBeamPrimaryComponentId = null;
     this.hoveredMissileComponentId = null;
     this.hoveredTorpedoComponentId = null;
-    this.hoveredMobilityComponentId = null;
+    this.hoveredEquipmentComponentId = null;
     this.refreshShipConfirmContent();
     this.refreshShipSelectContent();
     this.refreshFocusables(0);
@@ -2639,19 +2735,19 @@ export class MainMenu {
     this.renderSelectedComponentStats();
   }
 
-  private previewMobilityComponent(componentId: MobilityComponentId): void {
+  private previewEquipmentComponent(componentId: EquipmentComponentId): void {
     if (!this.isComponentPickerOpen) {
       return;
     }
-    this.hoveredMobilityComponentId = componentId;
+    this.hoveredEquipmentComponentId = componentId;
     this.renderSelectedComponentStats();
   }
 
-  private clearMobilityComponentPreview(): void {
+  private clearEquipmentComponentPreview(): void {
     if (!this.isComponentPickerOpen) {
       return;
     }
-    this.hoveredMobilityComponentId = null;
+    this.hoveredEquipmentComponentId = null;
     this.renderSelectedComponentStats();
   }
 
@@ -2732,26 +2828,47 @@ export class MainMenu {
       return;
     }
 
-    if (this.selectedComponentSlot === "mobility_equipment") {
+    if (this.selectedComponentSlot === "equipment") {
+      const selectedIndex =
+        this.selectedEquipmentSlotIndex !== null &&
+        this.selectedEquipmentSlotIndex >= 0 &&
+        this.selectedEquipmentSlotIndex < this.shipSelection.equipmentComponentIds.length
+          ? this.selectedEquipmentSlotIndex
+          : null;
       const componentId =
-        this.hoveredMobilityComponentId ?? this.shipSelection.mobilityEquipmentComponentId;
+        this.hoveredEquipmentComponentId ??
+        (selectedIndex !== null ? this.shipSelection.equipmentComponentIds[selectedIndex] : null);
       if (!componentId) {
         statsRoot.innerHTML =
-          '<p class="ship-description">No mobility component installed. Use Add Component to install Boost Thrusters.</p>';
+          '<p class="ship-description">No equipment installed. Use Add Component to install equipment.</p>';
         return;
       }
-      const component = getMobilityEquipmentComponentDefinition(componentId);
-      statsRoot.innerHTML = `
-        <ul class="ship-list">
-          <li><span>Name</span><strong>${component.name}</strong></li>
-          <li><span>Class</span><strong>${component.equipmentClass}</strong></li>
-          <li><span>Fuel</span><strong>${component.fuelPoints} points</strong></li>
-          <li><span>Boost</span><strong>${Math.round(component.forwardThrustSpeedRatio * 100)}% Forward Speed</strong></li>
-          <li><span>Drain</span><strong>${component.boostMillisecondsPerPoint}ms / point</strong></li>
-          <li><span>Recharge</span><strong>${component.rechargeDelaySeconds.toFixed(1)}s delay + ${component.rechargeMillisecondsPerPoint}ms / point</strong></li>
-        </ul>
-        <p class="ship-description">${component.description}</p>
-      `;
+      if (isMobilityEquipmentComponentId(componentId)) {
+        const component = getMobilityEquipmentComponentDefinition(componentId);
+        statsRoot.innerHTML = `
+          <ul class="ship-list">
+            <li><span>Name</span><strong>${component.name}</strong></li>
+            <li><span>Class</span><strong>${component.equipmentClass}</strong></li>
+            <li><span>Fuel</span><strong>${component.fuelPoints} points</strong></li>
+            <li><span>Boost</span><strong>${Math.round(component.forwardThrustSpeedRatio * 100)}% Forward Speed</strong></li>
+            <li><span>Drain</span><strong>${component.boostMillisecondsPerPoint}ms / point</strong></li>
+            <li><span>Recharge</span><strong>${component.rechargeDelaySeconds.toFixed(1)}s delay + ${component.rechargeMillisecondsPerPoint}ms / point</strong></li>
+          </ul>
+          <p class="ship-description">${component.description}</p>
+        `;
+      } else if (isDefenseEquipmentComponentId(componentId)) {
+        const component = getDefenseEquipmentComponentDefinition(componentId);
+        statsRoot.innerHTML = `
+          <ul class="ship-list">
+            <li><span>Name</span><strong>${component.name}</strong></li>
+            <li><span>Class</span><strong>${component.equipmentClass}</strong></li>
+            <li><span>Duration</span><strong>${component.durationSeconds.toFixed(1)}s</strong></li>
+            <li><span>Charges</span><strong>${component.maxCharges}</strong></li>
+            <li><span>Recharge</span><strong>${component.rechargeSecondsPerCharge.toFixed(1)}s / charge</strong></li>
+          </ul>
+          <p class="ship-description">${component.description}</p>
+        `;
+      }
       return;
     }
 
@@ -2800,14 +2917,34 @@ export class MainMenu {
 
   private syncMobilitySelectionWithCurrentShip(): void {
     const currentShip = this.ships[this.currentShipIndex];
-    const selectedMobilityComponentId = this.mobilitySelectionByShipId.has(currentShip.id)
-      ? this.mobilitySelectionByShipId.get(currentShip.id)
+    const selectedEquipmentComponentIds = this.equipmentSelectionByShipId.has(currentShip.id)
+      ? this.equipmentSelectionByShipId.get(currentShip.id)
       : undefined;
-    this.shipSelection.mobilityEquipmentComponentId = resolveMobilityEquipmentComponentId(
+    const resolvedEquipmentComponentIds = resolveEquipmentComponentIds(
       currentShip.id,
-      selectedMobilityComponentId
+      selectedEquipmentComponentIds
     );
-    this.mobilitySelectionByShipId.set(currentShip.id, this.shipSelection.mobilityEquipmentComponentId);
+    this.shipSelection.equipmentComponentIds = [...resolvedEquipmentComponentIds];
+    this.equipmentSelectionByShipId.set(currentShip.id, [...resolvedEquipmentComponentIds]);
+    this.shipSelection.mobilityEquipmentComponentId =
+      resolveMobilityEquipmentComponentIdFromEquipmentList(resolvedEquipmentComponentIds);
+    this.shipSelection.defenseEquipmentComponentId =
+      resolveDefenseEquipmentComponentIdFromEquipmentList(resolvedEquipmentComponentIds);
+  }
+
+  private syncDefenseSelectionWithCurrentShip(): void {
+    // Legacy shim: equipment state is fully synchronized in `syncMobilitySelectionWithCurrentShip`.
+  }
+
+  private applyEquipmentSelectionForCurrentShip(equipmentComponentIds: readonly EquipmentComponentId[]): void {
+    const currentShip = this.ships[this.currentShipIndex];
+    const resolvedEquipmentComponentIds = resolveEquipmentComponentIds(currentShip.id, equipmentComponentIds);
+    this.shipSelection.equipmentComponentIds = [...resolvedEquipmentComponentIds];
+    this.equipmentSelectionByShipId.set(currentShip.id, [...resolvedEquipmentComponentIds]);
+    this.shipSelection.mobilityEquipmentComponentId =
+      resolveMobilityEquipmentComponentIdFromEquipmentList(resolvedEquipmentComponentIds);
+    this.shipSelection.defenseEquipmentComponentId =
+      resolveDefenseEquipmentComponentIdFromEquipmentList(resolvedEquipmentComponentIds);
   }
 
   private getShipWithOffset(offset: number): ShipDefinition {
@@ -3035,6 +3172,20 @@ function resolveMobilityEquipmentName(
   return getMobilityEquipmentComponentDefinition(mobilityComponentId).name;
 }
 
+function resolveDefenseEquipmentName(
+  ship: ShipDefinition,
+  selectedDefenseComponentId: DefenseComponentId | null | undefined = undefined
+): string | null {
+  const defenseComponentId =
+    selectedDefenseComponentId !== undefined
+      ? selectedDefenseComponentId
+      : ship.defenseEquipmentComponentId ?? null;
+  if (!defenseComponentId) {
+    return null;
+  }
+  return getDefenseEquipmentComponentDefinition(defenseComponentId).name;
+}
+
 function getConnectedGamepad(): Gamepad | null {
   const gamepads = navigator.getGamepads?.();
   if (!gamepads) {
@@ -3056,3 +3207,4 @@ function applyDeadzone(value: number, deadzone: number): number {
   }
   return Math.sign(value) * ((Math.abs(value) - deadzone) / (1 - deadzone));
 }
+

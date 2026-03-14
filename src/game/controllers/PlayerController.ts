@@ -34,13 +34,17 @@ type PlayerControllerParams = {
   trueAimReticle: THREE.Object3D;
   builtInEquipmentAbility?: PlayerBuiltInEquipmentAbility | null;
   mobilityEquipmentAbility?: PlayerBuiltInEquipmentAbility | null;
+  defenseEquipmentAbility?: PlayerBuiltInEquipmentAbility | null;
   getLockedAimForward?: (out: THREE.Vector3) => THREE.Vector3 | null;
   canUseBuiltInEquipment?: () => boolean;
   canUseMobilityEquipment?: () => boolean;
+  canUseDefenseEquipment?: () => boolean;
   builtInEquipmentTriggerResolver?: () => boolean;
   mobilityEquipmentTriggerResolver?: () => boolean;
+  defenseEquipmentTriggerResolver?: () => boolean;
   disableDefaultBuiltInEquipmentTrigger?: boolean;
   disableDefaultMobilityEquipmentTrigger?: boolean;
+  disableDefaultDefenseEquipmentTrigger?: boolean;
 };
 
 export type PlayerControllerState = ShipControllerState;
@@ -56,6 +60,7 @@ export type PlayerController = {
 
 const BUILT_IN_EQUIPMENT_TRIGGER_KEY = " ";
 const MOBILITY_EQUIPMENT_TRIGGER_KEY = "shift";
+const DEFENSE_EQUIPMENT_TRIGGER_KEY = "f";
 
 export function createPlayerController({
   canvas,
@@ -64,13 +69,17 @@ export function createPlayerController({
   trueAimReticle,
   builtInEquipmentAbility = null,
   mobilityEquipmentAbility = null,
+  defenseEquipmentAbility = null,
   getLockedAimForward,
   canUseBuiltInEquipment,
   canUseMobilityEquipment,
+  canUseDefenseEquipment,
   builtInEquipmentTriggerResolver,
   mobilityEquipmentTriggerResolver,
+  defenseEquipmentTriggerResolver,
   disableDefaultBuiltInEquipmentTrigger = false,
-  disableDefaultMobilityEquipmentTrigger = false
+  disableDefaultMobilityEquipmentTrigger = false,
+  disableDefaultDefenseEquipmentTrigger = false
 }: PlayerControllerParams): PlayerController {
   const pressedKeys = new Set<string>();
   const pointerNdc = new THREE.Vector2(0, 0);
@@ -92,6 +101,7 @@ export function createPlayerController({
   let hasLastMouseWorld = false;
   let customBuiltInEquipmentTriggerHeld = false;
   let customMobilityEquipmentTriggerHeld = false;
+  let customDefenseEquipmentTriggerHeld = false;
   inputAimReticle.rotation.order = "XYZ";
   trueAimReticle.rotation.order = "XYZ";
 
@@ -125,6 +135,20 @@ export function createPlayerController({
       event.preventDefault();
       return;
     }
+    if (
+      !disableDefaultDefenseEquipmentTrigger &&
+      defenseEquipmentAbility &&
+      key === DEFENSE_EQUIPMENT_TRIGGER_KEY
+    ) {
+      if (canUseDefenseEquipment && !canUseDefenseEquipment()) {
+        defenseEquipmentAbility.onInputsCleared();
+        event.preventDefault();
+        return;
+      }
+      defenseEquipmentAbility.onTriggerPressed({ pressedKeys, repeat: event.repeat });
+      event.preventDefault();
+      return;
+    }
     if (!MOVEMENT_KEYS.has(key)) {
       return;
     }
@@ -135,6 +159,9 @@ export function createPlayerController({
     }
     if (mobilityEquipmentAbility) {
       mobilityEquipmentAbility.onMovementKeysChanged({ pressedKeys, repeat: event.repeat });
+    }
+    if (defenseEquipmentAbility) {
+      defenseEquipmentAbility.onMovementKeysChanged({ pressedKeys, repeat: event.repeat });
     }
     event.preventDefault();
   };
@@ -159,6 +186,15 @@ export function createPlayerController({
       event.preventDefault();
       return;
     }
+    if (
+      !disableDefaultDefenseEquipmentTrigger &&
+      defenseEquipmentAbility &&
+      key === DEFENSE_EQUIPMENT_TRIGGER_KEY
+    ) {
+      defenseEquipmentAbility.onTriggerReleased();
+      event.preventDefault();
+      return;
+    }
     if (!MOVEMENT_KEYS.has(key)) {
       return;
     }
@@ -166,6 +202,7 @@ export function createPlayerController({
     pressedKeys.delete(key);
     builtInEquipmentAbility?.onMovementKeysChanged({ pressedKeys, repeat: event.repeat });
     mobilityEquipmentAbility?.onMovementKeysChanged({ pressedKeys, repeat: event.repeat });
+    defenseEquipmentAbility?.onMovementKeysChanged({ pressedKeys, repeat: event.repeat });
     event.preventDefault();
   };
 
@@ -179,8 +216,13 @@ export function createPlayerController({
       mobilityEquipmentAbility?.onTriggerReleased();
       customMobilityEquipmentTriggerHeld = false;
     }
+    if (customDefenseEquipmentTriggerHeld) {
+      defenseEquipmentAbility?.onTriggerReleased();
+      customDefenseEquipmentTriggerHeld = false;
+    }
     builtInEquipmentAbility?.onInputsCleared();
     mobilityEquipmentAbility?.onInputsCleared();
+    defenseEquipmentAbility?.onInputsCleared();
   };
 
   const updatePointerFromScreen = (clientX: number, clientY: number): void => {
@@ -228,6 +270,7 @@ export function createPlayerController({
     const currentShipState = shipController.getState();
     const canUseBuiltInNow = canUseBuiltInEquipment ? canUseBuiltInEquipment() : true;
     const canUseMobilityNow = canUseMobilityEquipment ? canUseMobilityEquipment() : true;
+    const canUseDefenseNow = canUseDefenseEquipment ? canUseDefenseEquipment() : true;
     if (builtInEquipmentAbility && !canUseBuiltInNow) {
       if (customBuiltInEquipmentTriggerHeld) {
         builtInEquipmentAbility.onTriggerReleased();
@@ -258,8 +301,24 @@ export function createPlayerController({
       }
       customMobilityEquipmentTriggerHeld = customTriggerHeld;
     }
+    if (defenseEquipmentAbility && !canUseDefenseNow) {
+      if (customDefenseEquipmentTriggerHeld) {
+        defenseEquipmentAbility.onTriggerReleased();
+        customDefenseEquipmentTriggerHeld = false;
+      }
+      defenseEquipmentAbility.onInputsCleared();
+    } else if (defenseEquipmentAbility && defenseEquipmentTriggerResolver) {
+      const customTriggerHeld = defenseEquipmentTriggerResolver();
+      if (customTriggerHeld && !customDefenseEquipmentTriggerHeld) {
+        defenseEquipmentAbility.onTriggerPressed({ pressedKeys, repeat: false });
+      } else if (!customTriggerHeld && customDefenseEquipmentTriggerHeld) {
+        defenseEquipmentAbility.onTriggerReleased();
+      }
+      customDefenseEquipmentTriggerHeld = customTriggerHeld;
+    }
     builtInEquipmentAbility?.update(Math.max(0, deltaTime));
     mobilityEquipmentAbility?.update(Math.max(0, deltaTime));
+    defenseEquipmentAbility?.update(Math.max(0, deltaTime));
 
     if (deltaTime <= 0) {
       return currentShipState;
@@ -444,7 +503,10 @@ export function createPlayerController({
     isTemporaryManeuverInvulnerable: () => shipController.isTemporaryManeuverInvulnerable(),
     getTemporaryManeuverCameraLockYaw: () => shipController.getTemporaryManeuverCameraLockYaw(),
     getBuiltInEquipmentAbilityHudSnapshot: () =>
-      mobilityEquipmentAbility?.getHudSnapshot() ?? builtInEquipmentAbility?.getHudSnapshot() ?? null,
+      defenseEquipmentAbility?.getHudSnapshot() ??
+      mobilityEquipmentAbility?.getHudSnapshot() ??
+      builtInEquipmentAbility?.getHudSnapshot() ??
+      null,
     dispose
   };
 }
@@ -485,3 +547,5 @@ function clampAimPointerToViewportMargin(pointerNdc: THREE.Vector2): void {
   pointerNdc.x = THREE.MathUtils.clamp(pointerNdc.x, minX, maxX);
   pointerNdc.y = THREE.MathUtils.clamp(pointerNdc.y, minY, maxY);
 }
+
+

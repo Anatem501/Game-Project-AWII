@@ -12,6 +12,7 @@ import {
 } from "../components/ShipPowerSystemsComponent";
 import type { PlayerThrusterVisualPreset } from "../effects/PlayerThrusterEffect";
 import type { MobilityEquipmentComponentId } from "../equipment/mobility/MobilityEquipmentComponentCatalog";
+import type { DefenseEquipmentComponentId } from "../equipment/defense/DefenseEquipmentComponentCatalog";
 import {
   DEFAULT_CANNON_PRIMARY_COMPONENT_ID,
   type CannonPrimaryComponentId,
@@ -75,6 +76,7 @@ export type ShipDefinition = {
   missileBays?: readonly ShipMissileBayDefinition[];
   torpedoLaunchers?: readonly ShipTorpedoLauncherDefinition[];
   mobilityEquipmentComponentId?: MobilityEquipmentComponentId;
+  defenseEquipmentComponentId?: DefenseEquipmentComponentId;
   builtInEquipmentAbilityId?: "aerobatic_roll";
   defaultGunFireIntervalSeconds: number;
   defaultLoadout: readonly string[];

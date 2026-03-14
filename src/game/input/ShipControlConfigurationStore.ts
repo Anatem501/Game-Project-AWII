@@ -26,7 +26,8 @@ export const GENERAL_COMPONENT_SOCKET_IDS = {
   missileBayPayload: "general:missile_payload",
   torpedoLauncherPayload: "general:torpedo_payload",
   builtInEquipment: "general:built_in_equipment",
-  mobilityEquipment: "general:mobility_equipment"
+  mobilityEquipment: "general:mobility_equipment",
+  defenseEquipment: "general:defense_equipment"
 } as const;
 
 const shipControlConfigurations = new Map<string, ShipControlConfiguration>();
@@ -80,3 +81,5 @@ export function getShipControlConfiguration(shipId: string): ShipControlConfigur
   }
   return cloneConfiguration(configuration);
 }
+
+
